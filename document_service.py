@@ -152,13 +152,23 @@ class DocumentService:
 
             # If we accumulate substantial text or hit an image, flush a chunk
             if len(current_text) >= 5 or current_images:
+                # Flush the main chunk with the first image if any
                 chunks.append({
                     "text": "\n".join(current_text),
                     "image_b64": "",
                     "diagram": current_images[0] if current_images else None
                 })
                 current_text = []
-                current_images = current_images[1:] if current_images else []
+
+                # If there are extra images without text, flush them as separate empty-text chunks so they aren't lost
+                if len(current_images) > 1:
+                    for extra_img in current_images[1:]:
+                        chunks.append({
+                            "text": "",
+                            "image_b64": "",
+                            "diagram": extra_img
+                        })
+                current_images = []
 
         # Flush remaining
         if current_text or current_images:
@@ -167,6 +177,14 @@ class DocumentService:
                 "image_b64": "",
                 "diagram": current_images[0] if current_images else None
             })
+            if len(current_images) > 1:
+                for extra_img in current_images[1:]:
+                    chunks.append({
+                        "text": "",
+                        "image_b64": "",
+                        "diagram": extra_img
+                    })
+            current_images = []
 
         # Fallback if XML parsing missed things but standard paragraphs exist
         if not chunks:
