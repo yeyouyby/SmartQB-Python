@@ -192,32 +192,36 @@ class AIService:
             }
         ]
 
-        response = client.chat.completions.create(
-            model=self.settings.model_id,
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
-        )
-        msg = response.choices[0].message
+        # Build and mutate a local copy to prevent race conditions during threading
+        working_messages = list(messages)
 
-        if msg.tool_calls:
-            # When appending the assistant message, make sure it matches OpenAI's expected structure
-            messages.append(msg)
-            for tool_call in msg.tool_calls:
-                func_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments)
-                if func_name in callbacks:
-                    results = callbacks[func_name](**args)
-                    messages.append({
-                        "tool_call_id": tool_call.id,
-                        "role": "tool",
-                        "name": func_name,
-                        "content": json.dumps(results, ensure_ascii=False)
-                    })
-            final_response = client.chat.completions.create(
+        # Allow multi-turn tool loops up to a limit
+        max_turns = 3
+        for _ in range(max_turns):
+            response = client.chat.completions.create(
                 model=self.settings.model_id,
-                messages=messages
+                messages=working_messages,
+                tools=tools,
+                tool_choice="auto"
             )
-            return final_response.choices[0].message.content, messages
-        else:
-            return msg.content, messages
+            msg = response.choices[0].message
+
+            if msg.tool_calls:
+                working_messages.append(msg)
+                for tool_call in msg.tool_calls:
+                    func_name = tool_call.function.name
+                    args = json.loads(tool_call.function.arguments)
+                    if func_name in callbacks:
+                        results = callbacks[func_name](**args)
+                        working_messages.append({
+                            "tool_call_id": tool_call.id,
+                            "role": "tool",
+                            "name": func_name,
+                            "content": json.dumps(results, ensure_ascii=False)
+                        })
+                # Continue loop to send tool responses back to model
+                continue
+            else:
+                return msg.content, working_messages
+
+        return "⚠️ 工具调用达到上限，任务终止", working_messages

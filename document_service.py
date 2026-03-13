@@ -21,11 +21,10 @@ class DocumentService:
 
         images_to_process = []
         if file_type == "pdf":
-            doc = fitz.open(file_path)
-            for i in range(len(doc)):
-                pix = doc[i].get_pixmap(dpi=150)
-                images_to_process.append(Image.open(io.BytesIO(pix.tobytes("png"))).convert('RGB'))
-            doc.close()
+            with fitz.open(file_path) as doc:
+                for i in range(len(doc)):
+                    pix = doc[i].get_pixmap(dpi=150)
+                    images_to_process.append(Image.open(io.BytesIO(pix.tobytes("png"))).convert('RGB'))
         else:
             images_to_process.append(Image.open(file_path).convert('RGB'))
 
@@ -43,7 +42,7 @@ class DocumentService:
 
             def package_current_slice():
                 nonlocal current_text_chunk, current_boxes, current_diagram
-                if not current_text_chunk:
+                if not current_text_chunk and not current_diagram:
                     return
 
                 # 计算这段文字所在图像的包围盒，并截图 (用于视觉AI对齐)
@@ -61,7 +60,7 @@ class DocumentService:
                         pass
 
                 pending_slices.append({
-                    "text": "".join(current_text_chunk),
+                    "text": "\n".join(current_text_chunk),
                     "image_b64": chunk_img_b64,
                     "diagram": current_diagram
                 })
@@ -93,7 +92,12 @@ class DocumentService:
                     if b_text.strip():
                         current_text_chunk.append(b_text)
                         if b_box is not None:
-                            current_boxes.append(np.array(b_box).reshape(-1, 2))
+                            try:
+                                b_box_arr = np.array(b_box)
+                                if b_box_arr.size > 0 and b_box_arr.size % 2 == 0:
+                                    current_boxes.append(b_box_arr.reshape(-1, 2))
+                            except Exception:
+                                pass
 
             # 页面结束打包剩余
             package_current_slice()
@@ -113,12 +117,29 @@ class DocumentService:
                 para = docx.text.paragraph.Paragraph(element, doc)
                 if para.text.strip():
                     current_text.append(para.text.replace('\n', ' '))
+            elif element.tag.endswith('tbl'):
+                # Handle tables - extract all text from all cells
+                for row in element.findall('.//w:tr', namespaces=element.nsmap):
+                    row_text = []
+                    for cell in row.findall('.//w:tc', namespaces=element.nsmap):
+                        cell_paras = cell.findall('.//w:p', namespaces=element.nsmap)
+                        cell_text = []
+                        for cp in cell_paras:
+                            p = docx.text.paragraph.Paragraph(cp, doc)
+                            if p.text.strip():
+                                cell_text.append(p.text.strip())
+                        if cell_text:
+                            row_text.append(" ".join(cell_text))
+                    if row_text:
+                        current_text.append(" | ".join(row_text))
 
-            # Check for images
+            # Check for images in current element using proper namespace resolution
             for run in element.findall('.//w:r', namespaces=element.nsmap):
                 for drawing in run.findall('.//w:drawing', namespaces=element.nsmap):
-                    for blip in drawing.findall('.//a:blip', namespaces=element.nsmap):
-                        embed = blip.get(f"{{{drawing.nsmap['r']}}}embed")
+                    ns_dict = {**element.nsmap, "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
+                    for blip in drawing.findall('.//a:blip', namespaces=ns_dict):
+                        r_ns = drawing.nsmap.get('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships')
+                        embed = blip.get(f"{{{r_ns}}}embed")
                         if embed:
                             try:
                                 part = doc.part.related_parts[embed]
@@ -127,17 +148,17 @@ class DocumentService:
                                     img_b64 = base64.b64encode(img_data).decode('utf-8')
                                     current_images.append(img_b64)
                             except Exception as e:
-                                pass
+                                print(f"Error extracting image from docx: {e}")
 
-            # Break chunks roughly by spacing or explicit markers, for now we just bundle paragraph with preceding/inline images
-            if current_text and current_images:
+            # If we accumulate substantial text or hit an image, flush a chunk
+            if len(current_text) >= 5 or current_images:
                 chunks.append({
                     "text": "\n".join(current_text),
                     "image_b64": "",
-                    "diagram": current_images[0] # Take first image as diagram for this chunk
+                    "diagram": current_images[0] if current_images else None
                 })
                 current_text = []
-                current_images = current_images[1:] # Keep remaining images for next chunks
+                current_images = current_images[1:] if current_images else []
 
         # Flush remaining
         if current_text or current_images:

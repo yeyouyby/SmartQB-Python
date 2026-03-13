@@ -243,16 +243,22 @@ class SmartQBApp(tk.Tk):
                 for q in questions:
                     source_indices = q.get("SourceSliceIndices", [])
                     diagram = None
+                    image_b64 = ""
                     for idx in source_indices:
-                        if idx < len(pending_slices) and pending_slices[idx].get("diagram"):
-                            diagram = pending_slices[idx]["diagram"]
+                        if 0 <= idx < len(pending_slices):
+                            if not image_b64 and pending_slices[idx].get("image_b64"):
+                                image_b64 = pending_slices[idx]["image_b64"]
+                            if not diagram and pending_slices[idx].get("diagram"):
+                                diagram = pending_slices[idx]["diagram"]
+                        if diagram and image_b64:
                             break
 
                     self.staging_questions.append({
                         "content": q.get("Content", ""),
                         "logic": q.get("LogicDescriptor", ""),
                         "tags": q.get("Tags", []),
-                        "diagram": diagram
+                        "diagram": diagram,
+                        "image_b64": image_b64
                     })
 
                 self.after(0, self.refresh_staging_tree)
@@ -325,22 +331,40 @@ class SmartQBApp(tk.Tk):
     def update_staging_vector(self):
         sel = self.tree_staging.selection()
         if not sel: return
-        idx = int(sel[0])
-        q = self.staging_questions[idx]
-        text_to_embed = q.get("logic", "") or q.get("content", "")
-        if not text_to_embed: return
-        self.lbl_vector_info.config(text="正在生成向量...")
+        self.lbl_vector_info.config(text=f"正在为 {len(sel)} 题生成向量...")
         self.update()
+
         def task():
-            vec = self.ai_service.get_embedding(text_to_embed)
-            q["embedding"] = vec
-            def update_ui():
+            success_count = 0
+            fail_count = 0
+            last_vec = None
+
+            for s in sel:
+                idx = int(s)
+                q = self.staging_questions[idx]
+                text_to_embed = q.get("logic", "") or q.get("content", "")
+                if not text_to_embed:
+                    fail_count += 1
+                    continue
+
+                vec = self.ai_service.get_embedding(text_to_embed)
                 if vec:
-                    preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                    self.lbl_vector_info.config(text=f"已生成 (维度: {len(vec)}) {preview}")
+                    q["embedding"] = vec
+                    success_count += 1
+                    if idx == int(sel[0]):  # Keep preview of the first selected item
+                        last_vec = vec
+                else:
+                    fail_count += 1
+
+            def update_ui():
+                if success_count > 0:
+                    preview = str([round(v, 3) for v in last_vec[:3]]) + "..." if last_vec else ""
+                    self.lbl_vector_info.config(text=f"成功: {success_count}, 失败: {fail_count}. {preview}")
                 else:
                     self.lbl_vector_info.config(text="生成失败")
+
             self.after(0, update_ui)
+
         threading.Thread(target=task, daemon=True).start()
 
     def update_stg_item(self):
@@ -526,6 +550,12 @@ class SmartQBApp(tk.Tk):
     def on_ai_chat(self):
         user_text = self.ent_chat.get().strip()
         if not user_text: return
+
+        if getattr(self, "_chat_inflight", False):
+            messagebox.showinfo("提示", "助手正在处理中，请稍候再发送下一条消息。")
+            return
+
+        self._chat_inflight = True
         self.ent_chat.delete(0, tk.END)
         self.append_chat("🧑 你", user_text)
 
@@ -535,7 +565,7 @@ class SmartQBApp(tk.Tk):
             try:
                 callbacks = {
                     "search_database": lambda query: vector_search_db(self.ai_service, query),
-                    "add_to_bag": lambda question_ids: self.ai_add_to_bag(question_ids)
+                    "add_to_bag": self.ai_add_to_bag
                 }
                 res_text, updated_history = self.ai_service.chat_with_tools(
                     self.chat_history,
@@ -545,7 +575,10 @@ class SmartQBApp(tk.Tk):
                 self.chat_history.append({"role": "assistant", "content": res_text})
                 self.after(0, lambda: self.append_chat("🤖 助手", res_text))
             except Exception as e:
-                self.after(0, lambda: self.append_chat("⚠️ 系统", f"请求出错: {e}"))
+                err_msg = str(e)
+                self.after(0, lambda e_msg=err_msg: self.append_chat("⚠️ 系统", f"请求出错: {e_msg}"))
+            finally:
+                self.after(0, lambda: setattr(self, "_chat_inflight", False))
 
         threading.Thread(target=task, daemon=True).start()
 
@@ -585,19 +618,27 @@ class SmartQBApp(tk.Tk):
         messagebox.showinfo("成功", "标签修改成功！")
 
     def delete_lib_question(self):
-        if not hasattr(self, 'current_lib_q_id'): return
-        if messagebox.askyesno("危险操作", "确定要彻底删除该题目吗？不可恢复！"):
+        sel = self.tree_lib.selection()
+        if not sel: return
+        selected_ids = [self.tree_lib.item(item)["values"][0] for item in sel]
+        if messagebox.askyesno("危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"):
             conn = sqlite3.connect(DB_NAME); c = conn.cursor()
-            c.execute("DELETE FROM question_tags WHERE question_id=?", (self.current_lib_q_id,))
-            c.execute("DELETE FROM questions WHERE id=?", (self.current_lib_q_id,))
+            for q_id in selected_ids:
+                c.execute("DELETE FROM question_tags WHERE question_id=?", (q_id,))
+                c.execute("DELETE FROM questions WHERE id=?", (q_id,))
             conn.commit(); conn.close()
 
-            self.export_bag = [q for q in self.export_bag if q["id"] != self.current_lib_q_id]
+            selected_id_set = set(selected_ids)
+            self.export_bag = [q for q in self.export_bag if q["id"] not in selected_id_set]
 
             self.on_hard_search()
             self.txt_lib_det.delete("1.0", tk.END)
             self.ent_lib_tags.delete(0, tk.END)
-            messagebox.showinfo("成功", "题目已彻底删除！")
+
+            if hasattr(self, 'current_lib_q_id') and self.current_lib_q_id in selected_id_set:
+                delattr(self, 'current_lib_q_id')
+
+            messagebox.showinfo("成功", "选中题目已彻底删除！")
 
     def add_to_bag(self):
         if not hasattr(self, 'current_lib_q_id'): return
@@ -713,6 +754,7 @@ class SmartQBApp(tk.Tk):
             r"\usepackage{amsmath, amssymb, amsfonts}",
             r"\usepackage{graphicx}",
             r"\usepackage{geometry}",
+            r"\usepackage{listings}",
             r"\geometry{left=2cm, right=2cm, top=2.5cm, bottom=2.5cm}",
             r"\begin{document}",
             r"\begin{center}",
