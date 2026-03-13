@@ -20,25 +20,40 @@ class AIService:
             base_url=self.settings.base_url if self.settings.base_url else None
         )
 
-    def _get_system_prompt(self):
-        return """你是一个极其严谨的学术级智能题库处理引擎。
-你的唯一目标是从混杂的 OCR 文本（及附加图片）中提取出结构完整、排版规范的题目。
+    def _get_system_prompt(self, is_vision_mode=False):
+        base_prompt = """你是一个极其严谨的学术级智能题库处理引擎。
+你的唯一目标是从混杂的 OCR 文本（及可能的附加图片）中提取出结构完整、排版规范的题目。
 
-【极其严格的 LaTeX 编译格式约束（必须遵守，否则系统将崩溃）】
-1. 输出的 Content 必须能被 xelatex 与 ctexart 环境无错编译。
-2. 正文普通文本中的所有 LaTeX 保留字符 (如 %, &, _, #, {, }) 必须使用反斜杠严格转义 (例如 \%, \&, \_, \#)。
-3. 所有的数学公式、字母变量、数字、数学运算符必须严格包裹在行内公式 $...$ 或行间公式 $$...$$ 中。
-4. 禁止把非数学内容的普通中文段落放进数学环境中。
-5. 彻底删除最开头的题目序号（如 "1.", "(2)", "一、" 等）。
+【极其严格的 LaTeX 编译格式约束】
+1. 彻底删除最开头的题目序号（如 "1.", "(2)", "一、" 等），绝对不允许保留题号。
+2. 对于编程语言代码块（如C++/Python），绝对不能丢失，必须完整保留，并严格包裹在 \\begin{lstlisting} 和 \\end{lstlisting} 中。
+3. 对于选项（A, B, C, D等），直接保留纯文本即可（例如 A. xxxx），不要在字母前面加任何斜杠（如 \\A）。
+4. 输出的 Content 必须能被 xelatex 与 ctexart 环境无错编译，除了特别包裹的代码块，普通文本中的所有 LaTeX 保留字符 (如 %, &, _, #) 必须使用反斜杠严格转义 (例如 \\%, \\&)。
+5. 数学公式、变量必须包裹在 $...$ 或 $$...$$ 中，但普通中文不要放进数学环境。
 
+【针对不同学科与题型的特殊优化规则】
+- 英语/语文阅读长题/大题：如果识别到连体大题（包含大段材料及后续的多个小题），必须将其作为“一个整体（一个大题）”合并输出，不要把材料和后面的小题拆散成多个独立的 Questions 对象。
+- 理科/数学/物理/化学：重点关注图表和公式，严防 OCR 中的下标/上标/根号识别错乱。
+- 信息技术/通用技术：重点关注代码块、算法流程图和操作界面的对应，绝不能漏掉任何逻辑代码行。
+- 选择/填空/判断：如果多个选择题是彼此独立的，可作为多道题提取；但如果是针对同一个材料的连锁选择题，应视为大题合并处理。"""
+
+        vision_prompt = """
+【视觉参考提示】
+你必须仔细观察用户提供的局部截图，修正 OCR 模型提取失败的复杂公式、图表排版。将截图内容转化为合适的文本、公式或占位符融入题目结构中。"""
+
+        output_format = """
 【绝对强制的输出格式】
 你必须且只能输出合法的 JSON 格式字符串，绝对不要包含任何 markdown 代码块标记 (如 ```json) 或多余的说明对话文字。"""
+
+        if is_vision_mode:
+            return base_prompt + vision_prompt + output_format
+        return base_prompt + output_format
 
     def process_text_with_correction(self, raw_text):
         """用于手动录入界面的单文本清洗"""
         client = self.get_client()
         prompt = f"""
-{self._get_system_prompt()}
+{self._get_system_prompt(is_vision_mode=False)}
 
 请解析以下输入文本，并严格按照以下 JSON 格式返回结果：
 {{
@@ -60,13 +75,13 @@ class AIService:
     def process_slices_with_context(self, slices_batch, use_vision=False):
         """核心引擎 (支持动态切片合并的滑动窗口状态机)"""
         client = self.get_client()
-        
-        system_content = self._get_system_prompt() + """
+
+        system_content = self._get_system_prompt(is_vision_mode=use_vision) + """
 
 【切片合并与状态机规则】
 我将提供一段按绝对序号 (Index) 排列的文本切片。它们是按文档物理顺序截取的。一道题可能跨越多个切片。
 1. 提供的【最后一个切片】仅作为辅助上下文！如果没有发生题目跨页截断，绝对不能强行合并最后一个切片。
-2. 对于提取出的每一道完整题目，明确指出它是由哪些切片序号合并而成的 (放入 SourceSliceIndices 数组)。
+2. 对于提取出的每一道完整题目（特别是包含多个小题的大型连体题，必须合并为一道题，切勿拆散），明确指出它是由哪些切片序号合并而成的 (放入 SourceSliceIndices 数组)。
 3. 返回 NextIndex，它等于【第一个未被包含在任何题目的 SourceSliceIndices 中的切片序号】。如果你消化了所有切片，它等于最后一个切片序号 + 1。
 4. 如果传入的所有切片全是无效的页眉页脚或乱码，请返回空的 Questions 数组，并将 NextIndex 设为最后切片序号 + 1。
 
@@ -77,7 +92,7 @@ class AIService:
             "Content": "第一题内容(纯正LaTeX格式，严格转义)...",
             "LogicDescriptor": "解析...",
             "Tags": ["标签1"],
-            "SourceSliceIndices": [0, 1] 
+            "SourceSliceIndices": [0, 1]
         }
     ],
     "NextIndex": 2
@@ -91,7 +106,7 @@ class AIService:
             slices_text += f"--- 切片序号 {s['index']} ---\n{s['text']}\n\n"
             if use_vision and s.get('image_b64'):
                 messages_content.append({
-                    "type": "text", 
+                    "type": "text",
                     "text": f"[附: 切片序号 {s['index']} 的原始局部截图，请结合此图修正 OCR 识别错误的公式和排版]"
                 })
                 messages_content.append({
@@ -103,7 +118,7 @@ class AIService:
             "type": "text",
             "text": f"【本地 OCR 初步提取的连续切片文本如下】：\n{slices_text}"
         })
-        
+
         response = client.chat.completions.create(
             model=self.settings.model_id,
             messages=[{"role": "user", "content": messages_content}],
@@ -121,6 +136,20 @@ class AIService:
 
     def get_embedding(self, text):
         if not text: return []
+        try:
+            embed_api_key = self.settings.embed_api_key if self.settings.embed_api_key else self.settings.api_key
+            embed_base_url = self.settings.embed_base_url if self.settings.embed_base_url else self.settings.base_url
+            embed_model_id = self.settings.embed_model_id if self.settings.embed_model_id else "text-embedding-3-small"
+
+            client = OpenAI(
+                api_key=embed_api_key,
+                base_url=embed_base_url if embed_base_url else None
+            )
+            res = client.embeddings.create(input=text, model=embed_model_id)
+            return res.data[0].embedding
+        except Exception as e:
+            print(f"Embedding error: {e}")
+            return []
         try:
             res = self.get_client().embeddings.create(input=text, model="text-embedding-3-small")
             return res.data[0].embedding
@@ -162,7 +191,7 @@ class AIService:
                 }
             }
         ]
-        
+
         response = client.chat.completions.create(
             model=self.settings.model_id,
             messages=messages,
@@ -170,8 +199,9 @@ class AIService:
             tool_choice="auto"
         )
         msg = response.choices[0].message
-        
+
         if msg.tool_calls:
+            # When appending the assistant message, make sure it matches OpenAI's expected structure
             messages.append(msg)
             for tool_call in msg.tool_calls:
                 func_name = tool_call.function.name
