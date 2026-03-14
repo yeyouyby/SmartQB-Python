@@ -1103,6 +1103,25 @@ class SmartQBApp(tk.Tk):
         self.ent_prm_batch.pack(side=tk.LEFT)
 
         ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
+
+    def save_settings(self):
+        self.settings.api_key = self.ent_api.get().strip()
+        self.settings.base_url = self.ent_base.get().strip()
+        self.settings.model_id = self.ent_model.get().strip()
+        self.settings.embed_api_key = self.ent_embed_api.get().strip()
+        self.settings.embed_base_url = self.ent_embed_base.get().strip()
+        self.settings.embed_model_id = self.ent_embed_model.get().strip()
+        self.settings.recognition_mode = self.var_rec_mode.get()
+        self.settings.use_prm_optimization = self.var_use_prm.get()
+        try:
+            self.settings.prm_batch_size = int(self.ent_prm_batch.get())
+        except Exception:
+            self.settings.prm_batch_size = 3
+        self.settings.save()
+
+        self.ai_service.settings = self.settings
+        messagebox.showinfo("成功", "设置已保存！新的识别模式即刻生效。")
+
     def on_provider_changed(self, event):
         provider_presets = {
             "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
