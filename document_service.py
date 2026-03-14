@@ -5,7 +5,6 @@ import fitz  # PyMuPDF
 import docx
 from PIL import Image, ImageDraw
 from utils import logger
-from doclayout_yolo import get_doclayout_yolo
 
 # ==========================================
 # 文档解析服务 (PDF / Word / Image)
@@ -27,7 +26,7 @@ class DocumentService:
                 doc = fitz.open(file_path)
                 total_pages = len(doc)
 
-            yolo_engine = get_doclayout_yolo()
+            yolo_engine = p2t_engine.layout_parser
 
             for page_index in range(total_pages):
                 if update_status:
@@ -47,19 +46,49 @@ class DocumentService:
                     yolo_boxes = []
                     yolo_diagrams = []
                     try:
-                        if yolo_engine.session is not None:
-                            predictions = yolo_engine.predict(img)
+                        if hasattr(yolo_engine, 'parse'):
+                            import numpy as np
+                            # p2t_engine.layout_parser (DocYoloLayoutParser) uses .parse(img)
+                            predictions = yolo_engine.parse(img)
+                            # returns LayoutBlock objects or dicts
                             for pred in predictions:
-                                # We treat 'figure' (3) and optionally 'figure_caption' (4) as diagrams
-                                if pred['class_id'] in [3, 4]:
-                                    box = pred['box']
-                                    yolo_boxes.append({
-                                        'box': box,
-                                        'y_center': (box[1] + box[3]) / 2,
-                                        'type': 'diagram'
-                                    })
-                                    # Crop and save diagram
-                                    x_min, y_min, x_max, y_max = box
+                                # In p2t, types are usually strings like 'figure', 'table' etc.
+                                p_type = getattr(pred, 'type', pred.get('type', '')) if isinstance(pred, dict) else getattr(pred, 'type', '')
+
+                                if p_type in ['figure', 'figure_caption', 'image']:
+                                    # Get box coordinates
+                                    # Sometimes it's pred.position, sometimes pred.box, or dict keys
+                                    if isinstance(pred, dict) and 'box' in pred:
+                                        box = pred['box']
+                                        if isinstance(box, np.ndarray):
+                                            box = box.flatten().tolist()
+                                    elif hasattr(pred, 'position'):
+                                        box = pred.position
+                                        if isinstance(box, np.ndarray):
+                                            # If it's 4 points [ [x,y], [x,y]... ]
+                                            if box.shape == (4, 2):
+                                                x_min, y_min = np.min(box, axis=0)
+                                                x_max, y_max = np.max(box, axis=0)
+                                                box = [x_min, y_min, x_max, y_max]
+                                            elif box.size == 4:
+                                                box = box.flatten().tolist()
+                                            else:
+                                                continue
+                                    elif hasattr(pred, 'box'):
+                                        box = pred.box
+                                        if isinstance(box, np.ndarray):
+                                            box = box.flatten().tolist()
+                                    else:
+                                        continue
+
+                                    if len(box) == 4:
+                                        x_min, y_min, x_max, y_max = box
+                                        yolo_boxes.append({
+                                            'box': box,
+                                            'y_center': (box[1] + box[3]) / 2,
+                                            'type': 'diagram'
+                                        })
+                                        # Crop and save diagram
 
                                     # Relax crop bounds slightly to capture edges
                                     crop_box = (
