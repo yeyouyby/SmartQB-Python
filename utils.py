@@ -42,5 +42,5 @@ def optimize_diagram_to_base64(img_bytes):
         img.save(buf, format='PNG')
         return base64.b64encode(buf.getvalue()).decode('utf-8')
     except Exception as e:
-        print(f"图样转换失败: {e}")
+        logger.error(f"图样转换失败: {e}")
         return base64.b64encode(img_bytes).decode('utf-8')
