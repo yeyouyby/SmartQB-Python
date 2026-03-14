@@ -985,7 +985,12 @@ class SmartQBApp(tk.Tk):
         ]
 
         for q in self.export_bag:
-            tex_content = q["content"]
+            # Clean up dangerous newlines in latex around environments
+            tex_content = q["content"].replace("\n", " \\newline ")
+            tex_content = re.sub(r"\\newline\s*\\begin\{center\}", r"\\begin{center}", tex_content)
+            tex_content = re.sub(r"\\newline\s*\\end\{center\}", r"\\end{center}", tex_content)
+            tex_content = re.sub(r"\\end\{center\}\s*\\newline", r"\\end{center}", tex_content)
+            tex_content = re.sub(r"\\newline\s*\\includegraphics", r"\\includegraphics", tex_content)
             tex.append(r"\item " + tex_content)
 
             if q.get("diagram"):
