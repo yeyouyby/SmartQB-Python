@@ -164,6 +164,8 @@ class SmartQBApp(tk.Tk):
         self.lbl_stg_diagram = ttk.Label(right_frame, text="图样显示区", background="#e0e0e0", anchor=tk.CENTER)
         self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
+        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
+
         bottom_frame = ttk.Frame(self.tab_import)
         bottom_frame.pack(fill=tk.X, pady=5, padx=5)
 
@@ -173,6 +175,46 @@ class SmartQBApp(tk.Tk):
         ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
 
         ttk.Button(bottom_frame, text="✅ 确认暂存区无误，全部保存入库", command=self.save_staging_to_db).pack(side=tk.RIGHT)
+
+    def show_page_layout_view(self):
+        sel = self.tree_staging.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请先在左侧选择一道题目。")
+            return
+
+        q = self.staging_questions[int(sel[0])]
+        page_b64 = q.get("page_annotated_b64")
+
+        if not page_b64:
+            messagebox.showinfo("提示", "当前题目没有对应的完整版面分析图。")
+            return
+
+        try:
+            img = Image.open(io.BytesIO(base64.b64decode(page_b64)))
+
+            top = tk.Toplevel(self)
+            top.title("完整版面分析预览")
+            top.geometry("800x900")
+
+            canvas = tk.Canvas(top, bg="gray")
+            scroll_y = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
+            scroll_x = ttk.Scrollbar(top, orient="horizontal", command=canvas.xview)
+
+            canvas.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
+
+            scroll_y.pack(side="right", fill="y")
+            scroll_x.pack(side="bottom", fill="x")
+            canvas.pack(side="left", fill="both", expand=True)
+
+            photo = ImageTk.PhotoImage(img)
+            canvas.create_image(0, 0, image=photo, anchor="nw")
+            canvas.config(scrollregion=canvas.bbox("all"))
+
+            # Keep reference
+            top.photo = photo
+
+        except Exception as e:
+            messagebox.showerror("错误", f"无法加载版面图: {e}")
 
     def on_import_file(self, file_type):
         exts = {"pdf": [("PDF", "*.pdf")], "word": [("Word", "*.docx")], "image": [("Image", "*.png;*.jpg;*.jpeg")]}
@@ -199,7 +241,7 @@ class SmartQBApp(tk.Tk):
                 # 模式 1: 仅 OCR，不走 AI
                 for s in pending_slices:
                     self.staging_questions.append({
-                        "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram")
+                        "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64")
                     })
                 self.after(0, self.refresh_staging_tree)
                 self.update_status("✅ 本地提取完毕！(未调用 AI)")
@@ -262,13 +304,18 @@ class SmartQBApp(tk.Tk):
                     source_indices = q.get("SourceSliceIndices", [])
                     diagram = None
                     image_b64 = ""
+                    page_annotated_b64 = ""
+
                     for idx in source_indices:
                         if 0 <= idx < len(pending_slices):
                             if not image_b64 and pending_slices[idx].get("image_b64"):
                                 image_b64 = pending_slices[idx]["image_b64"]
                             if not diagram and pending_slices[idx].get("diagram"):
                                 diagram = pending_slices[idx]["diagram"]
-                        if diagram and image_b64:
+                            if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
+                                page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
+
+                        if diagram and image_b64 and page_annotated_b64:
                             break
 
                     self.staging_questions.append({
@@ -276,7 +323,8 @@ class SmartQBApp(tk.Tk):
                         "logic": q.get("LogicDescriptor", ""),
                         "tags": q.get("Tags", []),
                         "diagram": diagram,
-                        "image_b64": image_b64
+                        "image_b64": image_b64,
+                        "page_annotated_b64": page_annotated_b64
                     })
 
                 self.after(0, self.refresh_staging_tree)
@@ -295,7 +343,8 @@ class SmartQBApp(tk.Tk):
                             "content": pending_slices[i]["text"],
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
-                            "diagram": pending_slices[i].get("diagram")
+                            "diagram": pending_slices[i].get("diagram"),
+                            "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
                         })
                     self.after(0, self.refresh_staging_tree)
                     current_idx = fallback_end
