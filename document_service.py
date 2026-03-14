@@ -4,7 +4,7 @@ import base64
 import numpy as np
 import fitz  # PyMuPDF
 import docx
-from PIL import Image
+from PIL import Image, ImageDraw
 
 # ==========================================
 # 文档解析服务 (PDF / Word / Image)
@@ -36,6 +36,40 @@ class DocumentService:
             if hasattr(blocks, 'blocks'): blocks = blocks.blocks
             elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
 
+            # Create a copy of the image to draw layout bounding boxes
+            annotated_img = img.copy()
+            draw = ImageDraw.Draw(annotated_img)
+
+            colors = {
+                'text': 'red',
+                'title': 'red',
+                'figure': 'green',
+                'table': 'blue',
+                'equation': 'purple',
+                'isolated_equation': 'purple',
+                'formula': 'purple'
+            }
+
+            # Draw bounding boxes
+            for block in blocks:
+                b_type = block.get('type', 'text').lower()
+                b_box = block.get('position', None)
+                if b_box is not None:
+                    try:
+                        box_arr = np.array(b_box).reshape(-1, 2)
+                        x_min, y_min = np.min(box_arr, axis=0)
+                        x_max, y_max = np.max(box_arr, axis=0)
+                        color = colors.get(b_type, 'orange')
+                        draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=2)
+                        draw.text((x_min, max(0, y_min - 12)), b_type, fill=color)
+                    except Exception:
+                        pass
+
+            # Convert annotated image to base64
+            buf_anno = io.BytesIO()
+            annotated_img.save(buf_anno, format='PNG')
+            page_annotated_b64 = base64.b64encode(buf_anno.getvalue()).decode('utf-8')
+
             current_text_chunk = []
             current_boxes = [] # 用于记录这一批文字的坐标
             current_diagram = None
@@ -62,7 +96,8 @@ class DocumentService:
                 pending_slices.append({
                     "text": "\n".join(current_text_chunk),
                     "image_b64": chunk_img_b64,
-                    "diagram": current_diagram
+                    "diagram": current_diagram,
+                    "page_annotated_b64": page_annotated_b64
                 })
                 current_text_chunk = []
                 current_boxes = []
