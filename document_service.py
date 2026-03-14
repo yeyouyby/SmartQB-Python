@@ -1,3 +1,4 @@
+from utils import logger
 # document_service.py
 import io
 import base64
@@ -38,7 +39,7 @@ class DocumentService:
                     img = Image.open(file_path).convert('RGB')
 
                 try:
-                    blocks = p2t_engine.recognize(img, return_text=False)
+                    blocks = p2t_engine.recognize(img, return_text=True)
                     if hasattr(blocks, 'blocks'): blocks = blocks.blocks
                     elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
 
@@ -101,7 +102,7 @@ class DocumentService:
                             try:
                                 on_slice_ready(slice_obj)
                             except Exception as e:
-                                print(f"Error in on_slice_ready callback: {e}")
+                                logger.error(f"Error in on_slice_ready callback: {e}")
 
                         current_text_chunk = []
                         current_boxes = []
@@ -110,23 +111,36 @@ class DocumentService:
                     for block in blocks:
                         b_type = block.get('type', 'text').lower()
                         b_text = block.get('text', '').replace('\n', '')
+
+                        if b_type in ['equation', 'isolated_equation', 'formula']:
+                            if b_text.strip() and not b_text.startswith('$'):
+                                b_text = '$' + b_text + '$'
+
                         b_box = block.get('position', None)
 
-                        if b_type in ['figure', 'table']:
+                        if b_type in ['figure', 'table', 'isolated_equation', 'image']:
                             if b_box is not None:
                                 try:
                                     box_arr = np.array(b_box).reshape(-1, 2)
                                     x_min, y_min = np.min(box_arr, axis=0)
                                     x_max, y_max = np.max(box_arr, axis=0)
-                                    cropped = img.crop((max(0, int(x_min)-5), max(0, int(y_min)-5), min(img.width, int(x_max)+5), min(img.height, int(y_max)+5)))
-                                    buf = io.BytesIO()
-                                    cropped.save(buf, format='PNG')
-                                    new_diagram = base64.b64encode(buf.getvalue()).decode('utf-8')
+                                    # Relax crop bounds slightly to capture edges
+                                    crop_box = (
+                                        max(0, int(x_min)-10),
+                                        max(0, int(y_min)-10),
+                                        min(img.width, int(x_max)+10),
+                                        min(img.height, int(y_max)+10)
+                                    )
+                                    if crop_box[2] > crop_box[0] and crop_box[3] > crop_box[1]:
+                                        cropped = img.crop(crop_box)
+                                        buf = io.BytesIO()
+                                        cropped.save(buf, format='PNG')
+                                        new_diagram = base64.b64encode(buf.getvalue()).decode('utf-8')
 
-                                    package_current_slice()
-                                    current_diagram = new_diagram
-                                except Exception:
-                                    pass
+                                        package_current_slice()
+                                        current_diagram = new_diagram
+                                except Exception as e:
+                                    logger.warning(f"Image crop failed: {e}")
                         else:
                             if b_text.strip():
                                 current_text_chunk.append(b_text)
@@ -159,85 +173,85 @@ class DocumentService:
         current_text = []
         current_images = []
 
+        def extract_image(embed_id):
+            if embed_id:
+                try:
+                    part = doc.part.related_parts[embed_id]
+                    if "image" in part.content_type:
+                        img_data = part.blob
+                        return base64.b64encode(img_data).decode("utf-8")
+                except Exception as e:
+                    logger.error(f"Error extracting image from docx: {e}")
+            return None
+
         for element in doc.element.body:
-            # Check for paragraphs
-            if element.tag.endswith('p'):
-                para = docx.text.paragraph.Paragraph(element, doc)
-                if para.text.strip():
-                    current_text.append(para.text.replace('\n', ' '))
-            elif element.tag.endswith('tbl'):
-                # Handle tables - extract all text from all cells
-                for row in element.findall('.//w:tr', namespaces=element.nsmap):
-                    row_text = []
-                    for cell in row.findall('.//w:tc', namespaces=element.nsmap):
-                        cell_paras = cell.findall('.//w:p', namespaces=element.nsmap)
-                        cell_text = []
-                        for cp in cell_paras:
-                            p = docx.text.paragraph.Paragraph(cp, doc)
-                            if p.text.strip():
-                                cell_text.append(p.text.strip())
-                        if cell_text:
-                            row_text.append(" ".join(cell_text))
-                    if row_text:
-                        current_text.append(" | ".join(row_text))
+            try:
+                if element.tag.endswith("p"):
+                    para = docx.text.paragraph.Paragraph(element, doc)
+                    if para.text.strip():
+                        prefix = ""
+                        if para.style.name.startswith("Heading"):
+                            prefix = "# "
+                        elif element.xpath(".//w:numPr"):
+                            prefix = "- "
+                        current_text.append(prefix + para.text.strip())
 
-            # Check for images in current element using proper namespace resolution
-            for run in element.findall('.//w:r', namespaces=element.nsmap):
-                for drawing in run.findall('.//w:drawing', namespaces=element.nsmap):
-                    ns_dict = {**element.nsmap, "a": "http://schemas.openxmlformats.org/drawingml/2006/main"}
-                    for blip in drawing.findall('.//a:blip', namespaces=ns_dict):
-                        r_ns = drawing.nsmap.get('r', 'http://schemas.openxmlformats.org/officeDocument/2006/relationships')
-                        embed = blip.get(f"{{{r_ns}}}embed")
-                        if embed:
-                            try:
-                                part = doc.part.related_parts[embed]
-                                if 'image' in part.content_type:
-                                    img_data = part.blob
-                                    img_b64 = base64.b64encode(img_data).decode('utf-8')
-                                    current_images.append(img_b64)
-                            except Exception as e:
-                                print(f"Error extracting image from docx: {e}")
+                elif element.tag.endswith("tbl"):
+                    table = docx.table.Table(element, doc)
+                    for i, row in enumerate(table.rows):
+                        row_data = [cell.text.strip().replace("\\n", " ") for cell in row.cells]
+                        if row_data:
+                            current_text.append("| " + " | ".join(row_data) + " |")
+                            if i == 0:
+                                current_text.append("|" + "|".join(["---"] * len(row_data)) + "|")
 
-            # If we accumulate substantial text or hit an image, flush a chunk
-            if len(current_text) >= 5 or current_images:
-                # Flush the main chunk with the first image if any
+                for blip in element.xpath(".//a:blip"):
+                    embed_id = None
+                    for key in blip.keys():
+                        if key.endswith("embed"):
+                            embed_id = blip.get(key)
+                            break
+                    img_b64 = extract_image(embed_id)
+                    if img_b64: current_images.append(img_b64)
+
+                for imagedata in element.xpath(".//v:imagedata"):
+                    embed_id = None
+                    for key in imagedata.keys():
+                        if key.endswith("id"):
+                            embed_id = imagedata.get(key)
+                            break
+                    img_b64 = extract_image(embed_id)
+                    if img_b64: current_images.append(img_b64)
+
+            except Exception as e:
+                logger.error(f"Error processing word element: {e}")
+                continue
+
+            if len(current_text) >= 10 or current_images:
                 chunks.append({
-                    "text": '\n'.join(current_text),
+                    "text": "\\n".join(current_text),
                     "image_b64": "",
                     "diagram": current_images[0] if current_images else None
                 })
                 current_text = []
-
-                # If there are extra images without text, flush them as separate empty-text chunks so they aren't lost
                 if len(current_images) > 1:
                     for extra_img in current_images[1:]:
-                        chunks.append({
-                            "text": "",
-                            "image_b64": "",
-                            "diagram": extra_img
-                        })
+                        chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
                 current_images = []
 
-        # Flush remaining
         if current_text or current_images:
             chunks.append({
-                "text": '\n'.join(current_text) if current_text else "",
+                "text": "\\n".join(current_text) if current_text else "",
                 "image_b64": "",
                 "diagram": current_images[0] if current_images else None
             })
             if len(current_images) > 1:
                 for extra_img in current_images[1:]:
-                    chunks.append({
-                        "text": "",
-                        "image_b64": "",
-                        "diagram": extra_img
-                    })
-            current_images = []
+                    chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
 
-        # Fallback if XML parsing missed things but standard paragraphs exist
         if not chunks:
-            full_text = '\n'.join([p.text for p in doc.paragraphs if p.text.strip()])
-            text_chunks = [chunk for chunk in full_text.split('\n\n') if chunk.strip()]
-            chunks = [{"text": t.replace('\n', ' '), "image_b64": "", "diagram": None} for t in text_chunks]
+            full_text = "\\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            text_chunks = [chunk for chunk in full_text.split("\\n\\n") if chunk.strip()]
+            chunks = [{"text": t.replace("\\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
 
         return chunks

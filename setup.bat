@@ -59,6 +59,12 @@ echo [INFO] Installing geometry...
 mpm --install=geometry >nul 2>&1
 echo [INFO] Installing graphicx...
 mpm --install=graphicx >nul 2>&1
+echo [INFO] Installing xeCJK...
+mpm --install=xecjk >nul 2>&1
+echo [INFO] Installing CJK...
+mpm --install=cjk >nul 2>&1
+echo [INFO] Installing zhnumber...
+mpm --install=zhnumber >nul 2>&1
 echo [OK] Package configuration completed.
 goto SetupPythonEnv
 
@@ -80,7 +86,7 @@ python -m pip install --upgrade pip >nul 2>&1
 
 :: 4. Direct Install Dependencies
 echo [4/6] Downloading and installing Python dependencies...
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 goto PipFailed
 
 :: 5. Pre-download Pix2Text AI Models (动态生成一次性脚本并阅后即焚)

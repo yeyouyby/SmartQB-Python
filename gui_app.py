@@ -985,7 +985,12 @@ class SmartQBApp(tk.Tk):
         ]
 
         for q in self.export_bag:
-            tex_content = q["content"]
+            # Clean up dangerous newlines in latex around environments
+            tex_content = q["content"].replace("\n", " \\newline ")
+            tex_content = re.sub(r"\\newline\s*\\begin\{center\}", r"\\begin{center}", tex_content)
+            tex_content = re.sub(r"\\newline\s*\\end\{center\}", r"\\end{center}", tex_content)
+            tex_content = re.sub(r"\\end\{center\}\s*\\newline", r"\\end{center}", tex_content)
+            tex_content = re.sub(r"\\newline\s*\\includegraphics", r"\\includegraphics", tex_content)
             tex.append(r"\item " + tex_content)
 
             if q.get("diagram"):
@@ -1015,18 +1020,24 @@ class SmartQBApp(tk.Tk):
             pdf_success = False
             error_msg = ""
             try:
-                subprocess.run(
+                result = subprocess.run(
                     ["xelatex", "-interaction=nonstopmode", f"-output-directory={export_dir}", export_tex_path],
                     cwd=export_dir,
                     capture_output=True,
-                    text=True,
-                    check=True
+                    check=False
                 )
+                if result.returncode != 0:
+                    try:
+                        out_str = result.stdout.decode('utf-8', errors='replace')
+                    except Exception:
+                        out_str = str(result.stdout)
+                    error_msg = f"LaTeX 编译错误，部分符号未被 AI 成功转义导致中断。\n日志片段: {out_str[-500:]}"
+                    raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
                 pdf_success = True
             except FileNotFoundError:
                 error_msg = "未检测到本地 LaTeX 编译器 (未安装 TeX Live / MiKTeX)。"
             except subprocess.CalledProcessError as e:
-                error_msg = f"LaTeX 编译错误，部分符号未被 AI 成功转义导致中断。\n日志片段: {e.stdout[-500:]}"
+                pass # Handled above
             except Exception as e:
                 error_msg = str(e)
 
