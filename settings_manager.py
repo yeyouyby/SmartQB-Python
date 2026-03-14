@@ -1,6 +1,9 @@
 import os
 import json
-import keyring
+try:
+    import keyring
+except ImportError:
+    keyring = None
 from config import SETTINGS_FILE
 
 # ==========================================
@@ -68,21 +71,25 @@ class SettingsManager:
         # Try keyring first, if fails we must save to JSON
         keyring_success = False
         try:
+            if keyring is None:
+                raise Exception("Keyring module not available")
+
             if self.api_key:
                 keyring.set_password(self.keyring_service_name, self.keyring_username_api, self.api_key)
             else:
                 try: keyring.delete_password(self.keyring_service_name, self.keyring_username_api)
-                except: pass
+                except Exception: pass
 
             if self.embed_api_key:
                 keyring.set_password(self.keyring_service_name, self.keyring_username_embed, self.embed_api_key)
             else:
                 try: keyring.delete_password(self.keyring_service_name, self.keyring_username_embed)
-                except: pass
+                except Exception: pass
 
             keyring_success = True
         except Exception as e:
-            pass
+            import logging
+            logging.warning(f"Keyring save failed, falling back to JSON: {e}")
 
         # Save standard settings
         tmp_file = f"{SETTINGS_FILE}.tmp"

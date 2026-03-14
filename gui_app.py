@@ -232,11 +232,17 @@ class SmartQBApp(tk.Tk):
 
         def handle_slice_ready(s):
             if mode == 1:
-                # 模式 1: 仅 OCR，边提取边显示
-                self.staging_questions.append({
+                item = {
                     "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
-                })
-                self.after(0, self.refresh_staging_tree)
+                }
+            else:
+                item = {
+                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                }
+            def _append_and_refresh():
+                self.staging_questions.append(item)
+                self.refresh_staging_tree()
+            self.after(0, _append_and_refresh)
             else:
                 # 模式 2/3: 也先显示为本地OCR，待之后AI处理替换
                 self.staging_questions.append({
@@ -334,14 +340,17 @@ class SmartQBApp(tk.Tk):
                         if diagram and image_b64 and page_annotated_b64:
                             break
 
-                    self.staging_questions.append({
+                    item = {
                         "content": q.get("Content", ""),
                         "logic": q.get("LogicDescriptor", ""),
                         "tags": q.get("Tags", []),
                         "diagram": diagram,
                         "image_b64": image_b64,
                         "page_annotated_b64": page_annotated_b64
-                    })
+                    }
+                    def _safe_append(i=item):
+                        self.staging_questions.append(i)
+                    self.after(0, _safe_append)
 
                 self.after(0, self.refresh_staging_tree)
                 current_idx = next_index
@@ -355,25 +364,31 @@ class SmartQBApp(tk.Tk):
                     fallback_end = min(current_idx + batch_size, len(pending_slices))
                     if fallback_end == current_idx: fallback_end += 1
                     for i in range(current_idx, fallback_end):
-                        self.staging_questions.append({
+                        item = {
                             "content": pending_slices[i]["text"],
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
                             "diagram": pending_slices[i].get("diagram"),
                             "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
-                        })
+                        }
+                        def _safe_append_f(itm=item):
+                            self.staging_questions.append(itm)
+                        self.after(0, _safe_append_f)
                     self.after(0, self.refresh_staging_tree)
                     current_idx = fallback_end
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
-            self.staging_questions.append({
+            item = {
                 "content": pending_fragment,
                 "logic": "跨页未完结残段 (合并结束仍遗留)",
                 "tags": ["需人工校对"],
                 "diagram": None,
                 "image_b64": ""
-            })
+            }
+            def _safe_append_rem(itm=item):
+                self.staging_questions.append(itm)
+            self.after(0, _safe_append_rem)
             self.after(0, self.refresh_staging_tree)
 
         self.update_status("✅ 文件全部处理并关联合并完毕！")
@@ -515,11 +530,12 @@ class SmartQBApp(tk.Tk):
                 t_id = c.fetchone()[0]
                 c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
 
+        conn.commit(); conn.close()
+
+        for q in self.staging_questions:
             q.pop('diagram', None)
             q.pop('image_b64', None)
             q.pop('page_annotated_b64', None)
-
-        conn.commit(); conn.close()
 
         self.staging_questions.clear()
         self.refresh_staging_tree()
@@ -1087,53 +1103,40 @@ class SmartQBApp(tk.Tk):
 
         ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
     def on_provider_changed(self, event):
+        provider_presets = {
+            "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
+            "Kimi": {"base": "https://api.moonshot.cn/v1", "model": "kimi-k2.5", "embed_base": "", "embed_model": ""},
+            "GLM (智谱)": {
+                "base": "https://open.bigmodel.cn/api/paas/v4/",
+                "model": "glm-4-plus-0326",
+                "embed_base": "https://open.bigmodel.cn/api/paas/v4/",
+                "embed_model": "embedding-3",
+            },
+            "SiliconFlow (硅基)": {
+                "base": "https://api.siliconflow.cn/v1",
+                "model": "deepseek-ai/DeepSeek-V3.2",
+                "embed_base": "https://api.siliconflow.cn/v1",
+                "embed_model": "BAAI/bge-m3",
+            },
+        }
         provider = self.cbo_provider.get()
-        if provider == "DeepSeek":
-            self.ent_base.delete(0, tk.END)
-            self.ent_base.insert(0, "https://api.deepseek.com")
-            self.ent_model.delete(0, tk.END)
-            self.ent_model.insert(0, "deepseek-chat")
-        elif provider == "Kimi":
-            self.ent_base.delete(0, tk.END)
-            self.ent_base.insert(0, "https://api.moonshot.cn/v1")
-            self.ent_model.delete(0, tk.END)
-            self.ent_model.insert(0, "kimi-k2.5")
-        elif provider == "GLM (智谱)":
-            self.ent_base.delete(0, tk.END)
-            self.ent_base.insert(0, "https://open.bigmodel.cn/api/paas/v4/")
-            self.ent_model.delete(0, tk.END)
-            self.ent_model.insert(0, "glm-4-plus-0326")
-            self.ent_embed_base.delete(0, tk.END)
-            self.ent_embed_base.insert(0, "https://open.bigmodel.cn/api/paas/v4/")
-            self.ent_embed_model.delete(0, tk.END)
-            self.ent_embed_model.insert(0, "embedding-3")
-        elif provider == "SiliconFlow (硅基)":
-            self.ent_base.delete(0, tk.END)
-            self.ent_base.insert(0, "https://api.siliconflow.cn/v1")
-            self.ent_model.delete(0, tk.END)
-            self.ent_model.insert(0, "deepseek-ai/DeepSeek-V3.2")
-            self.ent_embed_base.delete(0, tk.END)
-            self.ent_embed_base.insert(0, "https://api.siliconflow.cn/v1")
-            self.ent_embed_model.delete(0, tk.END)
-            self.ent_embed_model.insert(0, "BAAI/bge-m3")
-    def save_settings(self):
-        self.settings.api_key = self.ent_api.get().strip()
-        self.settings.base_url = self.ent_base.get().strip()
-        self.settings.model_id = self.ent_model.get().strip()
-        self.settings.embed_api_key = self.ent_embed_api.get().strip()
-        self.settings.embed_base_url = self.ent_embed_base.get().strip()
-        self.settings.embed_model_id = self.ent_embed_model.get().strip()
-        self.settings.recognition_mode = self.var_rec_mode.get()
-        self.settings.use_prm_optimization = self.var_use_prm.get()
-        try:
-            self.settings.prm_batch_size = int(self.ent_prm_batch.get())
-        except Exception:
-            self.settings.prm_batch_size = 3
-        self.settings.save()
+        config = provider_presets.get(provider)
 
-        self.ai_service.settings = self.settings
-        messagebox.showinfo("成功", "设置已保存！新的识别模式即刻生效。")
+        if not config:
+            return
 
+        def update_entry(widget, value):
+            if value is not None:
+                widget.delete(0, tk.END)
+                widget.insert(0, value)
+
+        update_entry(self.ent_base, config.get("base"))
+        update_entry(self.ent_model, config.get("model"))
+
+        # We only update embed details if they are explicitly mapped.
+        # This clears DeepSeek/Kimi embedding fields, indicating no default embedding model.
+        update_entry(self.ent_embed_base, config.get("embed_base"))
+        update_entry(self.ent_embed_model, config.get("embed_model"))
     def on_tab_changed(self, event):
         current_tab = self.notebook.tab(self.notebook.select(), "text")
         if "Library" in current_tab:
