@@ -111,17 +111,6 @@ class DocumentService:
                     for block in blocks:
                         b_type = block.get('type', 'text').lower()
                         b_text = block.get('text', '').replace('\n', '')
-                        if b_type in ['equation', 'isolated_equation', 'formula']:
-                            if b_text.strip() and not b_text.startswith('$'):
-                                b_text = '$' + b_text + '$'
-
-                        if b_type in ['equation', 'isolated_equation', 'formula']:
-                            if b_text.strip() and not b_text.startswith('$'):
-                                b_text = '$' + b_text + '$'
-
-                        if b_type in ['equation', 'isolated_equation', 'formula']:
-                            if b_text.strip() and not b_text.startswith('$'):
-                                b_text = '$' + b_text + '$'
 
                         if b_type in ['equation', 'isolated_equation', 'formula']:
                             if b_text.strip() and not b_text.startswith('$'):
@@ -202,8 +191,6 @@ class DocumentService:
                 elif element.tag.endswith("tbl"):
                     table = docx.table.Table(element, doc)
                     for i, row in enumerate(table.rows):
-                        row_data = [cell.text.strip().replace("\\n", " ") for cell in row.cells]
-", " ") for cell in row.cells]
                         if row_data:
                             current_text.append("| " + " | ".join(row_data) + " |")
                             if i == 0:
@@ -233,8 +220,7 @@ class DocumentService:
 
             if len(current_text) >= 10 or current_images:
                 chunks.append({
-                    "text": "
-".join(current_text),
+                    "text": "\\n".join(current_text),
                     "image_b64": "",
                     "diagram": current_images[0] if current_images else None
                 })
@@ -246,8 +232,7 @@ class DocumentService:
 
         if current_text or current_images:
             chunks.append({
-                "text": "
-".join(current_text) if current_text else "",
+                "text": "\\n".join(current_text) if current_text else "",
                 "image_b64": "",
                 "diagram": current_images[0] if current_images else None
             })
@@ -256,12 +241,8 @@ class DocumentService:
                     chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
 
         if not chunks:
-            full_text = "
-".join([p.text for p in doc.paragraphs if p.text.strip()])
-            text_chunks = [chunk for chunk in full_text.split("
-
-") if chunk.strip()]
-            chunks = [{"text": t.replace("
-", " "), "image_b64": "", "diagram": None} for t in text_chunks]
+            full_text = "\\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            text_chunks = [chunk for chunk in full_text.split("\\n\\n") if chunk.strip()]
+            chunks = [{"text": t.replace("\\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
 
         return chunks
