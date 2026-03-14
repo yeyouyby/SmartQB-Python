@@ -140,7 +140,7 @@ class DocumentService:
                             color = colors.get(b['type'], 'orange')
                             draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=2)
                             draw.text((x_min, max(0, y_min - 12)), b['type'], fill=color)
-                        except:
+                        except Exception:
                             pass
 
                     # 画 YOLO 框
@@ -149,7 +149,7 @@ class DocumentService:
                             x_min, y_min, x_max, y_max = b['box']
                             draw.rectangle([x_min, y_min, x_max, y_max], outline='green', width=3)
                             draw.text((x_min, max(0, y_min - 12)), 'YOLO-Figure', fill='green')
-                        except:
+                        except Exception:
                             pass
 
                     buf_anno = io.BytesIO()
