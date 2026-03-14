@@ -630,16 +630,22 @@ class SmartQBApp(tk.Tk):
 
                 self.after(0, on_saved)
             except Exception as e:
+                err_msg = str(e)
                 def on_error():
-                    self.lbl_manual_status.config(text=f"保存失败: {e}", foreground="red")
-                    messagebox.showerror("错误", f"保存入库时发生异常:\n{e}")
+                    self.lbl_manual_status.config(text=f"保存失败: {err_msg}", foreground="red")
+                    messagebox.showerror("错误", f"保存入库时发生异常:\n{err_msg}")
                 self.after(0, on_error)
             finally:
                 if conn:
                     conn.close()
+                self.after(0, lambda: setattr(self, "_manual_save_inflight", False))
 
-        self.lbl_manual_status.config(text="正在入库...", foreground="blue")
-        threading.Thread(target=bg_save, daemon=True).start()
+            if getattr(self, "_manual_save_inflight", False):
+                messagebox.showinfo("提示", "正在入库，请勿重复提交。")
+                return
+            self._manual_save_inflight = True
+            self.lbl_manual_status.config(text="正在入库...", foreground="blue")
+            threading.Thread(target=bg_save, daemon=True).start()
 
     # ------------------------------------------
     # Library View
