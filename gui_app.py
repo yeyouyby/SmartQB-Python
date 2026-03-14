@@ -1066,7 +1066,7 @@ class SmartQBApp(tk.Tk):
         self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
         try:
-            self.settings.prm_batch_size = int(self.ent_prm_batch.get())
+            self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
         except ValueError:
             self.settings.prm_batch_size = 3
             self.ent_prm_batch.set(self.settings.prm_batch_size)
