@@ -130,7 +130,7 @@ class AIService:
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
         try:
             return json.loads(raw_content)
-        except:
+        except Exception:
             clean = re.sub(r'^```json\s*|\s*```$', '', raw_content.strip(), flags=re.MULTILINE)
             return json.loads(clean)
 
@@ -153,7 +153,7 @@ class AIService:
         try:
             res = self.get_client().embeddings.create(input=text, model="text-embedding-3-small")
             return res.data[0].embedding
-        except:
+        except Exception:
             return []
 
     def chat_with_tools(self, messages, callbacks):

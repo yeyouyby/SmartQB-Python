@@ -27,7 +27,7 @@ def vector_search_db(ai_service, query_text, limit=10):
                 continue
             sim = np.dot(q_vec_np, vec) / (np.linalg.norm(q_vec_np) * np.linalg.norm(vec))
             scored.append((sim, r[0], r[1]))
-        except:
+        except Exception:
             continue
         
     scored.sort(key=lambda x: x[0], reverse=True)
