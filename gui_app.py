@@ -1069,6 +1069,8 @@ class SmartQBApp(tk.Tk):
             self.settings.prm_batch_size = int(self.ent_prm_batch.get())
         except ValueError:
             self.settings.prm_batch_size = 3
+            self.ent_prm_batch.set(self.settings.prm_batch_size)
+            messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
 
         try:
             self.settings.save()
