@@ -76,34 +76,34 @@ class AIService:
         """核心引擎 (支持动态切片合并的滑动窗口状态机)"""
         client = self.get_client()
 
-        aux_slice_index = -1
-        if not is_last_batch and len(slices_batch) > 1:
-            aux_slice_index = slices_batch[-1]["index"]
+        has_aux = not is_last_batch and len(slices_batch) > 1
+        aux_slice_index = slices_batch[-1]["index"] if has_aux else -1
+        last_index_plus_one = slices_batch[-1]["index"] + 1
 
-        system_content = self._get_system_prompt(is_vision_mode=use_vision) + """
+        system_content = self._get_system_prompt(is_vision_mode=use_vision) + f"""
 
 【切片合并与状态机规则】
 我将提供一段按绝对序号 (Index) 排列的文本切片。它们是按文档物理顺序截取的。一道题可能跨越多个切片。
 1. 你的任务是提取出所有题目。一道题目可能横跨多个切片。
 2. 请对每一道识别出的题目评估其跨越的切片序号（放入 SourceSliceIndices 数组）。
-3. 【关键跨页处理】如果某道题目延伸或触碰到了提供的【最后一个辅助切片】（其序号为 """ + str(aux_slice_index) + """），**绝对不要**把它放进 `Questions` 数组中！你必须将这道触碰到最后辅助切片的题目的原始文本放入 `PendingFragment` 字段中，系统会将其与下一个批次的切片合并处理。对于未触碰到该辅助切片的题目，正常放入 `Questions` 数组。
-4. """ + ("当前是文档末尾，没有辅助切片，请将所有识别出的题目都放入 `Questions` 数组，不要放入 `PendingFragment`。" if is_last_batch else "不要把辅助切片里的新题目和前面的残缺题目强行合并在一起！遇到真正的新题号就立刻切断！") + """
-5. `NextIndex` 指向下一个批次的主切片起始位置。一般情况下，`NextIndex` 等于本批次辅助切片的序号（即 """ + str(aux_slice_index) + """）。
+3. """ + (f"【关键跨页处理】如果某道题目延伸或触碰到了提供的【最后一个辅助切片】（其序号为 {aux_slice_index}），**绝对不要**把它放进 `Questions` 数组中！你必须将这道触碰到最后辅助切片的题目的原始文本放入 `PendingFragment` 字段中，系统会将其与下一个批次的切片合并处理。对于未触碰到该辅助切片的题目，正常放入 `Questions` 数组。" if has_aux else "【关键跨页处理】当前批次没有辅助切片。请将所有完整或残缺的题目都直接放入 `Questions` 数组中，不需要使用 `PendingFragment`。") + f"""
+4. """ + ("当前是文档末尾，没有辅助切片，请将所有识别出的题目都放入 `Questions` 数组，不要放入 `PendingFragment`。" if is_last_batch else "不要把辅助切片里的新题目和前面的残缺题目强行合并在一起！遇到真正的新题号就立刻切断！") + f"""
+5. `NextIndex` 指向下一个批次的主切片起始位置。""" + (f"当前是最后批次或单切片，必须返回 {last_index_plus_one}。" if not has_aux else f"应返回本批次辅助切片的序号（即 {aux_slice_index}）。") + f"""
 
 请严格返回如下 JSON 结构：
-{
+{{
     "Questions": [
-        {
-            "Status": "Complete", // Complete(完整题目), Multiple(多个题目), NotQuestion(非题目干扰项)
+        {{
+            "Status": "Complete",
             "Content": "第一题内容(纯正LaTeX格式，严格转义)...",
             "LogicDescriptor": "解析...",
             "Tags": ["标签1"],
             "SourceSliceIndices": [0, 1]
-        }
+        }}
     ],
     "PendingFragment": "如果遇到了跨页的未完结题目，将该片段放入此处，留作下一次前置补全",
-    "NextIndex": """ + (str(slices_batch[-1]["index"] + 1) if is_last_batch else str(aux_slice_index)) + """
-}
+    "NextIndex": {last_index_plus_one if not has_aux else aux_slice_index}
+}}
 """
         messages_content = [{"type": "text", "text": system_content}]
 

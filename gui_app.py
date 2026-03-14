@@ -266,10 +266,6 @@ class SmartQBApp(tk.Tk):
             end_idx = min(current_idx + batch_size + 1, len(pending_slices))
             is_last_batch = (end_idx == len(pending_slices))
 
-            # For the last batch, we just send whatever is left, with NO auxiliary slice conceptually
-            if is_last_batch and batch_size > 1 and len(pending_slices) - current_idx <= batch_size:
-               pass # Let it process all remaining as main slices
-
             slices_to_send = []
             for i in range(current_idx, end_idx):
                 slices_to_send.append({
@@ -541,10 +537,14 @@ class SmartQBApp(tk.Tk):
             return
 
         try:
-            with open(file_path, "rb") as f:
-                img_data = f.read()
-                self.manual_diagram_b64 = base64.b64encode(img_data).decode('utf-8')
-            self.lbl_manual_diagram_status.config(text=f"已选择: {file_path.split('/')[-1]}", foreground="green")
+            # Normalize to PNG
+            img = Image.open(file_path)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            self.manual_diagram_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+            filename = os.path.basename(file_path)
+            self.lbl_manual_diagram_status.config(text=f"已选择: {filename}", foreground="green")
         except Exception as e:
             self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
             self.manual_diagram_b64 = None
@@ -571,6 +571,7 @@ class SmartQBApp(tk.Tk):
                         vec = self.ai_service.get_embedding(vector_text)
                         if vec:
                             self.manual_vector = vec
+                            self.manual_vector_text_hash = hash(vector_text)
                             preview = str([round(v, 3) for v in vec[:3]]) + "..."
                             self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
                         else:
@@ -591,36 +592,53 @@ class SmartQBApp(tk.Tk):
         tags = [t.strip() for t in self.ent_manual_tags.get().split(",") if t.strip()]
 
         def bg_save():
-            conn = sqlite3.connect(DB_NAME); c = conn.cursor()
+            conn = None
+            try:
+                conn = sqlite3.connect(DB_NAME); c = conn.cursor()
 
-            # If we didn't generate a vector during the AI step, generate it now
-            vec = self.manual_vector
-            if not vec:
-                vec = self.ai_service.get_embedding(content)
+                # Invalidate cached vector if user edited the content after AI generation
+                vec = self.manual_vector
+                if hasattr(self, 'manual_vector_text_hash') and self.manual_vector_text_hash != hash(content):
+                    vec = None
 
-            c.execute("INSERT INTO questions (content, embedding_json, diagram_base64) VALUES (?, ?, ?)",
-                      (content, json.dumps(vec) if vec else None, self.manual_diagram_b64))
-            q_id = c.lastrowid
-            for t in tags:
-                c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
-                c.execute("SELECT id FROM tags WHERE name=?", (t,))
-                t_id = c.fetchone()[0]
-                c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
-            conn.commit(); conn.close()
+                if not vec:
+                    vec = self.ai_service.get_embedding(content)
 
-            def on_saved():
-                self.txt_manual.delete("1.0", tk.END)
-                self.ent_manual_tags.delete(0, tk.END)
-                self.manual_diagram_b64 = None
-                self.manual_vector = None
-                self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
-                self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
-                self.lbl_manual_status.config(text="")
-                messagebox.showinfo("成功", "手工录入成功，已存入题库！")
+                c.execute("INSERT INTO questions (content, embedding_json, diagram_base64) VALUES (?, ?, ?)",
+                          (content, json.dumps(vec) if vec else None, self.manual_diagram_b64))
+                q_id = c.lastrowid
+                for t in tags:
+                    c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
+                    c.execute("SELECT id FROM tags WHERE name=?", (t,))
+                    row = c.fetchone()
+                    if row:
+                        t_id = row[0]
+                        c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
+                conn.commit()
 
-            self.after(0, on_saved)
+                def on_saved():
+                    self.txt_manual.delete("1.0", tk.END)
+                    self.ent_manual_tags.delete(0, tk.END)
+                    self.manual_diagram_b64 = None
+                    self.manual_vector = None
+                    if hasattr(self, 'manual_vector_text_hash'):
+                        delattr(self, 'manual_vector_text_hash')
+                    self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
+                    self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
+                    self.lbl_manual_status.config(text="")
+                    messagebox.showinfo("成功", "手工录入成功，已存入题库！")
 
-        self.lbl_manual_status.config(text="正在入库...")
+                self.after(0, on_saved)
+            except Exception as e:
+                def on_error():
+                    self.lbl_manual_status.config(text=f"保存失败: {e}", foreground="red")
+                    messagebox.showerror("错误", f"保存入库时发生异常:\n{e}")
+                self.after(0, on_error)
+            finally:
+                if conn:
+                    conn.close()
+
+        self.lbl_manual_status.config(text="正在入库...", foreground="blue")
         threading.Thread(target=bg_save, daemon=True).start()
 
     # ------------------------------------------
