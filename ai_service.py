@@ -72,33 +72,46 @@ class AIService:
         )
         return self._parse_json(response.choices[0].message.content)
 
-    def process_slices_with_context(self, slices_batch, use_vision=False):
+    def process_slices_with_context(self, slices_batch, use_vision=False, pending_fragment="", is_last_batch=False):
         """核心引擎 (支持动态切片合并的滑动窗口状态机)"""
         client = self.get_client()
+
+        aux_slice_index = -1
+        if not is_last_batch and len(slices_batch) > 1:
+            aux_slice_index = slices_batch[-1]["index"]
 
         system_content = self._get_system_prompt(is_vision_mode=use_vision) + """
 
 【切片合并与状态机规则】
 我将提供一段按绝对序号 (Index) 排列的文本切片。它们是按文档物理顺序截取的。一道题可能跨越多个切片。
-1. 提供的【最后一个切片】仅作为辅助上下文！如果没有发生题目跨页截断，绝对不能强行合并最后一个切片。
-2. 对于提取出的每一道完整题目（特别是包含多个小题的大型连体题，必须合并为一道题，切勿拆散），明确指出它是由哪些切片序号合并而成的 (放入 SourceSliceIndices 数组)。
-3. 返回 NextIndex，它等于【第一个未被包含在任何题目的 SourceSliceIndices 中的切片序号】。如果你消化了所有切片，它等于最后一个切片序号 + 1。
-4. 如果传入的所有切片全是无效的页眉页脚或乱码，请返回空的 Questions 数组，并将 NextIndex 设为最后切片序号 + 1。
+1. 你的任务是提取出所有题目。一道题目可能横跨多个切片。
+2. 请对每一道识别出的题目评估其跨越的切片序号（放入 SourceSliceIndices 数组）。
+3. 【关键跨页处理】如果某道题目延伸或触碰到了提供的【最后一个辅助切片】（其序号为 """ + str(aux_slice_index) + """），**绝对不要**把它放进 `Questions` 数组中！你必须将这道触碰到最后辅助切片的题目的原始文本放入 `PendingFragment` 字段中，系统会将其与下一个批次的切片合并处理。对于未触碰到该辅助切片的题目，正常放入 `Questions` 数组。
+4. """ + ("当前是文档末尾，没有辅助切片，请将所有识别出的题目都放入 `Questions` 数组，不要放入 `PendingFragment`。" if is_last_batch else "不要把辅助切片里的新题目和前面的残缺题目强行合并在一起！遇到真正的新题号就立刻切断！") + """
+5. `NextIndex` 指向下一个批次的主切片起始位置。一般情况下，`NextIndex` 等于本批次辅助切片的序号（即 """ + str(aux_slice_index) + """）。
 
 请严格返回如下 JSON 结构：
 {
     "Questions": [
         {
+            "Status": "Complete", // Complete(完整题目), Multiple(多个题目), NotQuestion(非题目干扰项)
             "Content": "第一题内容(纯正LaTeX格式，严格转义)...",
             "LogicDescriptor": "解析...",
             "Tags": ["标签1"],
             "SourceSliceIndices": [0, 1]
         }
     ],
-    "NextIndex": 2
+    "PendingFragment": "如果遇到了跨页的未完结题目，将该片段放入此处，留作下一次前置补全",
+    "NextIndex": """ + (str(slices_batch[-1]["index"] + 1) if is_last_batch else str(aux_slice_index)) + """
 }
 """
         messages_content = [{"type": "text", "text": system_content}]
+
+        if pending_fragment:
+            messages_content.append({
+                "type": "text",
+                "text": f"【上一批次未处理完的跨页题目片段，请将其接续在本次的开头作为第一道题的起始内容】：\n{pending_fragment}\n\n"
+            })
 
         # 组装文本和可能的图像内容
         slices_text = ""

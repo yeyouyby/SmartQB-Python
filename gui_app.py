@@ -218,8 +218,15 @@ class SmartQBApp(tk.Tk):
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
 
         current_idx = 0
+        pending_fragment = ""
+
         while current_idx < len(pending_slices):
             end_idx = min(current_idx + batch_size + 1, len(pending_slices))
+            is_last_batch = (end_idx == len(pending_slices))
+
+            # For the last batch, we just send whatever is left, with NO auxiliary slice conceptually
+            if is_last_batch and batch_size > 1 and len(pending_slices) - current_idx <= batch_size:
+               pass # Let it process all remaining as main slices
 
             slices_to_send = []
             for i in range(current_idx, end_idx):
@@ -233,14 +240,25 @@ class SmartQBApp(tk.Tk):
             self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
 
             try:
-                ai_res = self.ai_service.process_slices_with_context(slices_to_send, use_vision=use_vision)
+                ai_res = self.ai_service.process_slices_with_context(
+                    slices_to_send,
+                    use_vision=use_vision,
+                    pending_fragment=pending_fragment,
+                    is_last_batch=is_last_batch
+                )
+
                 questions = ai_res.get("Questions", [])
+                pending_fragment = ai_res.get("PendingFragment", "")
 
                 next_index = ai_res.get("NextIndex", current_idx + 1)
                 if next_index <= current_idx:
                     next_index = current_idx + 1
 
                 for q in questions:
+                    status = q.get("Status", "Complete")
+                    if status == "NotQuestion":
+                        continue
+
                     source_indices = q.get("SourceSliceIndices", [])
                     diagram = None
                     image_b64 = ""
@@ -281,6 +299,17 @@ class SmartQBApp(tk.Tk):
                         })
                     self.after(0, self.refresh_staging_tree)
                     current_idx = fallback_end
+
+        # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
+        if pending_fragment and pending_fragment.strip():
+            self.staging_questions.append({
+                "content": pending_fragment,
+                "logic": "跨页未完结残段 (合并结束仍遗留)",
+                "tags": ["需人工校对"],
+                "diagram": None,
+                "image_b64": ""
+            })
+            self.after(0, self.refresh_staging_tree)
 
         self.update_status("✅ 文件全部处理并关联合并完毕！")
 
@@ -437,25 +466,67 @@ class SmartQBApp(tk.Tk):
         self.lbl_manual_status = ttk.Label(btn_frame, text="", foreground="blue")
         self.lbl_manual_status.pack(side=tk.LEFT, padx=10)
 
+        # Vectorization preview during AI generation
+        self.lbl_manual_vector_status = ttk.Label(btn_frame, text="未生成向量", foreground="gray")
+        self.lbl_manual_vector_status.pack(side=tk.RIGHT, padx=10)
+
         ttk.Label(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10,0))
         self.ent_manual_tags = ttk.Entry(frame)
         self.ent_manual_tags.pack(fill=tk.X, pady=5)
 
+        # Companion Diagram Selection
+        diagram_frame = ttk.Frame(frame)
+        diagram_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram).pack(side=tk.LEFT)
+        self.lbl_manual_diagram_status = ttk.Label(diagram_frame, text="未选择图片", foreground="gray")
+        self.lbl_manual_diagram_status.pack(side=tk.LEFT, padx=10)
+
+        self.manual_diagram_b64 = None
+        self.manual_vector = None
+
         ttk.Button(frame, text="💾 保存并直接入库", command=self.save_manual).pack(anchor=tk.E, pady=20)
+
+    def on_select_manual_diagram(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")])
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, "rb") as f:
+                img_data = f.read()
+                self.manual_diagram_b64 = base64.b64encode(img_data).decode('utf-8')
+            self.lbl_manual_diagram_status.config(text=f"已选择: {file_path.split('/')[-1]}", foreground="green")
+        except Exception as e:
+            self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
+            self.manual_diagram_b64 = None
 
     def on_manual_ai(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
         if not text: return
-        self.lbl_manual_status.config(text="AI 分析中...")
+        self.lbl_manual_status.config(text="AI 分析与向量化中...")
         def task():
             while True:
                 try:
                     res = self.ai_service.process_text_with_correction(text)
                     self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
-                    self.after(0, lambda: self.txt_manual.insert(tk.END, res.get("Content", "")))
+
+                    content_result = res.get("Content", "")
+                    self.after(0, lambda: self.txt_manual.insert(tk.END, content_result))
                     self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
                     self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(res.get("Tags", []))))
                     self.after(0, lambda: self.lbl_manual_status.config(text="AI 处理完成！请核对后保存。"))
+
+                    # Generate embedding in the background immediately
+                    vector_text = content_result
+                    if vector_text:
+                        vec = self.ai_service.get_embedding(vector_text)
+                        if vec:
+                            self.manual_vector = vec
+                            preview = str([round(v, 3) for v in vec[:3]]) + "..."
+                            self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+                        else:
+                            self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+
                     break
                 except Exception as e:
                     if self.ask_api_retry_sync(str(e)):
@@ -470,18 +541,38 @@ class SmartQBApp(tk.Tk):
         if not content: return
         tags = [t.strip() for t in self.ent_manual_tags.get().split(",") if t.strip()]
 
-        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
-        vec = self.ai_service.get_embedding(content)
-        c.execute("INSERT INTO questions (content, embedding_json) VALUES (?, ?)", (content, json.dumps(vec) if vec else None))
-        q_id = c.lastrowid
-        for t in tags:
-            c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
-            c.execute("SELECT id FROM tags WHERE name=?", (t,))
-            t_id = c.fetchone()[0]
-            c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
-        conn.commit(); conn.close()
-        self.txt_manual.delete("1.0", tk.END); self.ent_manual_tags.delete(0, tk.END)
-        messagebox.showinfo("成功", "手工录入成功，已存入题库！")
+        def bg_save():
+            conn = sqlite3.connect(DB_NAME); c = conn.cursor()
+
+            # If we didn't generate a vector during the AI step, generate it now
+            vec = self.manual_vector
+            if not vec:
+                vec = self.ai_service.get_embedding(content)
+
+            c.execute("INSERT INTO questions (content, embedding_json, diagram_base64) VALUES (?, ?, ?)",
+                      (content, json.dumps(vec) if vec else None, self.manual_diagram_b64))
+            q_id = c.lastrowid
+            for t in tags:
+                c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
+                c.execute("SELECT id FROM tags WHERE name=?", (t,))
+                t_id = c.fetchone()[0]
+                c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
+            conn.commit(); conn.close()
+
+            def on_saved():
+                self.txt_manual.delete("1.0", tk.END)
+                self.ent_manual_tags.delete(0, tk.END)
+                self.manual_diagram_b64 = None
+                self.manual_vector = None
+                self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
+                self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
+                self.lbl_manual_status.config(text="")
+                messagebox.showinfo("成功", "手工录入成功，已存入题库！")
+
+            self.after(0, on_saved)
+
+        self.lbl_manual_status.config(text="正在入库...")
+        threading.Thread(target=bg_save, daemon=True).start()
 
     # ------------------------------------------
     # Library View
@@ -867,9 +958,9 @@ class SmartQBApp(tk.Tk):
         prm_frame = ttk.Frame(container)
         prm_frame.pack(anchor=tk.W, padx=20, fill=tk.X)
         self.var_use_prm = tk.BooleanVar(value=self.settings.use_prm_optimization)
-        ttk.Checkbutton(prm_frame, text="启用 PRM 批量优化", variable=self.var_use_prm).pack(side=tk.LEFT)
+        ttk.Checkbutton(prm_frame, text="启用多切片并发", variable=self.var_use_prm).pack(side=tk.LEFT)
 
-        ttk.Label(prm_frame, text="单次并发主切片数:").pack(side=tk.LEFT, padx=(30, 5))
+        ttk.Label(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(side=tk.LEFT, padx=(30, 5))
         self.ent_prm_batch = ttk.Spinbox(prm_frame, from_=2, to=15, width=5)
         self.ent_prm_batch.set(self.settings.prm_batch_size)
         self.ent_prm_batch.pack(side=tk.LEFT)
