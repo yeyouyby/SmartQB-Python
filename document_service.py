@@ -114,11 +114,14 @@ class DocumentService:
                     # ==========================================
                     p2t_blocks = []
                     try:
-                        blocks = p2t_engine.recognize(img, return_text=True)
+                        blocks = p2t_engine.recognize(img, return_text=False)
                         if hasattr(blocks, 'blocks'): blocks = blocks.blocks
                         elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
 
                         for block in blocks:
+                            if isinstance(block, str):
+                                block = {'type': 'text', 'text': block, 'position': None}
+
                             b_type = block.get('type', 'text').lower()
                             b_text = block.get('text', '').replace('\n', '')
                             b_box = block.get('position', None)
