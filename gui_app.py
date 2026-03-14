@@ -1,3 +1,4 @@
+import gc
 # gui_app.py
 import os
 import io
@@ -229,21 +230,41 @@ class SmartQBApp(tk.Tk):
         pending_slices = []
         mode = self.settings.recognition_mode
 
+        def handle_slice_ready(s):
+            if mode == 1:
+                item = {
+                    "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                }
+            else:
+                item = {
+                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                }
+            def _append_and_refresh():
+                self.staging_questions.append(item)
+                self.refresh_staging_tree()
+            self.after(0, _append_and_refresh)
+
         try:
             if file_type in ["pdf", "image"]:
+                # 在提取前清空 staging
+                def _clear_stg():
+                    self.staging_questions.clear()
+                    self.refresh_staging_tree()
+                self.after(0, _clear_stg)
+
                 pending_slices = DocumentService.process_doc_with_layout(
-                    file_path, file_type, self.ocr_engine, self.update_status
+                    file_path, file_type, self.ocr_engine, self.update_status, handle_slice_ready
                 )
             elif file_type == "word":
+                def _clear_word():
+                    self.staging_questions.clear()
+                    self.refresh_staging_tree()
+                self.after(0, _clear_word)
                 pending_slices = DocumentService.extract_from_word(file_path)
+                for s in pending_slices:
+                    handle_slice_ready(s)
 
             if mode == 1:
-                # 模式 1: 仅 OCR，不走 AI
-                for s in pending_slices:
-                    self.staging_questions.append({
-                        "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64")
-                    })
-                self.after(0, self.refresh_staging_tree)
                 self.update_status("✅ 本地提取完毕！(未调用 AI)")
                 return
 
@@ -256,6 +277,12 @@ class SmartQBApp(tk.Tk):
             return
 
         # 模式 2 & 3 的核心处理循环
+        # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
+        def _clear_pre_ai():
+            self.staging_questions.clear()
+            self.refresh_staging_tree()
+        self.after(0, _clear_pre_ai)
+
         use_vision = (mode == 3 and file_type != "word")
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
 
@@ -314,14 +341,17 @@ class SmartQBApp(tk.Tk):
                         if diagram and image_b64 and page_annotated_b64:
                             break
 
-                    self.staging_questions.append({
+                    item = {
                         "content": q.get("Content", ""),
                         "logic": q.get("LogicDescriptor", ""),
                         "tags": q.get("Tags", []),
                         "diagram": diagram,
                         "image_b64": image_b64,
                         "page_annotated_b64": page_annotated_b64
-                    })
+                    }
+                    def _safe_append(i=item):
+                        self.staging_questions.append(i)
+                    self.after(0, _safe_append)
 
                 self.after(0, self.refresh_staging_tree)
                 current_idx = next_index
@@ -335,29 +365,34 @@ class SmartQBApp(tk.Tk):
                     fallback_end = min(current_idx + batch_size, len(pending_slices))
                     if fallback_end == current_idx: fallback_end += 1
                     for i in range(current_idx, fallback_end):
-                        self.staging_questions.append({
+                        item = {
                             "content": pending_slices[i]["text"],
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
                             "diagram": pending_slices[i].get("diagram"),
                             "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
-                        })
+                        }
+                        def _safe_append_f(itm=item):
+                            self.staging_questions.append(itm)
+                        self.after(0, _safe_append_f)
                     self.after(0, self.refresh_staging_tree)
                     current_idx = fallback_end
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
-            self.staging_questions.append({
+            item = {
                 "content": pending_fragment,
                 "logic": "跨页未完结残段 (合并结束仍遗留)",
                 "tags": ["需人工校对"],
                 "diagram": None,
                 "image_b64": ""
-            })
+            }
+            def _safe_append_rem(itm=item):
+                self.staging_questions.append(itm)
+            self.after(0, _safe_append_rem)
             self.after(0, self.refresh_staging_tree)
 
         self.update_status("✅ 文件全部处理并关联合并完毕！")
-
     def update_status(self, text):
         self.after(0, lambda: self.lbl_import_status.config(text=text))
 
@@ -456,12 +491,20 @@ class SmartQBApp(tk.Tk):
             # Delete in reverse order to keep indices valid
             indices = sorted([int(s) for s in sel], reverse=True)
             for idx in indices:
-                self.staging_questions.pop(idx)
+                item = self.staging_questions.pop(idx)
+                # Cleanup heavy images
+                item.pop('diagram', None)
+                item.pop('image_b64', None)
+                item.pop('page_annotated_b64', None)
             self.refresh_staging_tree()
             self.txt_stg_content.delete("1.0", tk.END)
             self.ent_stg_tags.delete(0, tk.END)
             if hasattr(self, 'lbl_vector_info'):
                 self.lbl_vector_info.config(text="未生成向量")
+            self.lbl_stg_diagram.config(image='', text="图样显示区")
+            if hasattr(self.lbl_stg_diagram, 'image'):
+                del self.lbl_stg_diagram.image
+            gc.collect()
 
     def apply_batch_tags(self):
         batch_tag = self.ent_batch_tag.get().strip()
@@ -487,10 +530,23 @@ class SmartQBApp(tk.Tk):
                 c.execute("SELECT id FROM tags WHERE name=?", (t,))
                 t_id = c.fetchone()[0]
                 c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
+
         conn.commit(); conn.close()
+
+        for q in self.staging_questions:
+            q.pop('diagram', None)
+            q.pop('image_b64', None)
+            q.pop('page_annotated_b64', None)
 
         self.staging_questions.clear()
         self.refresh_staging_tree()
+        self.txt_stg_content.delete("1.0", tk.END)
+        self.ent_stg_tags.delete(0, tk.END)
+        self.lbl_stg_diagram.config(image='', text="图样显示区")
+        if hasattr(self.lbl_stg_diagram, 'image'):
+            del self.lbl_stg_diagram.image
+        gc.collect()
+
         self.update_status("入库成功！您可以前往题库查看。")
         messagebox.showinfo("成功", "已全部保存至题库！")
 
@@ -991,7 +1047,15 @@ class SmartQBApp(tk.Tk):
         container = ttk.Frame(self.tab_settings)
         container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
 
-        ttk.Label(container, text="API Key:").pack(anchor=tk.W, pady=5)
+        provider_frame = ttk.Frame(container)
+        provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
+        ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
+        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
+        self.cbo_provider.current(0)
+        self.cbo_provider.pack(side=tk.LEFT, padx=10)
+        self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
+
+        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
         self.ent_api = ttk.Entry(container, width=50, show="*")
         self.ent_api.insert(0, self.settings.api_key)
         self.ent_api.pack(anchor=tk.W)
@@ -1006,7 +1070,7 @@ class SmartQBApp(tk.Tk):
         self.ent_model.insert(0, self.settings.model_id)
         self.ent_model.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding API Key:").pack(anchor=tk.W, pady=(15, 5))
+        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_api = ttk.Entry(container, width=50, show="*")
         self.ent_embed_api.insert(0, self.settings.embed_api_key)
         self.ent_embed_api.pack(anchor=tk.W)
@@ -1039,25 +1103,41 @@ class SmartQBApp(tk.Tk):
         self.ent_prm_batch.pack(side=tk.LEFT)
 
         ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
+    def on_provider_changed(self, event):
+        provider_presets = {
+            "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
+            "Kimi": {"base": "https://api.moonshot.cn/v1", "model": "kimi-k2.5", "embed_base": "", "embed_model": ""},
+            "GLM (智谱)": {
+                "base": "https://open.bigmodel.cn/api/paas/v4/",
+                "model": "glm-4-plus-0326",
+                "embed_base": "https://open.bigmodel.cn/api/paas/v4/",
+                "embed_model": "embedding-3",
+            },
+            "SiliconFlow (硅基)": {
+                "base": "https://api.siliconflow.cn/v1",
+                "model": "deepseek-ai/DeepSeek-V3.2",
+                "embed_base": "https://api.siliconflow.cn/v1",
+                "embed_model": "BAAI/bge-m3",
+            },
+        }
+        provider = self.cbo_provider.get()
+        config = provider_presets.get(provider)
 
-    def save_settings(self):
-        self.settings.api_key = self.ent_api.get().strip()
-        self.settings.base_url = self.ent_base.get().strip()
-        self.settings.model_id = self.ent_model.get().strip()
-        self.settings.embed_api_key = self.ent_embed_api.get().strip()
-        self.settings.embed_base_url = self.ent_embed_base.get().strip()
-        self.settings.embed_model_id = self.ent_embed_model.get().strip()
-        self.settings.recognition_mode = self.var_rec_mode.get()
-        self.settings.use_prm_optimization = self.var_use_prm.get()
-        try:
-            self.settings.prm_batch_size = int(self.ent_prm_batch.get())
-        except Exception:
-            self.settings.prm_batch_size = 3
-        self.settings.save()
+        if not config:
+            return
 
-        self.ai_service.settings = self.settings
-        messagebox.showinfo("成功", "设置已保存！新的识别模式即刻生效。")
+        def update_entry(widget, value):
+            if value is not None:
+                widget.delete(0, tk.END)
+                widget.insert(0, value)
 
+        update_entry(self.ent_base, config.get("base"))
+        update_entry(self.ent_model, config.get("model"))
+
+        # We only update embed details if they are explicitly mapped.
+        # This clears DeepSeek/Kimi embedding fields, indicating no default embedding model.
+        update_entry(self.ent_embed_base, config.get("embed_base"))
+        update_entry(self.ent_embed_model, config.get("embed_model"))
     def on_tab_changed(self, event):
         current_tab = self.notebook.tab(self.notebook.select(), "text")
         if "Library" in current_tab:
