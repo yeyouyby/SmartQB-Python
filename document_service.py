@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 
 class DocumentService:
     @staticmethod
-    def process_doc_with_layout(file_path, file_type, p2t_engine, update_status=None):
+    def process_doc_with_layout(file_path, file_type, p2t_engine, update_status=None, on_slice_ready=None):
         """
         使用 Pix2Text 版面分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
@@ -20,122 +20,127 @@ class DocumentService:
         pending_slices = []
 
         images_to_process = []
+        doc = None
         if file_type == "pdf":
-            with fitz.open(file_path) as doc:
-                for i in range(len(doc)):
-                    pix = doc[i].get_pixmap(dpi=150)
-                    images_to_process.append(Image.open(io.BytesIO(pix.tobytes("png"))).convert('RGB'))
+            doc = fitz.open(file_path)
+            for i in range(len(doc)):
+                pix = doc[i].get_pixmap(dpi=150)
+                images_to_process.append(Image.open(io.BytesIO(pix.tobytes("png"))).convert('RGB'))
         else:
             images_to_process.append(Image.open(file_path).convert('RGB'))
 
-        for page_index, img in enumerate(images_to_process):
-            if update_status:
-                update_status(f"🚀 AI 版面分析与 OCR 提取中: 第 {page_index+1}/{len(images_to_process)} 页...")
+        try:
+            for page_index, img in enumerate(images_to_process):
+                if update_status:
+                    update_status(f"🚀 AI 版面分析与 OCR 提取中: 第 {page_index+1}/{len(images_to_process)} 页...")
 
-            blocks = p2t_engine.recognize(img, return_text=False)
-            if hasattr(blocks, 'blocks'): blocks = blocks.blocks
-            elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
+                blocks = p2t_engine.recognize(img, return_text=False)
+                if hasattr(blocks, 'blocks'): blocks = blocks.blocks
+                elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
 
-            # Create a copy of the image to draw layout bounding boxes
-            annotated_img = img.copy()
-            draw = ImageDraw.Draw(annotated_img)
+                annotated_img = img.copy()
+                draw = ImageDraw.Draw(annotated_img)
 
-            colors = {
-                'text': 'red',
-                'title': 'red',
-                'figure': 'green',
-                'table': 'blue',
-                'equation': 'purple',
-                'isolated_equation': 'purple',
-                'formula': 'purple'
-            }
+                colors = {
+                    'text': 'red', 'title': 'red', 'figure': 'green', 'table': 'blue',
+                    'equation': 'purple', 'isolated_equation': 'purple', 'formula': 'purple'
+                }
 
-            # Draw bounding boxes
-            for block in blocks:
-                b_type = block.get('type', 'text').lower()
-                b_box = block.get('position', None)
-                if b_box is not None:
-                    try:
-                        box_arr = np.array(b_box).reshape(-1, 2)
-                        x_min, y_min = np.min(box_arr, axis=0)
-                        x_max, y_max = np.max(box_arr, axis=0)
-                        color = colors.get(b_type, 'orange')
-                        draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=2)
-                        draw.text((x_min, max(0, y_min - 12)), b_type, fill=color)
-                    except Exception:
-                        pass
-
-            # Convert annotated image to base64
-            buf_anno = io.BytesIO()
-            annotated_img.save(buf_anno, format='PNG')
-            page_annotated_b64 = base64.b64encode(buf_anno.getvalue()).decode('utf-8')
-
-            current_text_chunk = []
-            current_boxes = [] # 用于记录这一批文字的坐标
-            current_diagram = None
-
-            def package_current_slice():
-                nonlocal current_text_chunk, current_boxes, current_diagram
-                if not current_text_chunk and not current_diagram:
-                    return
-
-                # 计算这段文字所在图像的包围盒，并截图 (用于视觉AI对齐)
-                chunk_img_b64 = ""
-                if current_boxes:
-                    try:
-                        all_pts = np.vstack(current_boxes)
-                        x_min, y_min = np.min(all_pts, axis=0)
-                        x_max, y_max = np.max(all_pts, axis=0)
-                        cropped = img.crop((max(0, int(x_min)-5), max(0, int(y_min)-5), min(img.width, int(x_max)+5), min(img.height, int(y_max)+5)))
-                        buf = io.BytesIO()
-                        cropped.save(buf, format='PNG')
-                        chunk_img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-                    except Exception:
-                        pass
-
-                pending_slices.append({
-                    "text": "\n".join(current_text_chunk),
-                    "image_b64": chunk_img_b64,
-                    "diagram": current_diagram,
-                    "page_annotated_b64": page_annotated_b64
-                })
-                current_text_chunk = []
-                current_boxes = []
-                current_diagram = None
-
-            for block in blocks:
-                b_type = block.get('type', 'text').lower()
-                b_text = block.get('text', '').replace('\n', '')
-                b_box = block.get('position', None)
-
-                if b_type in ['figure', 'table']:
+                for block in blocks:
+                    b_type = block.get('type', 'text').lower()
+                    b_box = block.get('position', None)
                     if b_box is not None:
                         try:
                             box_arr = np.array(b_box).reshape(-1, 2)
                             x_min, y_min = np.min(box_arr, axis=0)
                             x_max, y_max = np.max(box_arr, axis=0)
+                            color = colors.get(b_type, 'orange')
+                            draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=2)
+                            draw.text((x_min, max(0, y_min - 12)), b_type, fill=color)
+                        except Exception:
+                            pass
+
+                buf_anno = io.BytesIO()
+                annotated_img.save(buf_anno, format='PNG')
+                page_annotated_b64 = base64.b64encode(buf_anno.getvalue()).decode('utf-8')
+
+                current_text_chunk = []
+                current_boxes = []
+                current_diagram = None
+
+                def package_current_slice():
+                    nonlocal current_text_chunk, current_boxes, current_diagram
+                    if not current_text_chunk and not current_diagram:
+                        return
+
+                    chunk_img_b64 = ""
+                    if current_boxes:
+                        try:
+                            all_pts = np.vstack(current_boxes)
+                            x_min, y_min = np.min(all_pts, axis=0)
+                            x_max, y_max = np.max(all_pts, axis=0)
                             cropped = img.crop((max(0, int(x_min)-5), max(0, int(y_min)-5), min(img.width, int(x_max)+5), min(img.height, int(y_max)+5)))
                             buf = io.BytesIO()
                             cropped.save(buf, format='PNG')
-                            new_diagram = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-                            package_current_slice() # 遇到图，先把前面的字打包
-                            current_diagram = new_diagram # 暂存这张图分配给接下来的字
+                            chunk_img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
                         except Exception:
                             pass
-                else:
-                    if b_text.strip():
-                        current_text_chunk.append(b_text)
+
+                    slice_obj = {
+                        "text": '''
+'''.join(current_text_chunk),
+                        "image_b64": chunk_img_b64,
+                        "diagram": current_diagram,
+                        "page_annotated_b64": page_annotated_b64
+                    }
+                    pending_slices.append(slice_obj)
+                    if on_slice_ready:
+                        on_slice_ready(slice_obj)
+
+                    current_text_chunk = []
+                    current_boxes = []
+                    current_diagram = None
+
+                for block in blocks:
+                    b_type = block.get('type', 'text').lower()
+                    b_text = block.get('text', '').replace('\n', '')
+                    b_box = block.get('position', None)
+
+                    if b_type in ['figure', 'table']:
                         if b_box is not None:
                             try:
-                                b_box_arr = np.array(b_box)
-                                if b_box_arr.size > 0 and b_box_arr.size % 2 == 0:
-                                    current_boxes.append(b_box_arr.reshape(-1, 2))
+                                box_arr = np.array(b_box).reshape(-1, 2)
+                                x_min, y_min = np.min(box_arr, axis=0)
+                                x_max, y_max = np.max(box_arr, axis=0)
+                                cropped = img.crop((max(0, int(x_min)-5), max(0, int(y_min)-5), min(img.width, int(x_max)+5), min(img.height, int(y_max)+5)))
+                                buf = io.BytesIO()
+                                cropped.save(buf, format='PNG')
+                                new_diagram = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+                                package_current_slice()
+                                current_diagram = new_diagram
                             except Exception:
                                 pass
+                    else:
+                        if b_text.strip():
+                            current_text_chunk.append(b_text)
+                            if b_box is not None:
+                                try:
+                                    b_box_arr = np.array(b_box)
+                                    if b_box_arr.size > 0 and b_box_arr.size % 2 == 0:
+                                        current_boxes.append(b_box_arr.reshape(-1, 2))
+                                except Exception:
+                                    pass
 
-            # 页面结束打包剩余
-            package_current_slice()
+                package_current_slice()
+
+                annotated_img.close()
+                img.close()
+
+        finally:
+            if doc:
+                doc.close()
+            images_to_process.clear()
 
         return pending_slices
 
@@ -151,7 +156,7 @@ class DocumentService:
             if element.tag.endswith('p'):
                 para = docx.text.paragraph.Paragraph(element, doc)
                 if para.text.strip():
-                    current_text.append(para.text.replace('\n', ' '))
+                    current_text.append(para.text.replace("\\n", ' '))
             elif element.tag.endswith('tbl'):
                 # Handle tables - extract all text from all cells
                 for row in element.findall('.//w:tr', namespaces=element.nsmap):
@@ -189,7 +194,7 @@ class DocumentService:
             if len(current_text) >= 5 or current_images:
                 # Flush the main chunk with the first image if any
                 chunks.append({
-                    "text": "\n".join(current_text),
+                    "text": '\\n'.join(current_text),
                     "image_b64": "",
                     "diagram": current_images[0] if current_images else None
                 })
@@ -208,7 +213,7 @@ class DocumentService:
         # Flush remaining
         if current_text or current_images:
             chunks.append({
-                "text": "\n".join(current_text) if current_text else "",
+                "text": '\\n'.join(current_text) if current_text else "",
                 "image_b64": "",
                 "diagram": current_images[0] if current_images else None
             })
@@ -223,8 +228,8 @@ class DocumentService:
 
         # Fallback if XML parsing missed things but standard paragraphs exist
         if not chunks:
-            full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            full_text = '\\n'.join([p.text for p in doc.paragraphs if p.text.strip()])
             text_chunks = [chunk for chunk in full_text.split('\n\n') if chunk.strip()]
-            chunks = [{"text": t.replace('\n', ' '), "image_b64": "", "diagram": None} for t in text_chunks]
+            chunks = [{"text": t.replace("\\n", ' '), "image_b64": "", "diagram": None} for t in text_chunks]
 
         return chunks

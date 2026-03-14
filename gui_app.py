@@ -1,3 +1,4 @@
+import gc
 # gui_app.py
 import os
 import io
@@ -229,21 +230,36 @@ class SmartQBApp(tk.Tk):
         pending_slices = []
         mode = self.settings.recognition_mode
 
+        def handle_slice_ready(s):
+            if mode == 1:
+                # 模式 1: 仅 OCR，边提取边显示
+                self.staging_questions.append({
+                    "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                })
+                self.after(0, self.refresh_staging_tree)
+            else:
+                # 模式 2/3: 也先显示为本地OCR，待之后AI处理替换
+                self.staging_questions.append({
+                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                })
+                self.after(0, self.refresh_staging_tree)
+
         try:
             if file_type in ["pdf", "image"]:
+                # 在提取前清空 staging
+                self.staging_questions.clear()
+                self.after(0, self.refresh_staging_tree)
+
                 pending_slices = DocumentService.process_doc_with_layout(
-                    file_path, file_type, self.ocr_engine, self.update_status
+                    file_path, file_type, self.ocr_engine, self.update_status, handle_slice_ready
                 )
             elif file_type == "word":
+                self.staging_questions.clear()
                 pending_slices = DocumentService.extract_from_word(file_path)
+                for s in pending_slices:
+                    handle_slice_ready(s)
 
             if mode == 1:
-                # 模式 1: 仅 OCR，不走 AI
-                for s in pending_slices:
-                    self.staging_questions.append({
-                        "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64")
-                    })
-                self.after(0, self.refresh_staging_tree)
                 self.update_status("✅ 本地提取完毕！(未调用 AI)")
                 return
 
@@ -256,6 +272,10 @@ class SmartQBApp(tk.Tk):
             return
 
         # 模式 2 & 3 的核心处理循环
+        # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
+        self.staging_questions.clear()
+        self.after(0, self.refresh_staging_tree)
+
         use_vision = (mode == 3 and file_type != "word")
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
 
@@ -357,7 +377,6 @@ class SmartQBApp(tk.Tk):
             self.after(0, self.refresh_staging_tree)
 
         self.update_status("✅ 文件全部处理并关联合并完毕！")
-
     def update_status(self, text):
         self.after(0, lambda: self.lbl_import_status.config(text=text))
 
@@ -456,12 +475,20 @@ class SmartQBApp(tk.Tk):
             # Delete in reverse order to keep indices valid
             indices = sorted([int(s) for s in sel], reverse=True)
             for idx in indices:
-                self.staging_questions.pop(idx)
+                item = self.staging_questions.pop(idx)
+                # Cleanup heavy images
+                item.pop('diagram', None)
+                item.pop('image_b64', None)
+                item.pop('page_annotated_b64', None)
             self.refresh_staging_tree()
             self.txt_stg_content.delete("1.0", tk.END)
             self.ent_stg_tags.delete(0, tk.END)
             if hasattr(self, 'lbl_vector_info'):
                 self.lbl_vector_info.config(text="未生成向量")
+            self.lbl_stg_diagram.config(image='', text="图样显示区")
+            if hasattr(self.lbl_stg_diagram, 'image'):
+                del self.lbl_stg_diagram.image
+            gc.collect()
 
     def apply_batch_tags(self):
         batch_tag = self.ent_batch_tag.get().strip()
@@ -487,10 +514,22 @@ class SmartQBApp(tk.Tk):
                 c.execute("SELECT id FROM tags WHERE name=?", (t,))
                 t_id = c.fetchone()[0]
                 c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
+
+            q.pop('diagram', None)
+            q.pop('image_b64', None)
+            q.pop('page_annotated_b64', None)
+
         conn.commit(); conn.close()
 
         self.staging_questions.clear()
         self.refresh_staging_tree()
+        self.txt_stg_content.delete("1.0", tk.END)
+        self.ent_stg_tags.delete(0, tk.END)
+        self.lbl_stg_diagram.config(image='', text="图样显示区")
+        if hasattr(self.lbl_stg_diagram, 'image'):
+            del self.lbl_stg_diagram.image
+        gc.collect()
+
         self.update_status("入库成功！您可以前往题库查看。")
         messagebox.showinfo("成功", "已全部保存至题库！")
 
@@ -991,7 +1030,15 @@ class SmartQBApp(tk.Tk):
         container = ttk.Frame(self.tab_settings)
         container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
 
-        ttk.Label(container, text="API Key:").pack(anchor=tk.W, pady=5)
+        provider_frame = ttk.Frame(container)
+        provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
+        ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
+        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
+        self.cbo_provider.current(0)
+        self.cbo_provider.pack(side=tk.LEFT, padx=10)
+        self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
+
+        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
         self.ent_api = ttk.Entry(container, width=50, show="*")
         self.ent_api.insert(0, self.settings.api_key)
         self.ent_api.pack(anchor=tk.W)
@@ -1006,7 +1053,7 @@ class SmartQBApp(tk.Tk):
         self.ent_model.insert(0, self.settings.model_id)
         self.ent_model.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding API Key:").pack(anchor=tk.W, pady=(15, 5))
+        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_api = ttk.Entry(container, width=50, show="*")
         self.ent_embed_api.insert(0, self.settings.embed_api_key)
         self.ent_embed_api.pack(anchor=tk.W)
@@ -1039,7 +1086,36 @@ class SmartQBApp(tk.Tk):
         self.ent_prm_batch.pack(side=tk.LEFT)
 
         ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
-
+    def on_provider_changed(self, event):
+        provider = self.cbo_provider.get()
+        if provider == "DeepSeek":
+            self.ent_base.delete(0, tk.END)
+            self.ent_base.insert(0, "https://api.deepseek.com")
+            self.ent_model.delete(0, tk.END)
+            self.ent_model.insert(0, "deepseek-chat")
+        elif provider == "Kimi":
+            self.ent_base.delete(0, tk.END)
+            self.ent_base.insert(0, "https://api.moonshot.cn/v1")
+            self.ent_model.delete(0, tk.END)
+            self.ent_model.insert(0, "kimi-k2.5")
+        elif provider == "GLM (智谱)":
+            self.ent_base.delete(0, tk.END)
+            self.ent_base.insert(0, "https://open.bigmodel.cn/api/paas/v4/")
+            self.ent_model.delete(0, tk.END)
+            self.ent_model.insert(0, "glm-4-plus-0326")
+            self.ent_embed_base.delete(0, tk.END)
+            self.ent_embed_base.insert(0, "https://open.bigmodel.cn/api/paas/v4/")
+            self.ent_embed_model.delete(0, tk.END)
+            self.ent_embed_model.insert(0, "embedding-3")
+        elif provider == "SiliconFlow (硅基)":
+            self.ent_base.delete(0, tk.END)
+            self.ent_base.insert(0, "https://api.siliconflow.cn/v1")
+            self.ent_model.delete(0, tk.END)
+            self.ent_model.insert(0, "deepseek-ai/DeepSeek-V3.2")
+            self.ent_embed_base.delete(0, tk.END)
+            self.ent_embed_base.insert(0, "https://api.siliconflow.cn/v1")
+            self.ent_embed_model.delete(0, tk.END)
+            self.ent_embed_model.insert(0, "BAAI/bge-m3")
     def save_settings(self):
         self.settings.api_key = self.ent_api.get().strip()
         self.settings.base_url = self.ent_base.get().strip()
