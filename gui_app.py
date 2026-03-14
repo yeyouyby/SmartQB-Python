@@ -243,24 +243,23 @@ class SmartQBApp(tk.Tk):
                 self.staging_questions.append(item)
                 self.refresh_staging_tree()
             self.after(0, _append_and_refresh)
-            else:
-                # 模式 2/3: 也先显示为本地OCR，待之后AI处理替换
-                self.staging_questions.append({
-                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
-                })
-                self.after(0, self.refresh_staging_tree)
 
         try:
             if file_type in ["pdf", "image"]:
                 # 在提取前清空 staging
-                self.staging_questions.clear()
-                self.after(0, self.refresh_staging_tree)
+                def _clear_stg():
+                    self.staging_questions.clear()
+                    self.refresh_staging_tree()
+                self.after(0, _clear_stg)
 
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type, self.ocr_engine, self.update_status, handle_slice_ready
                 )
             elif file_type == "word":
-                self.staging_questions.clear()
+                def _clear_word():
+                    self.staging_questions.clear()
+                    self.refresh_staging_tree()
+                self.after(0, _clear_word)
                 pending_slices = DocumentService.extract_from_word(file_path)
                 for s in pending_slices:
                     handle_slice_ready(s)
@@ -279,8 +278,10 @@ class SmartQBApp(tk.Tk):
 
         # 模式 2 & 3 的核心处理循环
         # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
-        self.staging_questions.clear()
-        self.after(0, self.refresh_staging_tree)
+        def _clear_pre_ai():
+            self.staging_questions.clear()
+            self.refresh_staging_tree()
+        self.after(0, _clear_pre_ai)
 
         use_vision = (mode == 3 and file_type != "word")
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1

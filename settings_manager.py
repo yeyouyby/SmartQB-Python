@@ -30,7 +30,7 @@ class SettingsManager:
 
         self.load()
 
-    def load(self):
+    def load(self, allow_plaintext_fallback=True):
         # Load standard settings from JSON
         if os.path.exists(SETTINGS_FILE):
             try:
@@ -47,51 +47,58 @@ class SettingsManager:
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
 
-                # Fallback for plain text keys if keyring fails or is not populated
-                self.api_key = d.get("api_key", "")
-                self.embed_api_key = d.get("embed_api_key", "")
+                if allow_plaintext_fallback:
+                    self.api_key = d.get("api_key", "")
+                    self.embed_api_key = d.get("embed_api_key", "")
 
             except (OSError, json.JSONDecodeError):
                 pass
 
-        # Try to load API keys securely from Keyring
-        try:
-            secure_api_key = keyring.get_password(self.keyring_service_name, self.keyring_username_api)
-            if secure_api_key:
-                self.api_key = secure_api_key
+        if keyring is not None:
+            try:
+                secure_api_key = keyring.get_password(self.keyring_service_name, self.keyring_username_api)
+                if secure_api_key:
+                    self.api_key = secure_api_key
 
-            secure_embed_key = keyring.get_password(self.keyring_service_name, self.keyring_username_embed)
-            if secure_embed_key:
-                self.embed_api_key = secure_embed_key
-        except Exception as e:
-            # Silently fallback
-            pass
+                secure_embed_key = keyring.get_password(self.keyring_service_name, self.keyring_username_embed)
+                if secure_embed_key:
+                    self.embed_api_key = secure_embed_key
+            except Exception as e:
+                import logging
+                logging.warning(f"Failed to load keys from keyring: {e}")
+                # We do not swallow error if the caller prefers strict keyring failure
+                if not allow_plaintext_fallback:
+                    raise
 
-    def save(self):
-        # Try keyring first, if fails we must save to JSON
+    def save(self, allow_plaintext_fallback=False):
         keyring_success = False
-        try:
-            if keyring is None:
-                raise Exception("Keyring module not available")
+        if keyring is not None:
+            try:
+                if self.api_key:
+                    keyring.set_password(self.keyring_service_name, self.keyring_username_api, self.api_key)
+                else:
+                    keyring.delete_password(self.keyring_service_name, self.keyring_username_api)
+            except keyring.errors.PasswordDeleteError:
+                pass
+            except Exception as e:
+                import logging
+                logging.warning(f"Keyring save api_key failed: {e}")
+                if not allow_plaintext_fallback: raise
 
-            if self.api_key:
-                keyring.set_password(self.keyring_service_name, self.keyring_username_api, self.api_key)
-            else:
-                try: keyring.delete_password(self.keyring_service_name, self.keyring_username_api)
-                except Exception: pass
-
-            if self.embed_api_key:
-                keyring.set_password(self.keyring_service_name, self.keyring_username_embed, self.embed_api_key)
-            else:
-                try: keyring.delete_password(self.keyring_service_name, self.keyring_username_embed)
-                except Exception: pass
+            try:
+                if self.embed_api_key:
+                    keyring.set_password(self.keyring_service_name, self.keyring_username_embed, self.embed_api_key)
+                else:
+                    keyring.delete_password(self.keyring_service_name, self.keyring_username_embed)
+            except keyring.errors.PasswordDeleteError:
+                pass
+            except Exception as e:
+                import logging
+                logging.warning(f"Keyring save embed_api_key failed: {e}")
+                if not allow_plaintext_fallback: raise
 
             keyring_success = True
-        except Exception as e:
-            import logging
-            logging.warning(f"Keyring save failed, falling back to JSON: {e}")
 
-        # Save standard settings
         tmp_file = f"{SETTINGS_FILE}.tmp"
         try:
             payload = {
@@ -103,8 +110,7 @@ class SettingsManager:
                 "use_prm_optimization": self.use_prm_optimization,
                 "prm_batch_size": self.prm_batch_size
             }
-            if not keyring_success:
-                # Fallback to plain text save if keyring is unavailable
+            if not keyring_success and allow_plaintext_fallback:
                 payload["api_key"] = self.api_key
                 payload["embed_api_key"] = self.embed_api_key
 

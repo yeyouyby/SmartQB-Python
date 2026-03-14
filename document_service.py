@@ -91,8 +91,7 @@ class DocumentService:
                                 pass
 
                         slice_obj = {
-                            "text": '
-'.join(current_text_chunk),
+                            "text": "\n".join(current_text_chunk),
                             "image_b64": chunk_img_b64,
                             "diagram": current_diagram,
                             "page_annotated_b64": page_annotated_b64
@@ -110,8 +109,7 @@ class DocumentService:
 
                     for block in blocks:
                         b_type = block.get('type', 'text').lower()
-                        b_text = block.get('text', '').replace('
-', '')
+                        b_text = block.get('text', '').replace('\n', '')
                         b_box = block.get('position', None)
 
                         if b_type in ['figure', 'table']:
