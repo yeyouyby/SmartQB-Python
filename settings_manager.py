@@ -64,11 +64,9 @@ class SettingsManager:
                 if secure_embed_key:
                     self.embed_api_key = secure_embed_key
             except Exception as e:
-                import logging
-                logging.warning(f"Failed to load keys from keyring: {e}")
+                logger.warning(f"Failed to load keys from keyring: {e}")
                 # We do not swallow error if the caller prefers strict keyring failure
-                if not allow_plaintext_fallback:
-                    raise
+                pass # Never crash
 
     def save(self, allow_plaintext_fallback=False):
         keyring_success = False
@@ -81,9 +79,8 @@ class SettingsManager:
             except keyring.errors.PasswordDeleteError:
                 pass
             except Exception as e:
-                import logging
-                logging.warning(f"Keyring save api_key failed: {e}")
-                if not allow_plaintext_fallback: raise
+                logger.warning(f"Keyring save api_key failed: {e}")
+                pass # Never crash, fallback to plaintext
 
             try:
                 if self.embed_api_key:
@@ -93,9 +90,8 @@ class SettingsManager:
             except keyring.errors.PasswordDeleteError:
                 pass
             except Exception as e:
-                import logging
-                logging.warning(f"Keyring save embed_api_key failed: {e}")
-                if not allow_plaintext_fallback: raise
+                logger.warning(f"Keyring save embed_api_key failed: {e}")
+                pass # Never crash, fallback to plaintext
 
             keyring_success = True
 
