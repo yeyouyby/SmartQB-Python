@@ -887,7 +887,7 @@ class SmartQBApp(tk.Tk):
         self.settings.use_prm_optimization = self.var_use_prm.get()
         try:
             self.settings.prm_batch_size = int(self.ent_prm_batch.get())
-        except:
+        except Exception:
             self.settings.prm_batch_size = 3
         self.settings.save()
 

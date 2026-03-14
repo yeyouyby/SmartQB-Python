@@ -56,7 +56,7 @@ class DocumentService:
                         buf = io.BytesIO()
                         cropped.save(buf, format='PNG')
                         chunk_img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-                    except:
+                    except Exception:
                         pass
 
                 pending_slices.append({
@@ -86,7 +86,7 @@ class DocumentService:
 
                             package_current_slice() # 遇到图，先把前面的字打包
                             current_diagram = new_diagram # 暂存这张图分配给接下来的字
-                        except:
+                        except Exception:
                             pass
                 else:
                     if b_text.strip():
