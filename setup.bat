@@ -86,7 +86,7 @@ python -m pip install --upgrade pip >nul 2>&1
 
 :: 4. Direct Install Dependencies
 echo [4/6] Downloading and installing Python dependencies...
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 goto PipFailed
 
 :: 5. Pre-download Pix2Text AI Models (动态生成一次性脚本并阅后即焚)
