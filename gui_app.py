@@ -1054,6 +1054,33 @@ class SmartQBApp(tk.Tk):
     # ------------------------------------------
     # Settings View
     # ------------------------------------------
+    def save_settings(self):
+        self.settings.api_key = self.ent_api.get().strip()
+        self.settings.base_url = self.ent_base.get().strip()
+        self.settings.model_id = self.ent_model.get().strip()
+
+        self.settings.embed_api_key = self.ent_embed_api.get().strip()
+        self.settings.embed_base_url = self.ent_embed_base.get().strip()
+        self.settings.embed_model_id = self.ent_embed_model.get().strip()
+
+        self.settings.recognition_mode = self.var_rec_mode.get()
+        self.settings.use_prm_optimization = self.var_use_prm.get()
+        try:
+            self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
+        except ValueError:
+            self.settings.prm_batch_size = 3
+            self.ent_prm_batch.set(self.settings.prm_batch_size)
+            messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
+
+        try:
+            self.settings.save()
+            # Also update AI Service instance settings
+            self.ai_service.settings = self.settings
+            messagebox.showinfo("成功", "设置保存成功！")
+        except Exception as e:
+            print(f"Save settings failed: {e}")
+            messagebox.showerror("错误", f"保存设置时发生异常:\n{e}")
+
     def build_settings_tab(self):
         container = ttk.Frame(self.tab_settings)
         container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
