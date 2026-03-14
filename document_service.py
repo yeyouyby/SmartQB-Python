@@ -199,6 +199,7 @@ class DocumentService:
                 elif element.tag.endswith("tbl"):
                     table = docx.table.Table(element, doc)
                     for i, row in enumerate(table.rows):
+                        row_data = [cell.text.strip().replace("\\n", " ") for cell in row.cells]
                         if row_data:
                             current_text.append("| " + " | ".join(row_data) + " |")
                             if i == 0:
