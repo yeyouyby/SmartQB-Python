@@ -2,6 +2,7 @@ import gc
 # gui_app.py
 import os
 import io
+import re
 import json
 import sqlite3
 import threading
