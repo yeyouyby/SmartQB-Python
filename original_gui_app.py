@@ -831,7 +831,7 @@ class SmartQBApp(tk.Tk):
                     if self.ask_api_retry_sync(str(e)):
                         continue
                     else:
-                        self.after(0, lambda: self.lbl_manual_status.config(text=f"AI 处理已取消。"))
+                        self.after(0, lambda: self.lbl_manual_status.config(text="AI 处理已取消。"))
                         break
         threading.Thread(target=task, daemon=True).start()
 
