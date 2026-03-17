@@ -3,6 +3,7 @@ import json
 import re
 import base64
 from openai import OpenAI
+from utils import logger
 
 # ==========================================
 # AI 服务与纠错闭环
@@ -174,9 +175,9 @@ class AIService:
                 response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            return data.get("merged_content", "")
+            merged_content = data.get("merged_content", "")
+            return merged_content if isinstance(merged_content, str) else ""
         except Exception as e:
-            from utils import logger
             logger.error(f"Merge error: {e}")
             return ""
 
@@ -204,14 +205,16 @@ class AIService:
                 response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            return data.get("split_questions", [])
+            split_questions = data.get("split_questions", [])
+            if not isinstance(split_questions, list):
+                return []
+            return [q for q in split_questions if isinstance(q, str)]
         except Exception as e:
-            from utils import logger
             logger.error(f"Split error: {e}")
             return []
 
     def ai_format_question(self, text_to_format):
-        prompt = '''你是一个专业的试卷排版与排版助手。
+        prompt = '''你是一个专业的试卷排版与解析助手。
 请对以下题目进行格式化修正：
 要求：
 1. 规范题干、选项、答案、解析的层级与换行。
@@ -236,9 +239,9 @@ class AIService:
                 response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            return data.get("formatted_content", "")
+            formatted_content = data.get("formatted_content", "")
+            return formatted_content if isinstance(formatted_content, str) else ""
         except Exception as e:
-            from utils import logger
             logger.error(f"Format error: {e}")
             return ""
 
@@ -269,7 +272,6 @@ class AIService:
             data = self._parse_json(res.choices[0].message.content)
             return data.get("fixed_content", "")
         except Exception as e:
-            from utils import logger
             logger.error(f"LaTeX fix error: {e}")
             return ""
 
