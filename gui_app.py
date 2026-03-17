@@ -3,7 +3,6 @@ import gc
 import os
 import io
 import json
-import sqlite3
 import threading
 import base64
 import subprocess
@@ -873,8 +872,8 @@ class SmartQBApp(tk.Tk):
         def bg_save():
             conn = None
             try:
-                conn = sqlite3.connect(DB_NAME); c = conn.cursor()
-
+                from db_adapter import LanceDBAdapter
+                db = LanceDBAdapter()
                 # Invalidate cached vector if user edited the content after AI generation
                 vec = self.manual_vector
                 if hasattr(self, 'manual_vector_text_hash') and self.manual_vector_text_hash != hash(content):
@@ -883,17 +882,11 @@ class SmartQBApp(tk.Tk):
                 if not vec:
                     vec = self.ai_service.get_embedding(content)
 
-                c.execute("INSERT INTO questions (content, embedding_json, diagram_base64) VALUES (?, ?, ?)",
-                          (content, json.dumps(vec) if vec else None, self.manual_diagram_b64))
-                q_id = c.lastrowid
+                q_id = db.execute_insert_question(content, "", vec if vec else None, self.manual_diagram_b64)
+
                 for t in tags:
-                    c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
-                    c.execute("SELECT id FROM tags WHERE name=?", (t,))
-                    row = c.fetchone()
-                    if row:
-                        t_id = row[0]
-                        c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
-                conn.commit()
+                    t_id = db.execute_insert_tag(t)
+                    db.execute_insert_question_tag(q_id, t_id)
 
                 def on_saved():
                     self.txt_manual.delete("1.0", tk.END)
@@ -915,8 +908,6 @@ class SmartQBApp(tk.Tk):
                     messagebox.showerror("错误", f"保存入库时发生异常:\n{err_msg}")
                 self.after(0, on_error)
             finally:
-                if conn:
-                    conn.close()
                 self.after(0, lambda: setattr(self, "_manual_save_inflight", False))
 
             if getattr(self, "_manual_save_inflight", False):
