@@ -142,6 +142,13 @@ class SmartQBApp(tk.Tk):
 
         ttk.Button(left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item).pack(fill=tk.X, pady=2)
 
+        # New AI Actions
+        ai_frame = ttk.LabelFrame(left_frame, text="AI 题目整理 (二次处理)")
+        ai_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(ai_frame, text="🔗 合并选中项", command=self.merge_staging_items).pack(fill=tk.X, pady=2)
+        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(fill=tk.X, pady=2)
+        ttk.Button(ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item).pack(fill=tk.X, pady=2)
+
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=2)
 
@@ -476,6 +483,120 @@ class SmartQBApp(tk.Tk):
 
         threading.Thread(target=task, daemon=True).start()
 
+
+    def merge_staging_items(self):
+        sel = self.tree_staging.selection()
+        if len(sel) < 2:
+            messagebox.showinfo("提示", "请按住 Ctrl/Cmd 选择至少两道相邻的题目进行合并。")
+            return
+
+        indices = sorted([int(s) for s in sel])
+        texts_to_merge = [self.staging_questions[idx]["content"] for idx in indices]
+
+        self.update_status(f"🚀 AI 正在合并 {len(indices)} 道题目...")
+        import threading
+
+        def task():
+            merged = self.ai_service.ai_merge_questions(texts_to_merge)
+            if not merged:
+                self.root.after(0, lambda: messagebox.showerror("错误", "合并失败，AI 未返回有效内容。"))
+                self.root.after(0, lambda: self.update_status("合并失败"))
+                return
+
+            def update_ui():
+                first_idx = indices[0]
+                self.staging_questions[first_idx]["content"] = merged
+                # Merge tags as well
+                merged_tags = set(self.staging_questions[first_idx].get("tags", []))
+                for idx in indices[1:]:
+                    merged_tags.update(self.staging_questions[idx].get("tags", []))
+                self.staging_questions[first_idx]["tags"] = list(merged_tags)
+
+                for idx in reversed(indices[1:]):
+                    self.staging_questions.pop(idx)
+
+                self.refresh_staging_tree()
+                self.update_status("✅ AI 合并完成")
+                # Attempt to select the merged item safely
+                try:
+                    self.tree_staging.selection_set(str(first_idx))
+                    self.on_staging_select(None)
+                except Exception:
+                    pass
+
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=task).start()
+
+    def split_staging_item(self):
+        sel = self.tree_staging.selection()
+        if len(sel) != 1:
+            messagebox.showinfo("提示", "请选择且仅选择一道需要拆分的复杂题目。")
+            return
+
+        idx = int(sel[0])
+        q = self.staging_questions[idx]
+        text_to_split = q["content"]
+
+        self.update_status("🚀 AI 正在尝试拆分题目...")
+        import threading
+
+        def task():
+            splits = self.ai_service.ai_split_question(text_to_split)
+            if not splits or len(splits) <= 1:
+                self.root.after(0, lambda: messagebox.showerror("提示", "拆分失败或未发现可拆分的子题。"))
+                self.root.after(0, lambda: self.update_status("拆分无效"))
+                return
+
+            def update_ui():
+                self.staging_questions[idx]["content"] = splits[0]
+
+                for i, split_text in enumerate(splits[1:]):
+                    new_q = self.staging_questions[idx].copy() # Ensure deepcopy or dict copy
+                    new_q["content"] = split_text
+                    # Avoid sharing the exact same list of tags in memory
+                    new_q["tags"] = list(new_q.get("tags", []))
+                    self.staging_questions.insert(idx + 1 + i, new_q)
+
+                self.refresh_staging_tree()
+                self.update_status(f"✅ AI 成功拆分出 {len(splits)} 道题")
+
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=task).start()
+
+    def format_staging_item(self):
+        sel = self.tree_staging.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请选择需要重新排版的题目。")
+            return
+
+        idx = int(sel[0])
+        q = self.staging_questions[idx]
+        text_to_format = self.txt_stg_content.get("1.0", tk.END).strip()
+        if not text_to_format: return
+
+        self.update_status("🚀 AI 正在重新排版格式化题目...")
+        import threading
+
+        def task():
+            formatted = self.ai_service.ai_format_question(text_to_format)
+            if not formatted:
+                self.root.after(0, lambda: messagebox.showerror("错误", "格式化失败。"))
+                self.root.after(0, lambda: self.update_status("格式化失败"))
+                return
+
+            def update_ui():
+                self.staging_questions[idx]["content"] = formatted
+                self.txt_stg_content.delete("1.0", tk.END)
+                self.txt_stg_content.insert("1.0", formatted)
+                self.refresh_staging_tree()
+                self.update_status("✅ 重新排版完成")
+
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=task).start()
+
     def update_stg_item(self):
         sel = self.tree_staging.selection()
         if not sel: return
@@ -516,39 +637,111 @@ class SmartQBApp(tk.Tk):
 
     def save_staging_to_db(self):
         if not self.staging_questions: return
-        self.update_status("正在生成向量并保存入库...")
-        self.update()
+        self.update_status("正在检查 LaTeX 编译并准备入库...")
 
-        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
-        for q in self.staging_questions:
-            vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
-            c.execute("INSERT INTO questions (content, logic_descriptor, embedding_json, diagram_base64) VALUES (?, ?, ?, ?)",
-                      (q["content"], q["logic"], json.dumps(vec) if vec else None, q["diagram"]))
-            q_id = c.lastrowid
-            for t in q["tags"]:
-                c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
-                c.execute("SELECT id FROM tags WHERE name=?", (t,))
-                t_id = c.fetchone()[0]
-                c.execute("INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (?, ?)", (q_id, t_id))
+        # We need to run this in background thread because compilation takes time
+        import threading
 
-        conn.commit(); conn.close()
+        def task():
+            from utils import logger
+            import tempfile, os, subprocess
+            from db_adapter import LanceDBAdapter
 
-        for q in self.staging_questions:
-            q.pop('diagram', None)
-            q.pop('image_b64', None)
-            q.pop('page_annotated_b64', None)
+            failed_indices = []
+            successful_questions = []
 
-        self.staging_questions.clear()
-        self.refresh_staging_tree()
-        self.txt_stg_content.delete("1.0", tk.END)
-        self.ent_stg_tags.delete(0, tk.END)
-        self.lbl_stg_diagram.config(image='', text="图样显示区")
-        if hasattr(self.lbl_stg_diagram, 'image'):
-            del self.lbl_stg_diagram.image
-        gc.collect()
+            # 1. LaTeX check & Auto Fix
+            for idx, q in enumerate(self.staging_questions):
+                self.root.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
 
-        self.update_status("入库成功！您可以前往题库查看。")
-        messagebox.showinfo("成功", "已全部保存至题库！")
+                content_text = q["content"]
+
+                # Create a minimal tex document to test compilation
+                tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
+
+                def test_compile(code):
+                    with tempfile.TemporaryDirectory() as td:
+                        tex_file = os.path.join(td, "test.tex")
+                        with open(tex_file, "w", encoding="utf-8") as f_tex:
+                            f_tex.write(code)
+                        try:
+                            res = subprocess.run(["xelatex", "-interaction=nonstopmode", "test.tex"],
+                                                 cwd=td, capture_output=True, text=True, timeout=15)
+                            if res.returncode == 0:
+                                return True, ""
+                            else:
+                                return False, res.stdout
+                        except Exception as e:
+                            return False, str(e)
+
+                success, err_msg = test_compile(tex_code)
+
+                if not success:
+                    self.root.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
+                    fixed_content = self.ai_service.ai_fix_latex(content_text, err_msg)
+                    if fixed_content:
+                        # Test again
+                        new_tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{fixed_content}\n\\end{{document}}'''
+                        success2, err_msg2 = test_compile(new_tex_code)
+                        if success2:
+                            q["content"] = fixed_content # accept fix
+                            successful_questions.append((idx, q))
+                        else:
+                            failed_indices.append(idx)
+                    else:
+                        failed_indices.append(idx)
+                else:
+                    successful_questions.append((idx, q))
+
+            # 2. Save successful questions to DB
+            self.root.after(0, lambda: self.update_status("编译检查完成，正在生成向量并保存..."))
+            try:
+                adapter = LanceDBAdapter()
+                for _, q in successful_questions:
+                    vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
+                    q_id = adapter.execute_insert_question(q["content"], q["logic"], vec, q["diagram"])
+                    for t in q["tags"]:
+                        if not t: continue
+                        t_id = adapter.execute_insert_tag(t)
+                        adapter.execute_insert_question_tag(q_id, t_id)
+            except Exception as e:
+                logger.error(f"DB Insert Error: {e}", exc_info=True)
+                self.root.after(0, lambda: messagebox.showerror("错误", f"数据库保存失败: {e}"))
+                return
+
+            # 3. Update UI
+            def update_ui():
+                import gc
+                if not failed_indices:
+                    for q in self.staging_questions:
+                        q.pop('diagram', None)
+                        q.pop('image_b64', None)
+                        q.pop('page_annotated_b64', None)
+                    self.staging_questions.clear()
+                    self.txt_stg_content.delete("1.0", tk.END)
+                    self.ent_stg_tags.delete(0, tk.END)
+                    self.lbl_stg_diagram.config(image='', text="图样显示区")
+                    if hasattr(self.lbl_stg_diagram, 'image'):
+                        del self.lbl_stg_diagram.image
+                    gc.collect()
+                    self.refresh_staging_tree()
+                    self.update_status("入库成功！您可以前往题库查看。")
+                    messagebox.showinfo("成功", "已全部保存至题库！")
+                else:
+                    # Remove successful ones from staging, keep failed ones
+                    for idx, q in reversed(successful_questions):
+                        q.pop('diagram', None)
+                        q.pop('image_b64', None)
+                        q.pop('page_annotated_b64', None)
+                        self.staging_questions.pop(idx)
+
+                    self.refresh_staging_tree()
+                    self.update_status(f"部分入库完成。保留了 {len(failed_indices)} 道编译失败的题目。")
+                    messagebox.showwarning("部分完成", f"已入库成功 {len(successful_questions)} 题。有 {len(failed_indices)} 题由于 LaTeX 编译错误（AI 修复仍失败）未能入库，请手动检查列表中的剩余项。")
+
+            self.root.after(0, update_ui)
+
+        threading.Thread(target=task).start()
 
     # ------------------------------------------
     # Manual Input View
@@ -818,12 +1011,36 @@ class SmartQBApp(tk.Tk):
         sel = self.tree_lib.selection()
         if not sel: return
         self.current_lib_q_id = self.tree_lib.item(sel[0])["values"][0]
-        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
-        c.execute("SELECT content FROM questions WHERE id=?", (self.current_lib_q_id,))
-        self.txt_lib_det.delete("1.0", tk.END); self.txt_lib_det.insert(tk.END, c.fetchone()[0])
-        c.execute("SELECT t.name FROM tags t JOIN question_tags qt ON t.id=qt.tag_id WHERE qt.question_id=?", (self.current_lib_q_id,))
-        self.ent_lib_tags.delete(0, tk.END); self.ent_lib_tags.insert(0, ",".join([r[0] for r in c.fetchall()]))
-        conn.close()
+        try:
+            from db_adapter import LanceDBAdapter
+            adapter = LanceDBAdapter()
+            content_text, diagram_base64 = adapter.get_question(self.current_lib_q_id)
+            self.txt_lib_det.delete("1.0", tk.END)
+            self.txt_lib_det.insert(tk.END, content_text if content_text else "")
+
+            tags_rows = adapter.get_question_tags(self.current_lib_q_id)
+            self.ent_lib_tags.delete(0, tk.END)
+            self.ent_lib_tags.insert(0, ",".join([r[0] for r in tags_rows]))
+
+            if hasattr(self, 'lbl_lib_diagram'):
+                if diagram_base64:
+                    import io, base64
+                    from PIL import Image, ImageTk
+                    try:
+                        img_data = base64.b64decode(diagram_base64.split(",")[-1] if "," in diagram_base64 else diagram_base64)
+                        img = Image.open(io.BytesIO(img_data)).copy()
+                        img.thumbnail((400, 200))
+                        photo = ImageTk.PhotoImage(img)
+                        self.lbl_lib_diagram.config(image=photo, text="")
+                        self.lbl_lib_diagram.image = photo
+                    except Exception as e:
+                        self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
+                else:
+                    self.lbl_lib_diagram.config(image='', text="无图样")
+
+        except Exception as e:
+            from utils import logger
+            logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
     def update_lib_tags(self):
         if not hasattr(self, 'current_lib_q_id'): return
