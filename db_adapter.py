@@ -1,6 +1,7 @@
 from database import get_db
 import pyarrow as pa
-from utils import logger
+import logging
+logger = logging.getLogger(__name__)
 import json
 
 class LanceDBAdapter:
