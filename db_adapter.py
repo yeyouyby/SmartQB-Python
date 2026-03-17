@@ -4,18 +4,115 @@ import logging
 logger = logging.getLogger(__name__)
 import json
 
+
+import time
+import threading
+
+class SnowflakeIDGenerator:
+    def __init__(self, machine_id=1):
+        self.machine_id = machine_id
+        self.sequence = 0
+        self.last_timestamp = -1
+        self.lock = threading.Lock()
+
+        # Custom Epoch (e.g., 2024-01-01)
+        self.epoch = 1704067200000
+
+        self.machine_id_bits = 5
+        self.sequence_bits = 12
+
+        self.max_machine_id = -1 ^ (-1 << self.machine_id_bits)
+        self.max_sequence = -1 ^ (-1 << self.sequence_bits)
+
+        self.machine_id_shift = self.sequence_bits
+        self.timestamp_left_shift = self.sequence_bits + self.machine_id_bits
+
+        if machine_id < 0 or machine_id > self.max_machine_id:
+            raise ValueError(f"Machine ID must be between 0 and {self.max_machine_id}")
+
+
+    def _gen_timestamp(self):
+        return int(time.time() * 1000)
+
+    def next_id(self):
+        with self.lock:
+            timestamp = self._gen_timestamp()
+
+            if timestamp < self.last_timestamp:
+                raise Exception("Clock moved backwards")
+
+            if timestamp == self.last_timestamp:
+                self.sequence = (self.sequence + 1) & self.max_sequence
+                if self.sequence == 0:
+                    timestamp = self._wait_next_millis(self.last_timestamp)
+            else:
+                self.sequence = 0
+
+            self.last_timestamp = timestamp
+
+            return ((timestamp - self.epoch) << self.timestamp_left_shift) |                    (self.machine_id << self.machine_id_shift) |                    self.sequence
+
+    def _wait_next_millis(self, last_timestamp):
+        timestamp = self._gen_timestamp()
+        while timestamp <= last_timestamp:
+            timestamp = self._gen_timestamp()
+        return timestamp
+
+id_generator = SnowflakeIDGenerator()
+
 class LanceDBAdapter:
     def __init__(self):
         self.db = get_db()
-        self.q_table = self.db.open_table("questions")
-        self.t_table = self.db.open_table("tags")
-        self.qt_table = self.db.open_table("question_tags")
+        try:
+            self.q_table = self.db.open_table("questions")
+        except FileNotFoundError:
+            pass
+        except Exception:
+            logger.warning("Failed to open 'questions' table, attempting to create it.", exc_info=True)
+            self.q_table = self.db.create_table(
+                "questions",
+                schema=pa.schema([
+                    pa.field("id", pa.int64()),
+                    pa.field("content", pa.string()),
+                    pa.field("logic_descriptor", pa.string()),
+                    pa.field("difficulty", pa.float64()),
+                    pa.field("vector", pa.list_(pa.float32(), 1536)),
+                    pa.field("diagram_base64", pa.string()),
+                ]),
+            )
+
+        try:
+            self.t_table = self.db.open_table("tags")
+        except FileNotFoundError:
+            pass
+        except Exception:
+            logger.warning("Failed to open 'tags' table, attempting to create it.", exc_info=True)
+            self.t_table = self.db.create_table(
+                "tags",
+                schema=pa.schema([
+                    pa.field("id", pa.int64()),
+                    pa.field("name", pa.string()),
+                ]),
+            )
+
+        try:
+            self.qt_table = self.db.open_table("question_tags")
+        except FileNotFoundError:
+            pass
+        except Exception:
+            logger.warning("Failed to open 'question_tags' table, attempting to create it.", exc_info=True)
+            self.qt_table = self.db.create_table(
+                "question_tags",
+                schema=pa.schema([
+                    pa.field("question_id", pa.int64()),
+                    pa.field("tag_id", pa.int64()),
+                ]),
+            )
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
-        if not vec: vec = [0.0] * 1536
-        q_df = self.q_table.to_pandas()
-        max_q_id = int(q_df['id'].max()) if not q_df.empty else 0
-        new_q_id = max_q_id + 1
+        if not vec:
+            vec = [0.0] * 1536
+        new_q_id = id_generator.next_id()
         self.q_table.add([{
             "id": new_q_id,
             "content": content,
@@ -27,14 +124,18 @@ class LanceDBAdapter:
         return new_q_id
 
     def execute_insert_tag(self, tag_name):
-        t_df = self.t_table.to_pandas()
-        if t_df.empty or tag_name not in t_df['name'].values:
-            max_t_id = int(t_df['id'].max()) if not t_df.empty else 0
-            new_t_id = max_t_id + 1
-            self.t_table.add([{"id": new_t_id, "name": tag_name}])
-            return new_t_id
-        else:
-            return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+        # Prevent check-then-insert race
+        with id_generator.lock:
+            t_df = self.t_table.to_pandas()
+            if t_df.empty or tag_name not in t_df['name'].values:
+                # We need to temporarily release lock for next_id to grab it
+                pass
+            else:
+                return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+
+        new_t_id = id_generator.next_id()
+        self.t_table.add([{"id": new_t_id, "name": tag_name}])
+        return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
         qt_df = self.qt_table.to_pandas()
@@ -79,26 +180,48 @@ class LanceDBAdapter:
         return [(int(r['id']), r['content']) for _, r in res_df.iterrows()]
 
     def get_question(self, q_id):
-        q_df = self.q_table.to_pandas()
-        if q_df.empty: return None, None
-        match = q_df[q_df['id'] == q_id]
-        if match.empty: return None, None
-        return match.iloc[0]['content'], match.iloc[0].get('diagram_base64', '')
+        try:
+            q_id = int(q_id)
+            res = self.q_table.search().where(f"id = {q_id}").limit(1).to_list()
+            if not res:
+                return None, None
+            return res[0]['content'], res[0].get('diagram_base64', '')
+        except Exception as e:
+            logger.error(f"Error getting question: {e}")
+            return None, None
 
     def get_question_tags(self, q_id):
-        qt_df = self.qt_table.to_pandas()
-        t_df = self.t_table.to_pandas()
-        if qt_df.empty or t_df.empty: return []
+        try:
+            q_id = int(q_id)
+            qt_res = self.qt_table.search().where(f"question_id = {q_id}").to_list()
+            if not qt_res:
+                return []
 
-        tag_ids = qt_df[qt_df['question_id'] == q_id]['tag_id'].tolist()
-        if not tag_ids: return []
+            tag_ids = [r['tag_id'] for r in qt_res]
+            if not tag_ids:
+                return []
 
-        names = t_df[t_df['id'].isin(tag_ids)]['name'].tolist()
-        return [(n,) for n in names]
+            # Filter tags by id. We can load to pandas since it's smaller, or use where IN equivalent (LanceDB might lack IN)
+            t_df = self.t_table.to_pandas()
+            if t_df.empty:
+                return []
+            names = t_df[t_df['id'].isin(tag_ids)]['name'].tolist()
+            return [(n,) for n in names]
+        except Exception as e:
+            logger.error(f"Error getting question tags: {e}")
+            return []
 
     def clear_question_tags(self, q_id):
-        self.qt_table.delete(f"question_id = {q_id}")
+        try:
+            q_id = int(q_id)
+            self.qt_table.delete(f"question_id = {q_id}")
+        except Exception as e:
+            logger.error(f"Error clearing question tags: {e}")
 
     def delete_question(self, q_id):
-        self.qt_table.delete(f"question_id = {q_id}")
-        self.q_table.delete(f"id = {q_id}")
+        try:
+            q_id = int(q_id)
+            self.qt_table.delete(f"question_id = {q_id}")
+            self.q_table.delete(f"id = {q_id}")
+        except Exception as e:
+            logger.error(f"Error deleting question: {e}")

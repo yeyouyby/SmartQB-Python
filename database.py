@@ -34,3 +34,7 @@ def init_db():
         pass
     conn.commit()
     conn.close()
+import lancedb
+
+def get_db():
+    return lancedb.connect("smartqb_lancedb")
