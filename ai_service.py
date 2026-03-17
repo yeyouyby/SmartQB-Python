@@ -147,6 +147,132 @@ class AIService:
             clean = re.sub(r'^```json\s*|\s*```$', '', raw_content.strip(), flags=re.MULTILINE)
             return json.loads(clean)
 
+
+    def ai_merge_questions(self, texts_to_merge):
+        prompt = '''你是一个专业的试卷排版与解析助手。
+我现在给你几段被错误拆分的题目片段。请你将它们合并为一道完整的题目。
+要求：
+1. 保证题干、选项（如果有）、【答案与解析】格式规范。
+2. 删除多余的或是因为错误拆分而带来的无用大题号。
+3. 如果原文包含多个小题，保留它们的题意，但请确保整体逻辑顺畅。
+4. 返回结构必须是严格的 JSON 格式，只包含 "merged_content" 一个字段。
+
+以下是待合并的片段：
+'''
+        for idx, t in enumerate(texts_to_merge):
+            prompt += f"--- 片段 {idx+1} ---\n{t}\n"
+
+        messages = [
+            {"role": "system", "content": "你是一个试题处理专家，必须严格输出JSON格式，不要任何其他废话或Markdown包裹。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        try:
+            res = self.get_client().chat.completions.create(
+                model=self.settings.model_id,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            data = self._parse_json(res.choices[0].message.content)
+            return data.get("merged_content", "")
+        except Exception as e:
+            from utils import logger
+            logger.error(f"Merge error: {e}")
+            return ""
+
+    def ai_split_question(self, text_to_split):
+        prompt = '''你是一个专业的试卷排版与解析助手。
+以下文本被错误地合并在了一起，它实际上包含多道独立的题目。
+请你仔细阅读并将其拆分成多道单独的题目。
+要求：
+1. 每道题目必须包含其完整的题干、选项（如果有）、答案和解析（如果有）。
+2. 返回结构必须是严格的 JSON 格式，包含 "split_questions" 数组字段，其中每个元素是拆分出来的单道题的完整文本。
+
+以下是待拆分的文本：
+'''
+        prompt += text_to_split
+
+        messages = [
+            {"role": "system", "content": "你是一个试题处理专家，必须严格输出JSON格式，不要任何其他废话或Markdown包裹。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        try:
+            res = self.get_client().chat.completions.create(
+                model=self.settings.model_id,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            data = self._parse_json(res.choices[0].message.content)
+            return data.get("split_questions", [])
+        except Exception as e:
+            from utils import logger
+            logger.error(f"Split error: {e}")
+            return []
+
+    def ai_format_question(self, text_to_format):
+        prompt = '''你是一个专业的试卷排版与排版助手。
+请对以下题目进行格式化修正：
+要求：
+1. 规范题干、选项、答案、解析的层级与换行。
+2. 强制去除不必要的大题号（如 "一、选择题" 或 "1." 等独立的大题编号，若其只是题目的前缀，可以保留数字，但要去除无关的宏观大题号）。
+3. 补充或修正小题号：将题目内部的子问题编号规范为带括号的形式，如 (1), (2), (3) ...
+4. 修正任何明显的 OCR 错别字。
+5. 请返回严格的 JSON 格式，包含 "formatted_content" 字段。
+
+待格式化的题目文本：
+'''
+        prompt += text_to_format
+
+        messages = [
+            {"role": "system", "content": "你是一个试题处理专家，必须严格输出JSON格式，不要任何其他废话或Markdown包裹。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        try:
+            res = self.get_client().chat.completions.create(
+                model=self.settings.model_id,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            data = self._parse_json(res.choices[0].message.content)
+            return data.get("formatted_content", "")
+        except Exception as e:
+            from utils import logger
+            logger.error(f"Format error: {e}")
+            return ""
+
+    def ai_fix_latex(self, text_with_error, error_msg):
+        prompt = f'''你是一个精通 LaTeX 的试卷排版专家。
+以下题目文本在编译时遇到了 LaTeX 语法错误。请根据错误提示，修正文本中的 LaTeX 语法。
+要求：
+1. 修复公式、特殊字符（如 %, &, $ 等必须转义）。
+2. 保持题目原本的结构和文字内容。
+3. 请返回严格的 JSON 格式，包含 "fixed_content" 字段。
+
+【原题目文本】
+{text_with_error}
+
+【LaTeX 编译错误信息】
+{error_msg}
+'''
+        messages = [
+            {"role": "system", "content": "你是一个试题处理与LaTeX专家，必须严格输出JSON格式。"},
+            {"role": "user", "content": prompt}
+        ]
+        try:
+            res = self.get_client().chat.completions.create(
+                model=self.settings.model_id,
+                messages=messages,
+                response_format={"type": "json_object"}
+            )
+            data = self._parse_json(res.choices[0].message.content)
+            return data.get("fixed_content", "")
+        except Exception as e:
+            from utils import logger
+            logger.error(f"LaTeX fix error: {e}")
+            return ""
+
     def get_embedding(self, text):
         if not text: return []
         try:
