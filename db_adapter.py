@@ -27,6 +27,10 @@ class SnowflakeIDGenerator:
         self.machine_id_shift = self.sequence_bits
         self.timestamp_left_shift = self.sequence_bits + self.machine_id_bits
 
+        if machine_id < 0 or machine_id > self.max_machine_id:
+            raise ValueError(f"Machine ID must be between 0 and {self.max_machine_id}")
+
+
     def _gen_timestamp(self):
         return int(time.time() * 1000)
 
@@ -61,7 +65,10 @@ class LanceDBAdapter:
         self.db = get_db()
         try:
             self.q_table = self.db.open_table("questions")
+        except FileNotFoundError:
+            pass
         except Exception:
+            logger.warning("Failed to open 'questions' table, attempting to create it.", exc_info=True)
             self.q_table = self.db.create_table(
                 "questions",
                 schema=pa.schema([
@@ -76,7 +83,10 @@ class LanceDBAdapter:
 
         try:
             self.t_table = self.db.open_table("tags")
+        except FileNotFoundError:
+            pass
         except Exception:
+            logger.warning("Failed to open 'tags' table, attempting to create it.", exc_info=True)
             self.t_table = self.db.create_table(
                 "tags",
                 schema=pa.schema([
@@ -87,7 +97,10 @@ class LanceDBAdapter:
 
         try:
             self.qt_table = self.db.open_table("question_tags")
+        except FileNotFoundError:
+            pass
         except Exception:
+            logger.warning("Failed to open 'question_tags' table, attempting to create it.", exc_info=True)
             self.qt_table = self.db.create_table(
                 "question_tags",
                 schema=pa.schema([
@@ -97,7 +110,8 @@ class LanceDBAdapter:
             )
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
-        if not vec: vec = [0.0] * 1536
+        if not vec:
+            vec = [0.0] * 1536
         new_q_id = id_generator.next_id()
         self.q_table.add([{
             "id": new_q_id,
@@ -110,13 +124,18 @@ class LanceDBAdapter:
         return new_q_id
 
     def execute_insert_tag(self, tag_name):
-        t_df = self.t_table.to_pandas()
-        if t_df.empty or tag_name not in t_df['name'].values:
-            new_t_id = id_generator.next_id()
-            self.t_table.add([{"id": new_t_id, "name": tag_name}])
-            return new_t_id
-        else:
-            return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+        # Prevent check-then-insert race
+        with id_generator.lock:
+            t_df = self.t_table.to_pandas()
+            if t_df.empty or tag_name not in t_df['name'].values:
+                # We need to temporarily release lock for next_id to grab it
+                pass
+            else:
+                return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+
+        new_t_id = id_generator.next_id()
+        self.t_table.add([{"id": new_t_id, "name": tag_name}])
+        return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
         qt_df = self.qt_table.to_pandas()

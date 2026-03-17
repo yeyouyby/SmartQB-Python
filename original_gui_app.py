@@ -499,8 +499,8 @@ class SmartQBApp(tk.Tk):
         def task():
             merged = self.ai_service.ai_merge_questions(texts_to_merge)
             if not merged:
-                self.after(0, lambda: messagebox.showerror("错误", "合并失败，AI 未返回有效内容。"))
-                self.after(0, lambda: self.update_status("合并失败"))
+                self.root.after(0, lambda: messagebox.showerror("错误", "合并失败，AI 未返回有效内容。"))
+                self.root.after(0, lambda: self.update_status("合并失败"))
                 return
 
             def update_ui():
@@ -524,19 +524,9 @@ class SmartQBApp(tk.Tk):
                 except Exception:
                     pass
 
-            self.after(0, update_ui)
+            self.root.after(0, update_ui)
 
-        def run_merge_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_merge_inflight", False))
-
-        if getattr(self, "_merge_inflight", False):
-            messagebox.showinfo("提示", "AI 合并正在进行，请稍候。")
-            return
-        self._merge_inflight = True
-        threading.Thread(target=run_merge_task, daemon=True).start()
+        threading.Thread(target=task).start()
 
     def split_staging_item(self):
         sel = self.tree_staging.selection()
@@ -554,8 +544,8 @@ class SmartQBApp(tk.Tk):
         def task():
             splits = self.ai_service.ai_split_question(text_to_split)
             if not splits or len(splits) <= 1:
-                self.after(0, lambda: messagebox.showerror("提示", "拆分失败或未发现可拆分的子题。"))
-                self.after(0, lambda: self.update_status("拆分无效"))
+                self.root.after(0, lambda: messagebox.showerror("提示", "拆分失败或未发现可拆分的子题。"))
+                self.root.after(0, lambda: self.update_status("拆分无效"))
                 return
 
             def update_ui():
@@ -571,19 +561,9 @@ class SmartQBApp(tk.Tk):
                 self.refresh_staging_tree()
                 self.update_status(f"✅ AI 成功拆分出 {len(splits)} 道题")
 
-            self.after(0, update_ui)
+            self.root.after(0, update_ui)
 
-        def run_split_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_split_inflight", False))
-
-        if getattr(self, "_split_inflight", False):
-            messagebox.showinfo("提示", "AI 拆分正在进行，请稍候。")
-            return
-        self._split_inflight = True
-        threading.Thread(target=run_split_task, daemon=True).start()
+        threading.Thread(target=task).start()
 
     def format_staging_item(self):
         sel = self.tree_staging.selection()
@@ -602,8 +582,8 @@ class SmartQBApp(tk.Tk):
         def task():
             formatted = self.ai_service.ai_format_question(text_to_format)
             if not formatted:
-                self.after(0, lambda: messagebox.showerror("错误", "格式化失败。"))
-                self.after(0, lambda: self.update_status("格式化失败"))
+                self.root.after(0, lambda: messagebox.showerror("错误", "格式化失败。"))
+                self.root.after(0, lambda: self.update_status("格式化失败"))
                 return
 
             def update_ui():
@@ -613,19 +593,9 @@ class SmartQBApp(tk.Tk):
                 self.refresh_staging_tree()
                 self.update_status("✅ 重新排版完成")
 
-            self.after(0, update_ui)
+            self.root.after(0, update_ui)
 
-        def run_format_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_format_inflight", False))
-
-        if getattr(self, "_format_inflight", False):
-            messagebox.showinfo("提示", "AI 格式化正在进行，请稍候。")
-            return
-        self._format_inflight = True
-        threading.Thread(target=run_format_task, daemon=True).start()
+        threading.Thread(target=task).start()
 
     def update_stg_item(self):
         sel = self.tree_staging.selection()
@@ -682,7 +652,7 @@ class SmartQBApp(tk.Tk):
 
             # 1. LaTeX check & Auto Fix
             for idx, q in enumerate(self.staging_questions):
-                self.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
+                self.root.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
 
                 content_text = q["content"]
 
@@ -707,7 +677,7 @@ class SmartQBApp(tk.Tk):
                 success, err_msg = test_compile(tex_code)
 
                 if not success:
-                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
+                    self.root.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
                     fixed_content = self.ai_service.ai_fix_latex(content_text, err_msg)
                     if fixed_content:
                         # Test again
@@ -724,7 +694,7 @@ class SmartQBApp(tk.Tk):
                     successful_questions.append((idx, q))
 
             # 2. Save successful questions to DB
-            self.after(0, lambda: self.update_status("编译检查完成，正在生成向量并保存..."))
+            self.root.after(0, lambda: self.update_status("编译检查完成，正在生成向量并保存..."))
             try:
                 adapter = LanceDBAdapter()
                 for _, q in successful_questions:
@@ -736,7 +706,7 @@ class SmartQBApp(tk.Tk):
                         adapter.execute_insert_question_tag(q_id, t_id)
             except Exception as e:
                 logger.error(f"DB Insert Error: {e}", exc_info=True)
-                self.after(0, lambda err=e: messagebox.showerror("错误", f"数据库保存失败: {err}"))
+                self.root.after(0, lambda: messagebox.showerror("错误", f"数据库保存失败: {e}"))
                 return
 
             # 3. Update UI
@@ -769,9 +739,9 @@ class SmartQBApp(tk.Tk):
                     self.update_status(f"部分入库完成。保留了 {len(failed_indices)} 道编译失败的题目。")
                     messagebox.showwarning("部分完成", f"已入库成功 {len(successful_questions)} 题。有 {len(failed_indices)} 题由于 LaTeX 编译错误（AI 修复仍失败）未能入库，请手动检查列表中的剩余项。")
 
-            self.after(0, update_ui)
+            self.root.after(0, update_ui)
 
-        threading.Thread(target=task, daemon=True).start()
+        threading.Thread(target=task).start()
 
     # ------------------------------------------
     # Manual Input View
@@ -1027,14 +997,16 @@ class SmartQBApp(tk.Tk):
 
     def on_hard_search(self):
         kw = self.ent_lib_search.get().strip()
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        rows = adapter.search_questions(kw)
-        for item in self.tree_lib.get_children():
-            self.tree_lib.delete(item)
-        for r in rows:
-            short_c = r[1][:30].replace('\n', ' ')
-            self.tree_lib.insert('', 'end', values=(r[0], short_c))
+        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
+        if kw:
+            c.execute("SELECT DISTINCT q.id, q.content FROM questions q LEFT JOIN question_tags qt ON q.id = qt.question_id LEFT JOIN tags t ON qt.tag_id = t.id WHERE q.content LIKE ? OR t.name LIKE ?", (f'%{kw}%', f'%{kw}%'))
+        else:
+            c.execute("SELECT id, content FROM questions ORDER BY id DESC")
+        rows = c.fetchall()
+        conn.close()
+        for i in self.tree_lib.get_children(): self.tree_lib.delete(i)
+        for r in rows: self.tree_lib.insert("", tk.END, values=(r[0], r[1][:60].replace('\n',' ')))
+
     def on_lib_select(self, event):
         sel = self.tree_lib.selection()
         if not sel: return
@@ -1071,26 +1043,27 @@ class SmartQBApp(tk.Tk):
             logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
     def update_lib_tags(self):
-        if getattr(self, 'current_lib_q_id', None) is None: return
+        if not hasattr(self, 'current_lib_q_id'): return
         new_tags = [t.strip() for t in self.ent_lib_tags.get().split(',') if t.strip()]
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        adapter.clear_question_tags(self.current_lib_q_id)
-        for tn in new_tags:
-            tid = adapter.execute_insert_tag(tn)
-            adapter.execute_insert_question_tag(self.current_lib_q_id, tid)
-        messagebox.showinfo('提示', '标签更新成功！')
-
+        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
+        c.execute("DELETE FROM question_tags WHERE question_id=?", (self.current_lib_q_id,))
+        for t in new_tags:
+            c.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (t,))
+            c.execute("SELECT id FROM tags WHERE name=?", (t,))
+            c.execute("INSERT INTO question_tags (question_id, tag_id) VALUES (?, ?)", (self.current_lib_q_id, c.fetchone()[0]))
+        conn.commit(); conn.close()
+        messagebox.showinfo("成功", "标签修改成功！")
 
     def delete_lib_question(self):
         sel = self.tree_lib.selection()
         if not sel: return
         selected_ids = [self.tree_lib.item(item)["values"][0] for item in sel]
         if messagebox.askyesno("危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"):
-            from db_adapter import LanceDBAdapter
-            adapter = LanceDBAdapter()
+            conn = sqlite3.connect(DB_NAME); c = conn.cursor()
             for q_id in selected_ids:
-                adapter.delete_question(q_id)
+                c.execute("DELETE FROM question_tags WHERE question_id=?", (q_id,))
+                c.execute("DELETE FROM questions WHERE id=?", (q_id,))
+            conn.commit(); conn.close()
 
             selected_id_set = set(selected_ids)
             self.export_bag = [q for q in self.export_bag if q["id"] not in selected_id_set]
@@ -1099,8 +1072,8 @@ class SmartQBApp(tk.Tk):
             self.txt_lib_det.delete("1.0", tk.END)
             self.ent_lib_tags.delete(0, tk.END)
 
-            if getattr(self, 'current_lib_q_id', None) in selected_id_set:
-                self.current_lib_q_id = None
+            if hasattr(self, 'current_lib_q_id') and self.current_lib_q_id in selected_id_set:
+                delattr(self, 'current_lib_q_id')
 
             messagebox.showinfo("成功", "选中题目已彻底删除！")
 
@@ -1109,23 +1082,24 @@ class SmartQBApp(tk.Tk):
         if any(item['id'] == self.current_lib_q_id for item in self.export_bag):
             messagebox.showinfo("提示", "该题已在题目袋中。")
             return
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        content, diagram = adapter.get_question(self.current_lib_q_id)
-        if content:
-            self.export_bag.append({"id": self.current_lib_q_id, "content": content, "diagram": diagram})
+        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
+        c.execute("SELECT content, diagram_base64 FROM questions WHERE id=?", (self.current_lib_q_id,))
+        row = c.fetchone(); conn.close()
+        if row:
+            self.export_bag.append({"id": self.current_lib_q_id, "content": row[0], "diagram": row[1]})
             messagebox.showinfo("成功", "已加入题目袋！")
 
     def ai_add_to_bag(self, question_ids):
         added = 0
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
+        conn = sqlite3.connect(DB_NAME); c = conn.cursor()
         for q_id in question_ids:
             if any(item['id'] == q_id for item in self.export_bag): continue
-            content, diagram = adapter.get_question(q_id)
-            if content:
-                self.export_bag.append({"id": q_id, "content": content, "diagram": diagram})
+            c.execute("SELECT content, diagram_base64 FROM questions WHERE id=?", (q_id,))
+            row = c.fetchone()
+            if row:
+                self.export_bag.append({"id": q_id, "content": row[0], "diagram": row[1]})
                 added += 1
+        conn.close()
         self.after(0, self.refresh_bag_ui)
         return {"status": "success", "message": f"成功加入了 {added} 道题目到题目袋"}
 
