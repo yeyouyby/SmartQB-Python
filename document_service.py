@@ -119,7 +119,7 @@ class DocumentService:
                                     except Exception:
                                         pass
                             elif ocr_engine_type == "Surya" and ocr_engine is not None:
-                                # OCRPredictor expects list of images
+                                # RecognitionPredictor expects list of images
                                 ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
                                 b_text = " ".join([line.text for line in ocr_res.text_lines])
 
