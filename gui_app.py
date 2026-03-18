@@ -16,9 +16,11 @@ from pix2text import Pix2Text
 try:
     from surya.layout import LayoutPredictor
     from surya.recognition import RecognitionPredictor
+    from surya.foundation import FoundationPredictor
 except ImportError:
     LayoutPredictor = None
     RecognitionPredictor = None
+    FoundationPredictor = None
 from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
@@ -62,9 +64,10 @@ class SmartQBApp(tk.Tk):
             raise RuntimeError("Missing required dependency: surya.layout")
 
         logger.info("正在加载 Surya OCR 引擎 (可选)...")
-        if RecognitionPredictor:
+        if RecognitionPredictor and FoundationPredictor:
             try:
-                self.surya_ocr = RecognitionPredictor()
+                foundation_predictor = FoundationPredictor()
+                self.surya_ocr = RecognitionPredictor(foundation_predictor)
                 logger.info("Surya OCR 引擎加载完成！")
             except Exception as e:
                 logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
