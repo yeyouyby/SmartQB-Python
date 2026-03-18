@@ -12,22 +12,73 @@ echo [!] MiKTeX install typically takes 5-10 minutes.
 echo     It will run silently in the background. Please BE PATIENT.
 echo.
 
-:: 1. Check Python installation
-python --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo [ERROR] Python is not installed or not in PATH!
-    echo Please install Python 3.9-3.11 from https://www.python.org/
-    echo Make sure to check "Add Python to PATH" during installation.
+:: 1. Check Python installation and Version 3.12.x Requirement
+echo [1/6] Checking Python 3.12.x Environment...
+
+set "PYTHON_CMD="
+set "PYTHON_VER="
+set "LOCAL_PY312=%USERPROFILE%\AppData\Local\Programs\Python\Python312\python.exe"
+
+:: 1.1 Check if default 'python' is 3.12.x
+python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" > tmp_pyver.txt 2>nul
+if %errorlevel% equ 0 (
+    set /p PYTHON_VER=<tmp_pyver.txt
+)
+del tmp_pyver.txt 2>nul
+
+if "!PYTHON_VER!"=="3.12" (
+    echo [OK] System default Python is 3.12.x.
+    set "PYTHON_CMD=python"
+    goto VerifyLaTeX
+)
+
+:: 1.2 If default is not 3.12, check py launcher
+py -3.12 --version >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] Found Python 3.12.x via Python Launcher.
+    set "PYTHON_CMD=py -3.12"
+    goto VerifyLaTeX
+)
+
+:: 1.3 Check common installation path
+if exist "!LOCAL_PY312!" (
+    echo [OK] Found Python 3.12.x in local AppData.
+    set "PYTHON_CMD=!LOCAL_PY312!"
+    goto VerifyLaTeX
+)
+
+:: 1.4 If 3.12.x is completely missing, auto-download and install
+echo [INFO] Python 3.12.x is NOT found on your system!
+echo [INFO] Downloading Python 3.12.10 installer...
+powershell -Command "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; (New-Object Net.WebClient).DownloadFile('https://www.python.org/ftp/python/3.12.10/python-3.12.10-amd64.exe', 'python-3.12-setup.exe')"
+
+if not exist python-3.12-setup.exe (
+    echo [ERROR] Failed to download Python 3.12.10 installer.
+    echo Please manually download and install it from https://www.python.org/downloads/release/python-31210/
     pause
     goto end_script
 )
 
-for /f "delims=" %%i in ('python --version 2^>^&1') do set PYTHON_VER=%%i
-echo [OK] Detected Python: %PYTHON_VER%
-echo.
+echo [INFO] Download complete. Starting silent installation...
+echo [!] This will install Python 3.12 for the current user. Please wait...
+start /wait "" python-3.12-setup.exe /quiet InstallAllUsers=0 PrependPath=0 Include_test=0
 
+if exist "!LOCAL_PY312!" (
+    echo [SUCCESS] Python 3.12.10 installed successfully!
+    set "PYTHON_CMD=!LOCAL_PY312!"
+    del python-3.12-setup.exe
+    goto VerifyLaTeX
+) else (
+    echo [ERROR] Silent installation failed or path is unexpected.
+    echo Please run 'python-3.12-setup.exe' manually.
+    pause
+    goto end_script
+)
+
+:VerifyLaTeX
+echo.
 :: 2. Check and Install MiKTeX (LaTeX Engine)
-echo [1/6] Checking LaTeX Compiler (xelatex)...
+echo [INFO] Checking LaTeX Compiler (xelatex)...
 xelatex --version >nul 2>&1
 
 if %errorlevel% equ 0 (
@@ -77,7 +128,7 @@ echo.
 :: 3. Create and activate virtual environment
 echo [2/6] Creating virtual environment (venv)...
 if not exist "venv" (
-    python -c "import venv; venv.create('venv', with_pip=True)"
+    !PYTHON_CMD! -c "import venv; venv.create('venv', with_pip=True)"
 )
 if not exist "venv" (
     echo [ERROR] Failed to create virtual environment.
