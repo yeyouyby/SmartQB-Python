@@ -55,7 +55,7 @@ class DocumentService:
                                 p_type = poly.label
 
                                 # 加入 table 和 equation 等
-                                if p_type in ['Figure', 'Table', 'Equation']:
+                                if p_type in ['Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form']:
                                     x_min, y_min, x_max, y_max = box
 
                                     # Relax crop bounds slightly to capture edges
