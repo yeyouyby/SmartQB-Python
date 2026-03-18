@@ -51,22 +51,29 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
             self.ocr_engine = None
-        logger.info("正在加载 Surya Layout 版面分析引擎 (必选)...")
-        if LayoutPredictor:
+        logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
+        foundation_predictor = None
+        if FoundationPredictor:
             try:
-                self.surya_layout = LayoutPredictor()
+                foundation_predictor = FoundationPredictor()
+            except Exception as e:
+                logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
+
+        logger.info("正在加载 Surya Layout 版面分析引擎 (必选)...")
+        if LayoutPredictor and foundation_predictor:
+            try:
+                self.surya_layout = LayoutPredictor(foundation_predictor)
                 logger.info("Surya Layout 引擎加载完成！")
             except Exception as e:
                 logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
                 self.surya_layout = None
         else:
-            logger.error("无法导入 surya.layout，文档版面分析不可用。")
-            raise RuntimeError("Missing required dependency: surya.layout")
+            logger.error("缺少基础模型或 surya.layout，文档版面分析不可用。")
+            self.surya_layout = None
 
         logger.info("正在加载 Surya OCR 引擎 (可选)...")
-        if RecognitionPredictor and FoundationPredictor:
+        if RecognitionPredictor and foundation_predictor:
             try:
-                foundation_predictor = FoundationPredictor()
                 self.surya_ocr = RecognitionPredictor(foundation_predictor)
                 logger.info("Surya OCR 引擎加载完成！")
             except Exception as e:

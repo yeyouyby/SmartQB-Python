@@ -172,8 +172,8 @@ echo     from surya.layout import LayoutPredictor >> init_models.py
 echo     from surya.recognition import RecognitionPredictor >> init_models.py
 echo     from surya.foundation import FoundationPredictor >> init_models.py
 echo     print("[INFO] Initializing Surya Layout and OCR models...") >> init_models.py
-echo     lp = LayoutPredictor() >> init_models.py
 echo     fp = FoundationPredictor() >> init_models.py
+echo     lp = LayoutPredictor(fp) >> init_models.py
 echo     op = RecognitionPredictor(fp) >> init_models.py
 echo     print("\n[SUCCESS] AI Models downloaded and initialized successfully!") >> init_models.py
 echo     sys.exit(0) >> init_models.py
