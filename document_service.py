@@ -11,10 +11,11 @@ from utils import logger
 # ==========================================
 
 class DocumentService:
+
     @staticmethod
-    def process_doc_with_layout(file_path, file_type, p2t_engine, update_status=None, on_slice_ready=None):
+    def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None):
         """
-        使用 DocLayout-YOLO (Pass 1) + Pix2Text (Pass 2) 的双层版面分析引擎
+        使用 Surya 进行版面分析 (Pass 1) + (Surya或Pix2Text) OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
         """
         pending_slices = []
@@ -25,8 +26,6 @@ class DocumentService:
             if file_type == "pdf":
                 doc = fitz.open(file_path)
                 total_pages = len(doc)
-
-            yolo_engine = p2t_engine.layout_parser
 
             for page_index in range(total_pages):
                 if update_status:
@@ -41,54 +40,23 @@ class DocumentService:
 
                 try:
                     # ==========================================
-                    # PASS 1: DocLayout-YOLO 图样提取
+                    # PASS 1: Surya Layout 图样提取
                     # ==========================================
-                    yolo_boxes = []
-                    yolo_diagrams = []
+                    layout_boxes = []
+                    diagrams = []
+                    text_regions = []
+
                     try:
-                        if hasattr(yolo_engine, 'parse'):
-                            import numpy as np
-                            # p2t_engine.layout_parser (DocYoloLayoutParser) uses .parse(img)
-                            predictions = yolo_engine.parse(img)
-                            # returns LayoutBlock objects or dicts
-                            for pred in predictions:
-                                # In p2t, types are usually strings like 'figure', 'table' etc.
-                                p_type = getattr(pred, 'type', pred.get('type', '')) if isinstance(pred, dict) else getattr(pred, 'type', '')
+                        if layout_predictor is not None:
+                            # surya LayoutPredictor
+                            layout_result = layout_predictor([img])[0]
+                            for poly in layout_result.bboxes:
+                                box = poly.bbox
+                                p_type = poly.label
 
-                                if p_type in ['figure', 'figure_caption', 'image']:
-                                    # Get box coordinates
-                                    # Sometimes it's pred.position, sometimes pred.box, or dict keys
-                                    if isinstance(pred, dict) and 'box' in pred:
-                                        box = pred['box']
-                                        if isinstance(box, np.ndarray):
-                                            box = box.flatten().tolist()
-                                    elif hasattr(pred, 'position'):
-                                        box = pred.position
-                                        if isinstance(box, np.ndarray):
-                                            # If it's 4 points [ [x,y], [x,y]... ]
-                                            if box.shape == (4, 2):
-                                                x_min, y_min = np.min(box, axis=0)
-                                                x_max, y_max = np.max(box, axis=0)
-                                                box = [x_min, y_min, x_max, y_max]
-                                            elif box.size == 4:
-                                                box = box.flatten().tolist()
-                                            else:
-                                                continue
-                                    elif hasattr(pred, 'box'):
-                                        box = pred.box
-                                        if isinstance(box, np.ndarray):
-                                            box = box.flatten().tolist()
-                                    else:
-                                        continue
-
-                                    if len(box) == 4:
-                                        x_min, y_min, x_max, y_max = box
-                                        yolo_boxes.append({
-                                            'box': box,
-                                            'y_center': (box[1] + box[3]) / 2,
-                                            'type': 'diagram'
-                                        })
-                                        # Crop and save diagram
+                                # 加入 table 和 equation 等
+                                if p_type in ['Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form']:
+                                    x_min, y_min, x_max, y_max = box
 
                                     # Relax crop bounds slightly to capture edges
                                     crop_box = (
@@ -101,85 +69,81 @@ class DocumentService:
                                     buf = io.BytesIO()
                                     cropped.save(buf, format='PNG')
                                     new_diagram = base64.b64encode(buf.getvalue()).decode('utf-8')
-                                    yolo_diagrams.append({
+                                    diagrams.append({
                                         'y_center': (box[1] + box[3]) / 2,
                                         'diagram_b64': new_diagram,
-                                        'box': crop_box
+                                        'box': crop_box,
+                                        'type': p_type
+                                    })
+                                else:
+                                    text_regions.append({
+                                        'box': box,
+                                        'y_center': (box[1] + box[3]) / 2,
+                                        'type': p_type
                                     })
                     except Exception as e:
-                        logger.error(f"DocLayout-YOLO 识别失败，跳过图样提取: {e}", exc_info=True)
+                        logger.error(f"Surya Layout 识别失败: {e}", exc_info=True)
 
                     # ==========================================
-                    # PASS 2: P2T OCR 文字提取
+                    # PASS 2: OCR 文字提取
                     # ==========================================
-                    p2t_blocks = []
-                    try:
-                        blocks = p2t_engine.recognize(img, return_text=True)
-                        if hasattr(blocks, 'blocks'): blocks = blocks.blocks
-                        elif isinstance(blocks, dict) and 'blocks' in blocks: blocks = blocks['blocks']
-
-                        for block in blocks:
-                            b_type = block.get('type', 'text').lower()
-                            b_text = block.get('text', '').replace('\n', '')
-                            b_box = block.get('position', None)
-
-                            if b_type in ['figure', 'image']:
-                                # Skip P2T's figures since YOLO handles them better now
-                                continue
-
-                            if b_type in ['equation', 'isolated_equation', 'formula']:
-                                if b_text.strip() and not b_text.startswith('$'):
-                                    b_text = '$' + b_text + '$'
-
-                            if b_text.strip() and b_box is not None:
-                                try:
-                                    box_arr = np.array(b_box).reshape(-1, 2)
-                                    y_min = np.min(box_arr[:, 1])
-                                    y_max = np.max(box_arr[:, 1])
-                                    p2t_blocks.append({
-                                        'text': b_text,
-                                        'y_center': (y_min + y_max) / 2,
-                                        'box': b_box,
-                                        'type': b_type
-                                    })
-                                except Exception as e:
-                                    logger.warning(f"Failed to parse P2T box: {e}", exc_info=True)
-                    except Exception as e:
-                        logger.error(f"P2T OCR 提取失败: {e}", exc_info=True)
-
-                    # ==========================================
-                    # 合并排序并生成 Slices
-                    # ==========================================
-
-                    # 绘制带标注的底图 (Annotated Image for UI)
+                    ocr_blocks = []
                     annotated_img = img.copy()
                     draw = ImageDraw.Draw(annotated_img)
-                    colors = {
-                        'text': 'red', 'title': 'red', 'figure': 'green', 'table': 'blue',
-                        'equation': 'purple', 'isolated_equation': 'purple', 'formula': 'purple',
-                        'diagram': 'green'
-                    }
 
-                    # 画 P2T 框
-                    for b in p2t_blocks:
+                    if not text_regions:
+                        text_regions = [{
+                            'box': (0, 0, img.width, img.height),
+                            'y_center': img.height / 2,
+                            'type': 'FullPage'
+                        }]
+                    for region in text_regions:
                         try:
-                            box_arr = np.array(b['box']).reshape(-1, 2)
-                            x_min, y_min = np.min(box_arr, axis=0)
-                            x_max, y_max = np.max(box_arr, axis=0)
-                            color = colors.get(b['type'], 'orange')
-                            draw.rectangle([x_min, y_min, x_max, y_max], outline=color, width=2)
-                            draw.text((x_min, max(0, y_min - 12)), b['type'], fill=color)
-                        except Exception:
-                            pass
+                            x_min, y_min, x_max, y_max = region['box']
+                            crop_box = (
+                                max(0, int(x_min)-2),
+                                max(0, int(y_min)-2),
+                                min(img.width, int(x_max)+2),
+                                min(img.height, int(y_max)+2)
+                            )
+                            cropped_img = img.crop(crop_box)
 
-                    # 画 YOLO 框
-                    for b in yolo_diagrams:
+                            b_text = ""
+                            if ocr_engine_type == "Pix2Text" and ocr_engine is not None:
+                                res = ocr_engine.recognize(cropped_img, return_text=True)
+                                if isinstance(res, str):
+                                    b_text = res
+                                else:
+                                    try:
+                                        b_text = "".join([b.get('text', '') for b in res])
+                                    except Exception:
+                                        pass
+                            elif ocr_engine_type == "Surya" and ocr_engine is not None:
+                                # OCRPredictor expects list of images
+                                ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
+                                b_text = " ".join([line.text for line in ocr_res.text_lines])
+
+                            b_text = b_text.replace('\n', ' ').strip()
+                            if b_text:
+                                ocr_blocks.append({
+                                    'text': b_text,
+                                    'y_center': region['y_center'],
+                                    'box': region['box'],
+                                    'type': region['type']
+                                })
+
+                            draw.rectangle(crop_box, outline='orange', width=2)
+                            draw.text((crop_box[0], max(0, crop_box[1] - 12)), f"OCR({region['type']})", fill='orange')
+                        except Exception as e:
+                            logger.warning(f"Failed OCR on region: {e}")
+
+                    for b in diagrams:
                         try:
                             x_min, y_min, x_max, y_max = b['box']
                             draw.rectangle([x_min, y_min, x_max, y_max], outline='green', width=3)
-                            draw.text((x_min, max(0, y_min - 12)), 'YOLO-Figure', fill='green')
-                        except Exception:
-                            pass
+                            draw.text((x_min, max(0, y_min - 12)), f"Surya-{b['type']}", fill='green')
+                        except Exception as e:
+                            logger.warning(f"Failed to draw diagram box: {e}", exc_info=True)
 
                     buf_anno = io.BytesIO()
                     annotated_img.save(buf_anno, format='PNG')
@@ -187,10 +151,10 @@ class DocumentService:
 
                     # 统一排序：按 y_center 进行从上到下的排序
                     all_elements = []
-                    for b in p2t_blocks:
-                        all_elements.append({'source': 'p2t', 'y_center': b['y_center'], 'data': b})
-                    for d in yolo_diagrams:
-                        all_elements.append({'source': 'yolo', 'y_center': d['y_center'], 'data': d})
+                    for b in ocr_blocks:
+                        all_elements.append({'source': 'ocr', 'y_center': b['y_center'], 'data': b})
+                    for d in diagrams:
+                        all_elements.append({'source': 'diagram', 'y_center': d['y_center'], 'data': d})
 
                     all_elements.sort(key=lambda x: x['y_center'])
 
@@ -212,8 +176,8 @@ class DocumentService:
                                 buf = io.BytesIO()
                                 cropped.save(buf, format='PNG')
                                 chunk_img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(f"Failed to crop diagram chunks: {e}", exc_info=True)
 
                         slice_obj = {
                             "text": "\n".join(current_text_chunk),
@@ -232,23 +196,19 @@ class DocumentService:
                         current_boxes = []
 
                     for elem in all_elements:
-                        if elem['source'] == 'p2t':
+                        if elem['source'] == 'ocr':
                             b = elem['data']
                             current_text_chunk.append(b['text'])
                             try:
-                                b_box_arr = np.array(b['box'])
-                                if b_box_arr.size > 0 and b_box_arr.size % 2 == 0:
-                                    current_boxes.append(b_box_arr.reshape(-1, 2))
-                            except Exception:
-                                pass
-                        elif elem['source'] == 'yolo':
-                            # 遇到图样，先把之前的文本打包
+                                bx = b['box']
+                                current_boxes.append(np.array([[bx[0], bx[1]], [bx[2], bx[3]]]))
+                            except Exception as e:
+                                logger.warning(f"Failed to process bounding box: {e}", exc_info=True)
+                        elif elem['source'] == 'diagram':
                             if current_text_chunk:
                                 package_slice()
-                            # 独立打包图样（可带上最近一小段上下文的截图，这里以空文本打出图样，后续GUI可以自动合并）
                             package_slice(diagram=elem['data']['diagram_b64'])
 
-                    # 处理页面末尾剩余文本
                     if current_text_chunk:
                         package_slice()
 
@@ -263,6 +223,7 @@ class DocumentService:
                 doc.close()
 
         return pending_slices
+
 
     @staticmethod
     def extract_from_word(docx_path):

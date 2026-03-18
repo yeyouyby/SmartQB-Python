@@ -21,6 +21,7 @@ class SettingsManager:
         self.embed_model_id = "text-embedding-3-small"
 
         self.recognition_mode = 2
+        self.ocr_engine_type = 'Pix2Text'
         self.use_prm_optimization = False
         self.prm_batch_size = 3
 
@@ -44,6 +45,8 @@ class SettingsManager:
                 self.embed_model_id = d.get("embed_model_id", "text-embedding-3-small")
 
                 self.recognition_mode = d.get("recognition_mode", 2)
+                engine_type = d.get("ocr_engine_type", "Pix2Text")
+                self.ocr_engine_type = engine_type if engine_type in {"Pix2Text", "Surya"} else "Pix2Text"
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
 
@@ -103,6 +106,7 @@ class SettingsManager:
                 "embed_base_url": self.embed_base_url,
                 "embed_model_id": self.embed_model_id,
                 "recognition_mode": self.recognition_mode,
+                "ocr_engine_type": self.ocr_engine_type,
                 "use_prm_optimization": self.use_prm_optimization,
                 "prm_batch_size": self.prm_batch_size
             }

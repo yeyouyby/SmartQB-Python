@@ -11,6 +11,14 @@ from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 from pix2text import Pix2Text
 
+
+try:
+    from surya.layout import LayoutPredictor
+    from surya.ocr import OCRPredictor
+except ImportError:
+    LayoutPredictor = None
+    OCRPredictor = None
+from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
 from ai_service import AIService
@@ -29,9 +37,35 @@ class SmartQBApp(tk.Tk):
         self.settings = SettingsManager()
         self.ai_service = AIService(self.settings)
 
-        print("正在加载 Pix2Text 引擎 (首次启动可能需要下载模型，请耐心等待)...")
-        self.ocr_engine = Pix2Text.from_config()
-        print("Pix2Text 引擎加载完成！")
+        logger.info("正在加载 Pix2Text 引擎 (首次启动可能需要下载模型，请耐心等待)...")
+        try:
+            self.ocr_engine = Pix2Text.from_config()
+            logger.info("Pix2Text 引擎加载完成！")
+        except Exception as e:
+            logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
+            self.ocr_engine = None
+        logger.info("正在加载 Surya Layout 版面分析引擎 (必选)...")
+        if LayoutPredictor:
+            try:
+                self.surya_layout = LayoutPredictor()
+                logger.info("Surya Layout 引擎加载完成！")
+            except Exception as e:
+                logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
+                self.surya_layout = None
+        else:
+            logger.error("无法导入 surya.layout，文档版面分析不可用。")
+            raise RuntimeError("Missing required dependency: surya.layout")
+
+        logger.info("正在加载 Surya OCR 引擎 (可选)...")
+        if OCRPredictor:
+            try:
+                self.surya_ocr = OCRPredictor()
+                logger.info("Surya OCR 引擎加载完成！")
+            except Exception as e:
+                logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
+                self.surya_ocr = None
+        else:
+            self.surya_ocr = None
 
         self.staging_questions = []
         self.export_bag = []
@@ -259,7 +293,11 @@ class SmartQBApp(tk.Tk):
                 self.after(0, _clear_stg)
 
                 pending_slices = DocumentService.process_doc_with_layout(
-                    file_path, file_type, self.ocr_engine, self.update_status, handle_slice_ready
+                    file_path, file_type,
+                    self.surya_layout,
+                    self.surya_ocr if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else self.ocr_engine,
+                    'Surya' if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else 'Pix2Text',
+                    self.update_status, handle_slice_ready
                 )
             elif file_type == "word":
                 def _clear_word():
@@ -667,6 +705,7 @@ class SmartQBApp(tk.Tk):
     def save_staging_to_db(self):
         if not self.staging_questions: return
         self.update_status("正在检查 LaTeX 编译并准备入库...")
+        logger.info("Starting LaTeX check and DB insertion for staged questions...")
 
         # We need to run this in background thread because compilation takes time
         import threading
@@ -755,6 +794,7 @@ class SmartQBApp(tk.Tk):
                     gc.collect()
                     self.refresh_staging_tree()
                     self.update_status("入库成功！您可以前往题库查看。")
+                    logger.info("All staged questions saved to DB successfully.")
                     messagebox.showinfo("成功", "已全部保存至题库！")
                 else:
                     # Remove successful ones from staging, keep failed ones
@@ -898,6 +938,7 @@ class SmartQBApp(tk.Tk):
                     self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
                     self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
                     self.lbl_manual_status.config(text="")
+                    logger.info("Manual question saved to DB successfully.")
                     messagebox.showinfo("成功", "手工录入成功，已存入题库！")
 
                 self.after(0, on_saved)
@@ -910,12 +951,12 @@ class SmartQBApp(tk.Tk):
             finally:
                 self.after(0, lambda: setattr(self, "_manual_save_inflight", False))
 
-            if getattr(self, "_manual_save_inflight", False):
-                messagebox.showinfo("提示", "正在入库，请勿重复提交。")
-                return
-            self._manual_save_inflight = True
-            self.lbl_manual_status.config(text="正在入库...", foreground="blue")
-            threading.Thread(target=bg_save, daemon=True).start()
+        if getattr(self, "_manual_save_inflight", False):
+            messagebox.showinfo("提示", "正在入库，请勿重复提交。")
+            return
+        self._manual_save_inflight = True
+        self.lbl_manual_status.config(text="正在入库...", foreground="blue")
+        threading.Thread(target=bg_save, daemon=True).start()
 
     # ------------------------------------------
     # Library View
@@ -955,6 +996,10 @@ class SmartQBApp(tk.Tk):
 
         ttk.Button(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(side=tk.LEFT, padx=10)
         ttk.Button(action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question).pack(side=tk.RIGHT)
+
+        # New diagram UI missing from previous
+        self.lbl_lib_diagram = ttk.Label(det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
+        self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
         right_frame = ttk.LabelFrame(main_paned, text="AI 软搜索助手 (MCP)")
         main_paned.add(right_frame, weight=2)
@@ -1299,6 +1344,8 @@ class SmartQBApp(tk.Tk):
 
         self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
+        if hasattr(self, 'cbo_ocr_engine'):
+            self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
         try:
             self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
         except ValueError:
@@ -1358,6 +1405,16 @@ class SmartQBApp(tk.Tk):
         self.ent_embed_model.pack(anchor=tk.W)
 
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
+
+        # --- NEW OCR TOGGLE ---
+        ocr_frame = ttk.Frame(container)
+        ocr_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
+        ttk.Label(ocr_frame, text="使用的 OCR 识别引擎 (版面分析已固定使用 Surya):").pack(side=tk.LEFT)
+        self.cbo_ocr_engine = ttk.Combobox(ocr_frame, values=["Pix2Text", "Surya"], width=15, state="readonly")
+        self.cbo_ocr_engine.set(self.settings.ocr_engine_type if hasattr(self.settings, 'ocr_engine_type') else 'Pix2Text')
+        self.cbo_ocr_engine.pack(side=tk.LEFT, padx=10)
+        # ----------------------
+
         self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)
         ttk.Radiobutton(container, text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)", variable=self.var_rec_mode, value=1).pack(anchor=tk.W, padx=20, pady=2)
         ttk.Radiobutton(container, text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)", variable=self.var_rec_mode, value=2).pack(anchor=tk.W, padx=20, pady=2)
