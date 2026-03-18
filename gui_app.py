@@ -2,9 +2,6 @@ import gc
 # gui_app.py
 import os
 import warnings
-os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
-
 import io
 import json
 import threading
@@ -28,6 +25,10 @@ from settings_manager import SettingsManager
 from ai_service import AIService
 from document_service import DocumentService
 from search_service import vector_search_db
+
+# Set up transformers warnings suppression
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
 # ==========================================
 # 主应用 GUI
