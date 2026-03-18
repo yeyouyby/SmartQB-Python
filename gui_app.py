@@ -1,6 +1,10 @@
 import gc
 # gui_app.py
 import os
+import warnings
+os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+
 import io
 import json
 import threading
@@ -14,10 +18,10 @@ from pix2text import Pix2Text
 
 try:
     from surya.layout import LayoutPredictor
-    from surya.ocr import OCRPredictor
+    from surya.recognition import RecognitionPredictor
 except ImportError:
     LayoutPredictor = None
-    OCRPredictor = None
+    RecognitionPredictor = None
 from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
@@ -57,9 +61,9 @@ class SmartQBApp(tk.Tk):
             raise RuntimeError("Missing required dependency: surya.layout")
 
         logger.info("正在加载 Surya OCR 引擎 (可选)...")
-        if OCRPredictor:
+        if RecognitionPredictor:
             try:
-                self.surya_ocr = OCRPredictor()
+                self.surya_ocr = RecognitionPredictor()
                 logger.info("Surya OCR 引擎加载完成！")
             except Exception as e:
                 logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
