@@ -1,5 +1,8 @@
 import lancedb
-def get_db(): return lancedb.connect('smartqb_lancedb')
+from config import DB_NAME
+def get_db():
+    logger.info(f"Connecting to LanceDB database: 'smartqb_lancedb'")
+    return lancedb.connect('smartqb_lancedb')
 import pyarrow as pa
 import logging
 logger = logging.getLogger(__name__)

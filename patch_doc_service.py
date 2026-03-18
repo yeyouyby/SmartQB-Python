@@ -1,26 +1,19 @@
-import io
-import base64
-import numpy as np
-import fitz  # PyMuPDF
-import docx
-from PIL import Image, ImageDraw
-from utils import logger
+with open("document_service.py", "r", encoding="utf-8") as f:
+    content = f.read()
 
-# ==========================================
-# 文档解析服务 (PDF / Word / Image)
-# ==========================================
+import re
 
-class DocumentService:
-
+# We will completely rewrite process_doc_with_layout to use Surya Layout and Surya/Pix2Text OCR
+new_process_doc = """
     @staticmethod
     def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None):
-        """
+        \"\"\"
         使用 Surya 进行版面分析 (Pass 1) + (Surya或Pix2Text) OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
-        """
+        \"\"\"
         pending_slices = []
-
         doc = None
+
         try:
             total_pages = 1
             if file_type == "pdf":
@@ -40,7 +33,7 @@ class DocumentService:
 
                 try:
                     # ==========================================
-                    # PASS 1: Surya Layout 图样提取
+                    # PASS 1: Surya Layout 版面提取
                     # ==========================================
                     layout_boxes = []
                     diagrams = []
@@ -48,13 +41,14 @@ class DocumentService:
 
                     try:
                         if layout_predictor is not None:
-                            # surya LayoutPredictor
                             layout_result = layout_predictor([img])[0]
                             for poly in layout_result.bboxes:
+                                # poly.bbox = [x1, y1, x2, y2]
+                                # poly.label = label string
                                 box = poly.bbox
                                 p_type = poly.label
 
-                                # 加入 table 和 equation 等
+                                # 将 table 和 equation 纳入图样截取范围
                                 if p_type in ['Figure', 'Table', 'Equation']:
                                     x_min, y_min, x_max, y_max = box
 
@@ -82,43 +76,41 @@ class DocumentService:
                                         'type': p_type
                                     })
                     except Exception as e:
-                        logger.error(f"Surya Layout 识别失败: {e}", exc_info=True)
+                        logger.error(f"Surya Layout 版面提取失败: {e}", exc_info=True)
 
                     # ==========================================
-                    # PASS 2: OCR 文字提取
+                    # PASS 2: OCR 区域文字提取
                     # ==========================================
                     ocr_blocks = []
+
+                    # 绘制带标注的底图 (Annotated Image for UI)
                     annotated_img = img.copy()
                     draw = ImageDraw.Draw(annotated_img)
 
+                    # 为了加速 OCR，我们可以把所有 text_regions 的截图合并起来 OCR，或者单独裁剪 OCR
+                    # 如果使用的是 Pix2Text，可以直接丢给它让它自己切，或者指定坐标（P2T不支持坐标限定，只能裁出来）
                     for region in text_regions:
                         try:
                             x_min, y_min, x_max, y_max = region['box']
-                            crop_box = (
-                                max(0, int(x_min)-2),
-                                max(0, int(y_min)-2),
-                                min(img.width, int(x_max)+2),
-                                min(img.height, int(y_max)+2)
-                            )
-                            cropped_img = img.crop(crop_box)
+                            crop_box = (max(0, int(x_min)-2), max(0, int(y_min)-2), min(img.width, int(x_max)+2), min(img.height, int(y_max)+2))
+                            cropped_text_img = img.crop(crop_box)
 
                             b_text = ""
                             if ocr_engine_type == "Pix2Text" and ocr_engine is not None:
-                                res = ocr_engine.recognize(cropped_img, return_text=True)
+                                # Pix2Text OCR
+                                res = ocr_engine.recognize(cropped_text_img, return_text=True)
                                 if isinstance(res, str):
                                     b_text = res
                                 else:
-                                    try:
-                                        b_text = "".join([b.get('text', '') for b in res])
-                                    except Exception:
-                                        pass
+                                    # Handle standard Pix2Text output
+                                    b_text = "".join([b.get('text', '') for b in (res.blocks if hasattr(res, 'blocks') else res.get('blocks', []))])
                             elif ocr_engine_type == "Surya" and ocr_engine is not None:
-                                # OCRPredictor expects list of images
-                                ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
-                                b_text = " ".join([l.text for l in ocr_res.text_lines])
+                                # Surya OCR
+                                # Surya OCR expects list of images, optionally langs
+                                ocr_res = ocr_engine([cropped_text_img], langs=[["en", "zh"]])[0]
+                                b_text = "".join([l.text for l in ocr_res.text_lines])
 
-                            b_text = b_text.replace('
-', ' ').strip()
+                            b_text = b_text.replace('\\n', ' ').strip()
                             if b_text:
                                 ocr_blocks.append({
                                     'text': b_text,
@@ -127,11 +119,13 @@ class DocumentService:
                                     'type': region['type']
                                 })
 
-                            draw.rectangle(crop_box, outline='orange', width=2)
-                            draw.text((crop_box[0], max(0, crop_box[1] - 12)), f"OCR({region['type']})", fill='orange')
+                            draw.rectangle(crop_box, outline="orange", width=2)
+                            draw.text((crop_box[0], max(0, crop_box[1] - 12)), f"OCR({region['type']})", fill="orange")
+
                         except Exception as e:
                             logger.warning(f"Failed OCR on region: {e}")
 
+                    # 绘制 Diagrams 框
                     for b in diagrams:
                         try:
                             x_min, y_min, x_max, y_max = b['box']
@@ -175,8 +169,7 @@ class DocumentService:
                                 pass
 
                         slice_obj = {
-                            "text": "
-".join(current_text_chunk),
+                            "text": "\\n".join(current_text_chunk),
                             "image_b64": chunk_img_b64,
                             "diagram": diagram,
                             "page_annotated_b64": page_annotated_b64
@@ -196,6 +189,7 @@ class DocumentService:
                             b = elem['data']
                             current_text_chunk.append(b['text'])
                             try:
+                                # box is [x1, y1, x2, y2]
                                 bx = b['box']
                                 current_boxes.append(np.array([[bx[0], bx[1]], [bx[2], bx[3]]]))
                             except Exception:
@@ -219,94 +213,14 @@ class DocumentService:
                 doc.close()
 
         return pending_slices
+"""
 
+content = re.sub(
+    r'@staticmethod\s+def process_doc_with_layout.*?return pending_slices',
+    new_process_doc,
+    content,
+    flags=re.DOTALL
+)
 
-    @staticmethod
-    def extract_from_word(docx_path):
-        doc = docx.Document(docx_path)
-        chunks = []
-        current_text = []
-        current_images = []
-
-        def extract_image(embed_id):
-            if embed_id:
-                try:
-                    part = doc.part.related_parts[embed_id]
-                    if "image" in part.content_type:
-                        img_data = part.blob
-                        return base64.b64encode(img_data).decode("utf-8")
-                except Exception as e:
-                    logger.error(f"Error extracting image from docx: {e}", exc_info=True)
-            return None
-
-        for element in doc.element.body:
-            try:
-                if element.tag.endswith("p"):
-                    para = docx.text.paragraph.Paragraph(element, doc)
-                    if para.text.strip():
-                        prefix = ""
-                        if para.style.name.startswith("Heading"):
-                            prefix = "# "
-                        elif element.xpath(".//w:numPr"):
-                            prefix = "- "
-                        current_text.append(prefix + para.text.strip())
-
-                elif element.tag.endswith("tbl"):
-                    table = docx.table.Table(element, doc)
-                    for i, row in enumerate(table.rows):
-                        row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                        if row_data:
-                            current_text.append("| " + " | ".join(row_data) + " |")
-                            if i == 0:
-                                current_text.append("|" + "|".join(["---"] * len(row_data)) + "|")
-
-                for blip in element.xpath(".//a:blip"):
-                    embed_id = None
-                    for key in blip.keys():
-                        if key.endswith("embed"):
-                            embed_id = blip.get(key)
-                            break
-                    img_b64 = extract_image(embed_id)
-                    if img_b64: current_images.append(img_b64)
-
-                for imagedata in element.xpath(".//v:imagedata"):
-                    embed_id = None
-                    for key in imagedata.keys():
-                        if key.endswith("id"):
-                            embed_id = imagedata.get(key)
-                            break
-                    img_b64 = extract_image(embed_id)
-                    if img_b64: current_images.append(img_b64)
-
-            except Exception as e:
-                logger.error(f"Error processing word element: {e}", exc_info=True)
-                continue
-
-            if len(current_text) >= 10 or current_images:
-                chunks.append({
-                    "text": "\n".join(current_text),
-                    "image_b64": "",
-                    "diagram": current_images[0] if current_images else None
-                })
-                current_text = []
-                if len(current_images) > 1:
-                    for extra_img in current_images[1:]:
-                        chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
-                current_images = []
-
-        if current_text or current_images:
-            chunks.append({
-                "text": "\n".join(current_text) if current_text else "",
-                "image_b64": "",
-                "diagram": current_images[0] if current_images else None
-            })
-            if len(current_images) > 1:
-                for extra_img in current_images[1:]:
-                    chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
-
-        if not chunks:
-            full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            text_chunks = [chunk for chunk in full_text.split("\n\n") if chunk.strip()]
-            chunks = [{"text": t.replace("\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
-
-        return chunks
+with open("document_service.py", "w", encoding="utf-8") as f:
+    f.write(content)

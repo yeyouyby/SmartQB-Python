@@ -1,4 +1,9 @@
-import pyarrow as pa
+with open("main.py", "r", encoding="utf-8") as f:
+    content = f.read()
+
+import re
+# Replace the __main__ block
+new_main = """import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
 from gui_app import SmartQBApp
@@ -62,3 +67,6 @@ if __name__ == "__main__":
     app = SmartQBApp()
     app.mainloop()
     logger.info("SmartQB Pro V3 stopped.")
+"""
+with open("main.py", "w", encoding="utf-8") as f:
+    f.write(new_main)

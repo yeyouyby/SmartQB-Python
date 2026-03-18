@@ -1,23 +1,17 @@
-import io
-import base64
-import numpy as np
-import fitz  # PyMuPDF
-import docx
-from PIL import Image, ImageDraw
-from utils import logger
+import re
 
-# ==========================================
-# 文档解析服务 (PDF / Word / Image)
-# ==========================================
+with open("document_service.py", "r", encoding="utf-8") as f:
+    content = f.read()
 
-class DocumentService:
+# Try a different regex to capture the whole function
+pattern = r'@staticmethod\s+def process_doc_with_layout.*?return pending_slices'
 
-    @staticmethod
+new_func = """@staticmethod
     def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None):
-        """
+        \"\"\"
         使用 Surya 进行版面分析 (Pass 1) + (Surya或Pix2Text) OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
-        """
+        \"\"\"
         pending_slices = []
 
         doc = None
@@ -117,8 +111,7 @@ class DocumentService:
                                 ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
                                 b_text = " ".join([l.text for l in ocr_res.text_lines])
 
-                            b_text = b_text.replace('
-', ' ').strip()
+                            b_text = b_text.replace('\\n', ' ').strip()
                             if b_text:
                                 ocr_blocks.append({
                                     'text': b_text,
@@ -175,8 +168,7 @@ class DocumentService:
                                 pass
 
                         slice_obj = {
-                            "text": "
-".join(current_text_chunk),
+                            "text": "\\n".join(current_text_chunk),
                             "image_b64": chunk_img_b64,
                             "diagram": diagram,
                             "page_annotated_b64": page_annotated_b64
@@ -218,95 +210,9 @@ class DocumentService:
             if doc:
                 doc.close()
 
-        return pending_slices
+        return pending_slices"""
 
+new_content = re.sub(pattern, new_func, content, flags=re.DOTALL)
 
-    @staticmethod
-    def extract_from_word(docx_path):
-        doc = docx.Document(docx_path)
-        chunks = []
-        current_text = []
-        current_images = []
-
-        def extract_image(embed_id):
-            if embed_id:
-                try:
-                    part = doc.part.related_parts[embed_id]
-                    if "image" in part.content_type:
-                        img_data = part.blob
-                        return base64.b64encode(img_data).decode("utf-8")
-                except Exception as e:
-                    logger.error(f"Error extracting image from docx: {e}", exc_info=True)
-            return None
-
-        for element in doc.element.body:
-            try:
-                if element.tag.endswith("p"):
-                    para = docx.text.paragraph.Paragraph(element, doc)
-                    if para.text.strip():
-                        prefix = ""
-                        if para.style.name.startswith("Heading"):
-                            prefix = "# "
-                        elif element.xpath(".//w:numPr"):
-                            prefix = "- "
-                        current_text.append(prefix + para.text.strip())
-
-                elif element.tag.endswith("tbl"):
-                    table = docx.table.Table(element, doc)
-                    for i, row in enumerate(table.rows):
-                        row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
-                        if row_data:
-                            current_text.append("| " + " | ".join(row_data) + " |")
-                            if i == 0:
-                                current_text.append("|" + "|".join(["---"] * len(row_data)) + "|")
-
-                for blip in element.xpath(".//a:blip"):
-                    embed_id = None
-                    for key in blip.keys():
-                        if key.endswith("embed"):
-                            embed_id = blip.get(key)
-                            break
-                    img_b64 = extract_image(embed_id)
-                    if img_b64: current_images.append(img_b64)
-
-                for imagedata in element.xpath(".//v:imagedata"):
-                    embed_id = None
-                    for key in imagedata.keys():
-                        if key.endswith("id"):
-                            embed_id = imagedata.get(key)
-                            break
-                    img_b64 = extract_image(embed_id)
-                    if img_b64: current_images.append(img_b64)
-
-            except Exception as e:
-                logger.error(f"Error processing word element: {e}", exc_info=True)
-                continue
-
-            if len(current_text) >= 10 or current_images:
-                chunks.append({
-                    "text": "\n".join(current_text),
-                    "image_b64": "",
-                    "diagram": current_images[0] if current_images else None
-                })
-                current_text = []
-                if len(current_images) > 1:
-                    for extra_img in current_images[1:]:
-                        chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
-                current_images = []
-
-        if current_text or current_images:
-            chunks.append({
-                "text": "\n".join(current_text) if current_text else "",
-                "image_b64": "",
-                "diagram": current_images[0] if current_images else None
-            })
-            if len(current_images) > 1:
-                for extra_img in current_images[1:]:
-                    chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
-
-        if not chunks:
-            full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            text_chunks = [chunk for chunk in full_text.split("\n\n") if chunk.strip()]
-            chunks = [{"text": t.replace("\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
-
-        return chunks
+with open("document_service.py", "w", encoding="utf-8") as f:
+    f.write(new_content)
