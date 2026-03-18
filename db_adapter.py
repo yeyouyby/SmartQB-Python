@@ -1,15 +1,14 @@
+import pyarrow as pa
+import logging
+import json
+import time
+import threading
+logger = logging.getLogger(__name__)
+
 import lancedb
 def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
-import pyarrow as pa
-import logging
-logger = logging.getLogger(__name__)
-import json
-
-
-import time
-import threading
 
 class SnowflakeIDGenerator:
     def __init__(self, machine_id=1):

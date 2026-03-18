@@ -48,28 +48,3 @@ def vector_search_db(ai_service, query_text, limit=10):
     except Exception as e:
         logger.error(f"LanceDB Search Error: {e}", exc_info=True)
         return []
-
-    try:
-        db = LanceDBAdapter()
-        table = db.db.open_table("questions")
-
-        # LanceDB native vector search
-        results = table.search(query_vec).limit(limit).to_pandas()
-
-        if results.empty:
-            return []
-
-        ret = []
-        for _, row in results.iterrows():
-            sim = 1.0 - row['_distance'] if '_distance' in row else 0.0
-            content = row['content']
-            ret.append({
-                "id": int(row['id']),
-                "content": content[:100] if content else "",
-                "similarity": float(sim)
-            })
-
-        return ret
-    except Exception as e:
-        logger.error(f"LanceDB Search Error: {e}", exc_info=True)
-        return []
