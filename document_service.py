@@ -91,6 +91,12 @@ class DocumentService:
                     annotated_img = img.copy()
                     draw = ImageDraw.Draw(annotated_img)
 
+                    if not text_regions:
+                        text_regions = [{
+                            'box': (0, 0, img.width, img.height),
+                            'y_center': img.height / 2,
+                            'type': 'FullPage'
+                        }]
                     for region in text_regions:
                         try:
                             x_min, y_min, x_max, y_max = region['box']
@@ -137,8 +143,8 @@ class DocumentService:
                             x_min, y_min, x_max, y_max = b['box']
                             draw.rectangle([x_min, y_min, x_max, y_max], outline='green', width=3)
                             draw.text((x_min, max(0, y_min - 12)), f"Surya-{b['type']}", fill='green')
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning(f"Failed to draw diagram box: {e}", exc_info=True)
 
                     buf_anno = io.BytesIO()
                     annotated_img.save(buf_anno, format='PNG')
@@ -171,8 +177,8 @@ class DocumentService:
                                 buf = io.BytesIO()
                                 cropped.save(buf, format='PNG')
                                 chunk_img_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(f"Failed to crop diagram chunks: {e}", exc_info=True)
 
                         slice_obj = {
                             "text": "
@@ -198,8 +204,8 @@ class DocumentService:
                             try:
                                 bx = b['box']
                                 current_boxes.append(np.array([[bx[0], bx[1]], [bx[2], bx[3]]]))
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(f"Failed to process bounding box: {e}", exc_info=True)
                         elif elem['source'] == 'diagram':
                             if current_text_chunk:
                                 package_slice()

@@ -54,6 +54,7 @@ def ensure_lancedb_tables():
         logger.info("LanceDB initialization complete.")
     except Exception as e:
         logger.error(f"Failed to initialize LanceDB tables: {e}", exc_info=True)
+        raise
 
 if __name__ == "__main__":
     # 启动 GUI 主程序

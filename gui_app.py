@@ -49,8 +49,8 @@ class SmartQBApp(tk.Tk):
                 logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
                 self.surya_layout = None
         else:
-            self.surya_layout = None
-            logger.warning("警告: 无法导入 surya，请检查依赖！")
+            logger.error("无法导入 surya.layout，文档版面分析不可用。")
+            raise RuntimeError("Missing required dependency: surya.layout")
 
         logger.info("正在加载 Surya OCR 引擎 (可选)...")
         if OCRPredictor:
@@ -291,8 +291,8 @@ class SmartQBApp(tk.Tk):
                                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
                     self.surya_layout,
-                    self.ocr_engine if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Pix2Text' else self.surya_ocr,
-                    getattr(self.settings, 'ocr_engine_type', 'Pix2Text'),
+                    self.surya_ocr if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else self.ocr_engine,
+                    'Surya' if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else 'Pix2Text',
                     self.update_status, handle_slice_ready
                 )
             elif file_type == "word":

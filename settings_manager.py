@@ -45,7 +45,8 @@ class SettingsManager:
                 self.embed_model_id = d.get("embed_model_id", "text-embedding-3-small")
 
                 self.recognition_mode = d.get("recognition_mode", 2)
-                self.ocr_engine_type = d.get("ocr_engine_type", "Pix2Text")
+                engine_type = d.get("ocr_engine_type", "Pix2Text")
+                self.ocr_engine_type = engine_type if engine_type in {"Pix2Text", "Surya"} else "Pix2Text"
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
 
