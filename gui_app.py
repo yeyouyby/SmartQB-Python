@@ -38,8 +38,12 @@ class SmartQBApp(tk.Tk):
         self.ai_service = AIService(self.settings)
 
         logger.info("正在加载 Pix2Text 引擎 (首次启动可能需要下载模型，请耐心等待)...")
-        self.ocr_engine = Pix2Text.from_config()
-        logger.info("Pix2Text 引擎加载完成！")
+        try:
+            self.ocr_engine = Pix2Text.from_config()
+            logger.info("Pix2Text 引擎加载完成！")
+        except Exception as e:
+            logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
+            self.ocr_engine = None
         logger.info("正在加载 Surya Layout 版面分析引擎 (必选)...")
         if LayoutPredictor:
             try:
@@ -288,7 +292,7 @@ class SmartQBApp(tk.Tk):
                     self.refresh_staging_tree()
                 self.after(0, _clear_stg)
 
-                                pending_slices = DocumentService.process_doc_with_layout(
+                pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
                     self.surya_layout,
                     self.surya_ocr if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else self.ocr_engine,
@@ -1339,7 +1343,7 @@ class SmartQBApp(tk.Tk):
         self.settings.embed_model_id = self.ent_embed_model.get().strip()
 
         self.settings.recognition_mode = self.var_rec_mode.get()
-                self.settings.use_prm_optimization = self.var_use_prm.get()
+        self.settings.use_prm_optimization = self.var_use_prm.get()
         if hasattr(self, 'cbo_ocr_engine'):
             self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
         try:

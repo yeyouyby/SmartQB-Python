@@ -123,8 +123,7 @@ class DocumentService:
                                 ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
                                 b_text = " ".join([l.text for l in ocr_res.text_lines])
 
-                            b_text = b_text.replace('
-', ' ').strip()
+                            b_text = b_text.replace('\n', ' ').strip()
                             if b_text:
                                 ocr_blocks.append({
                                     'text': b_text,
@@ -181,8 +180,7 @@ class DocumentService:
                                 logger.warning(f"Failed to crop diagram chunks: {e}", exc_info=True)
 
                         slice_obj = {
-                            "text": "
-".join(current_text_chunk),
+                            "text": "\\n".join(current_text_chunk),
                             "image_b64": chunk_img_b64,
                             "diagram": diagram,
                             "page_annotated_b64": page_annotated_b64

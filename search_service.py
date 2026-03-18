@@ -21,6 +21,10 @@ def vector_search_db(ai_service, query_text, limit=10):
         # We now use db.q_table which handles the internal initialization.
         table = db.q_table
 
+        if table is None:
+            logger.error("LanceDB questions table is missing or failed to initialize.")
+            return []
+
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")
         results = table.search(query_vec).limit(limit).to_pandas()
