@@ -43,7 +43,7 @@ class TestLanceDBAdapterNextId(unittest.TestCase):
             # If sequence reaches 0, it calls _wait_next_millis which calls _gen_timestamp in a loop.
 
             # Total calls needed: (max_sequence + 1) for first IDs + 1 for next_id + some for _wait_next_millis
-            mock_time.side_effect = [1700000000.000] * (self.adapter.sequence_mask + 2) + [1700000000.001]
+            mock_time.side_effect = [1700000000.000] * (self.adapter.sequence_mask + 3) + [1700000000.001]
 
             # Use up all sequences for the same millisecond
             for _ in range(self.adapter.sequence_mask + 1):
@@ -63,7 +63,7 @@ class TestLanceDBAdapterNextId(unittest.TestCase):
         self.adapter.last_timestamp = 1700000000005
         with patch('time.time') as mock_time:
             mock_time.return_value = 1700000000.000 # 1700000000000 ms
-            with self.assertRaises(Exception) as cm:
+            with self.assertRaises(RuntimeError) as cm:
                 self.adapter.next_id()
             self.assertIn("Clock moved backwards", str(cm.exception))
             self.assertIn("Refusing to generate id for 5 milliseconds", str(cm.exception))

@@ -16,7 +16,7 @@ class LanceDBAdapter:
         self.machine_id = machine_id
         self.sequence = 0
         self.last_timestamp = -1
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
         # Custom Epoch (e.g., 2024-01-01)
         self.twepoch = 1704067200000
@@ -86,7 +86,7 @@ class LanceDBAdapter:
         with self.lock:
             timestamp = self._gen_timestamp()
             if timestamp < self.last_timestamp:
-                raise Exception(f"Clock moved backwards. Refusing to generate id for {self.last_timestamp - timestamp} milliseconds")
+                raise RuntimeError(f"Clock moved backwards. Refusing to generate id for {self.last_timestamp - timestamp} milliseconds")
             if timestamp == self.last_timestamp:
                 self.sequence = (self.sequence + 1) & self.sequence_mask
                 if self.sequence == 0:
@@ -119,16 +119,21 @@ class LanceDBAdapter:
     def execute_insert_tag(self, tag_name):
         # Prevent check-then-insert race
         with self.lock:
-            t_df = self.t_table.to_pandas()
-            if t_df.empty or tag_name not in t_df['name'].values:
-                # We need to temporarily release lock for next_id to grab it
-                pass
-            else:
-                return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+            try:
+                # Escape single quotes for DataFusion SQL parser
+                safe_tag_name = tag_name.replace("'", "''")
+                res = self.t_table.search().where(f"name = '{safe_tag_name}'").limit(1).to_list()
+                if res:
+                    return int(res[0]['id'])
+            except Exception as e:
+                # Fallback to pandas if search fails (e.g., table empty or syntax error)
+                t_df = self.t_table.to_pandas()
+                if not t_df.empty and tag_name in t_df['name'].values:
+                    return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
 
-        new_t_id = self.next_id()
-        self.t_table.add([{"id": new_t_id, "name": tag_name}])
-        return new_t_id
+            new_t_id = self.next_id()
+            self.t_table.add([{"id": new_t_id, "name": tag_name}])
+            return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
         qt_df = self.qt_table.to_pandas()
