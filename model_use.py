@@ -46,6 +46,7 @@ def copy_model_files():
                 success_count += 1
             except Exception as e:
                 print(f"❌ 复制 {file_name} 失败: {e}")
+                sys.exit(1)
 
     print("-" * 50)
     print(f"🎉 搞定！成功将 {success_count} 个文件复制到了正确的缓存目录。")
