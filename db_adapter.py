@@ -220,21 +220,33 @@ class LanceDBAdapter:
         except Exception as e:
             logger.error(f"Error clearing question tags: {e}")
 
+    def _delete_helper(self, q_ids):
+        """Helper to construct filter and delete from both tables for consistency."""
+        if not q_ids:
+            return
+        # Ensure all are integers and build string for filter
+        q_ids = [int(q_id) for q_id in q_ids]
+        if len(q_ids) == 1:
+            filter_str_qt = f"question_id = {q_ids[0]}"
+            filter_str_q = f"id = {q_ids[0]}"
+        else:
+            id_list_str = ",".join(map(str, q_ids))
+            filter_str_qt = f"question_id IN ({id_list_str})"
+            filter_str_q = f"id IN ({id_list_str})"
+
+        # Note: LanceDB does not currently support multi-table ACID transactions in its
+        # Python SDK for simple .delete() operations. We execute them sequentially.
+        self.qt_table.delete(filter_str_qt)
+        self.q_table.delete(filter_str_q)
+
     def delete_question(self, q_id):
         try:
-            q_id = int(q_id)
-            self.qt_table.delete(f"question_id = {q_id}")
-            self.q_table.delete(f"id = {q_id}")
+            self._delete_helper([q_id])
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
 
     def delete_questions(self, q_ids):
         try:
-            if not q_ids:
-                return
-            q_ids = [int(q_id) for q_id in q_ids]
-            id_str = ",".join(map(str, q_ids))
-            self.qt_table.delete(f"question_id IN ({id_str})")
-            self.q_table.delete(f"id IN ({id_str})")
+            self._delete_helper(q_ids)
         except Exception as e:
             logger.error(f"Error deleting questions: {e}")
