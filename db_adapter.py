@@ -10,13 +10,14 @@ def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
 
+_id_lock = threading.RLock()
+_last_timestamp = -1
+_sequence = 0
+
 class LanceDBAdapter:
     def __init__(self, machine_id=1):
         self.db = get_db()
         self.machine_id = machine_id
-        self.sequence = 0
-        self.last_timestamp = -1
-        self.lock = threading.RLock()
 
         # Custom Epoch (e.g., 2024-01-01)
         self.twepoch = 1704067200000
@@ -83,18 +84,19 @@ class LanceDBAdapter:
         return int(time.time() * 1000)
 
     def next_id(self):
-        with self.lock:
+        global _last_timestamp, _sequence
+        with _id_lock:
             timestamp = self._gen_timestamp()
-            if timestamp < self.last_timestamp:
-                raise RuntimeError(f"Clock moved backwards. Refusing to generate id for {self.last_timestamp - timestamp} milliseconds")
-            if timestamp == self.last_timestamp:
-                self.sequence = (self.sequence + 1) & self.sequence_mask
-                if self.sequence == 0:
-                    timestamp = self._wait_next_millis(self.last_timestamp)
+            if timestamp < _last_timestamp:
+                raise RuntimeError(f"Clock moved backwards. Refusing to generate id for {_last_timestamp - timestamp} milliseconds")
+            if timestamp == _last_timestamp:
+                _sequence = (_sequence + 1) & self.sequence_mask
+                if _sequence == 0:
+                    timestamp = self._wait_next_millis(_last_timestamp)
             else:
-                self.sequence = 0
-            self.last_timestamp = timestamp
-            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | self.sequence
+                _sequence = 0
+            _last_timestamp = timestamp
+            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | _sequence
 
     def _wait_next_millis(self, last_timestamp):
         timestamp = self._gen_timestamp()
@@ -118,7 +120,7 @@ class LanceDBAdapter:
 
     def execute_insert_tag(self, tag_name):
         # Prevent check-then-insert race
-        with self.lock:
+        with _id_lock:
             try:
                 # Escape single quotes for DataFusion SQL parser
                 safe_tag_name = tag_name.replace("'", "''")
@@ -126,7 +128,11 @@ class LanceDBAdapter:
                 if res:
                     return int(res[0]['id'])
             except Exception as e:
-                # Fallback to pandas if search fails (e.g., table empty or syntax error)
+                # Fallback only for query parsing/filter errors; don't hide real DB failures
+                err = str(e).lower()
+                if "syntax" not in err and "parse" not in err and "datafusion" not in err and "lanceerror" not in err and "invalid user input" not in err:
+                    raise
+                logger.warning(f"LanceDB search failed for tag '{tag_name}', falling back to pandas. Error: {e}", exc_info=True)
                 t_df = self.t_table.to_pandas()
                 if not t_df.empty and tag_name in t_df['name'].values:
                     return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])

@@ -10,11 +10,32 @@ from db_adapter import LanceDBAdapter
 import time
 
 class TestLanceDBAdapterNextId(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls):
+        import sys
+        import importlib
+
+        # Remove mocks and force reload of real db_adapter in subsequent tests
+        if 'lancedb' in sys.modules and isinstance(sys.modules['lancedb'], MagicMock):
+            del sys.modules['lancedb']
+        if 'pyarrow' in sys.modules and isinstance(sys.modules['pyarrow'], MagicMock):
+            del sys.modules['pyarrow']
+
+        if 'db_adapter' in sys.modules:
+            # We don't reload here because it might fail if real dependencies aren't present
+            # But integration tests will reload or import fresh
+            del sys.modules['db_adapter']
+
+
     def setUp(self):
         # We need to mock get_db because LanceDBAdapter calls it in __init__
         with patch('db_adapter.get_db') as mock_get_db:
             mock_get_db.return_value = MagicMock()
             self.adapter = LanceDBAdapter(machine_id=1)
+            # Reset global generator state for testing
+            import db_adapter
+            db_adapter._last_timestamp = -1
+            db_adapter._sequence = 0
 
     def test_next_id_incremental(self):
         id1 = self.adapter.next_id()
@@ -60,7 +81,8 @@ class TestLanceDBAdapterNextId(unittest.TestCase):
             self.assertEqual(seq, 0)
 
     def test_next_id_clock_backwards(self):
-        self.adapter.last_timestamp = 1700000000005
+        import db_adapter
+        db_adapter._last_timestamp = 1700000000005
         with patch('time.time') as mock_time:
             mock_time.return_value = 1700000000.000 # 1700000000000 ms
             with self.assertRaises(RuntimeError) as cm:

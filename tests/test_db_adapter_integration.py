@@ -2,11 +2,20 @@ import sys
 import unittest
 import os
 import shutil
-from db_adapter import LanceDBAdapter
-import lancedb
+
+try:
+    import lancedb
+    import pyarrow
+    from db_adapter import LanceDBAdapter
+    _HAS_LANCEDB = True
+except ImportError:
+    lancedb = None
+    LanceDBAdapter = None
+    _HAS_LANCEDB = False
 
 TEST_DB_DIR = "test_smartqb_lancedb_tmp"
 
+@unittest.skipUnless(_HAS_LANCEDB, "lancedb/pyarrow not installed for integration tests")
 class TestLanceDBAdapterExecuteInsertTag(unittest.TestCase):
     def setUp(self):
         if os.path.exists(TEST_DB_DIR):
@@ -19,6 +28,9 @@ class TestLanceDBAdapterExecuteInsertTag(unittest.TestCase):
         db_adapter.get_db = lambda: self.db
 
         self.adapter = LanceDBAdapter(machine_id=2)
+        import db_adapter
+        db_adapter._last_timestamp = -1
+        db_adapter._sequence = 0
 
     def tearDown(self):
         import db_adapter
