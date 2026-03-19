@@ -127,7 +127,7 @@ class LanceDBAdapter:
                 res = self.t_table.search().where(f"name = '{safe_tag_name}'").limit(1).to_list()
                 if res:
                     return int(res[0]['id'])
-            except Exception as e:
+            except ValueError as e:
                 # Fallback only for query parsing/filter errors; don't hide real DB failures
                 err = str(e).lower()
                 if "syntax" not in err and "parse" not in err and "datafusion" not in err and "lanceerror" not in err and "invalid user input" not in err:
