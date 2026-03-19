@@ -6,6 +6,7 @@ import io
 import json
 import threading
 import base64
+import re
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -748,7 +749,7 @@ class SmartQBApp(tk.Tk):
                         with open(tex_file, "w", encoding="utf-8") as f_tex:
                             f_tex.write(code)
                         try:
-                            res = subprocess.run(["xelatex", "-interaction=nonstopmode", "test.tex"],
+                            res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
                                                  cwd=td, capture_output=True, text=True, timeout=15)
                             if res.returncode == 0:
                                 return True, ""
@@ -1315,7 +1316,7 @@ class SmartQBApp(tk.Tk):
             error_msg = ""
             try:
                 result = subprocess.run(
-                    ["xelatex", "-interaction=nonstopmode", f"-output-directory={export_dir}", export_tex_path],
+                    ["xelatex", "-interaction=nonstopmode", "--no-shell-escape", f"-output-directory={export_dir}", export_tex_path],
                     cwd=export_dir,
                     capture_output=True,
                     check=False
