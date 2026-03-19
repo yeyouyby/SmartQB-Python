@@ -3,6 +3,8 @@ import logging
 import json
 import time
 import threading
+import uuid
+import zlib
 logger = logging.getLogger(__name__)
 
 import lancedb
@@ -10,18 +12,24 @@ def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
 
+_id_lock = threading.RLock()
+_last_timestamp = -1
+_sequence = 0
+
 class LanceDBAdapter:
-    def __init__(self, machine_id=1):
+    def __init__(self, machine_id=None):
         self.db = get_db()
+
+        if machine_id is None:
+            mac_address = str(uuid.getnode())
+            machine_id = zlib.crc32(mac_address.encode('utf-8')) % 1024
+
         self.machine_id = machine_id
-        self.sequence = 0
-        self.last_timestamp = -1
-        self.lock = threading.Lock()
 
         # Custom Epoch (e.g., 2024-01-01)
         self.twepoch = 1704067200000
 
-        self.machine_id_bits = 5
+        self.machine_id_bits = 10  # 10 bits allows values 0-1023
         self.sequence_bits = 12
 
         self.max_machine_id = -1 ^ (-1 << self.machine_id_bits)
@@ -83,18 +91,19 @@ class LanceDBAdapter:
         return int(time.time() * 1000)
 
     def next_id(self):
-        with self.lock:
+        global _last_timestamp, _sequence
+        with _id_lock:
             timestamp = self._gen_timestamp()
-            if timestamp < self.last_timestamp:
-                raise Exception(f"Clock moved backwards. Refusing to generate id for {self.last_timestamp - timestamp} milliseconds")
-            if timestamp == self.last_timestamp:
-                self.sequence = (self.sequence + 1) & self.sequence_mask
-                if self.sequence == 0:
-                    timestamp = self._wait_next_millis(self.last_timestamp)
+            if timestamp < _last_timestamp:
+                raise RuntimeError(f"Clock moved backwards. Refusing to generate id for {_last_timestamp - timestamp} milliseconds")
+            if timestamp == _last_timestamp:
+                _sequence = (_sequence + 1) & self.sequence_mask
+                if _sequence == 0:
+                    timestamp = self._wait_next_millis(_last_timestamp)
             else:
-                self.sequence = 0
-            self.last_timestamp = timestamp
-            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | self.sequence
+                _sequence = 0
+            _last_timestamp = timestamp
+            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | _sequence
 
     def _wait_next_millis(self, last_timestamp):
         timestamp = self._gen_timestamp()
@@ -118,17 +127,26 @@ class LanceDBAdapter:
 
     def execute_insert_tag(self, tag_name):
         # Prevent check-then-insert race
-        with self.lock:
-            t_df = self.t_table.to_pandas()
-            if t_df.empty or tag_name not in t_df['name'].values:
-                # We need to temporarily release lock for next_id to grab it
-                pass
-            else:
-                return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+        with _id_lock:
+            try:
+                # Escape single quotes for DataFusion SQL parser
+                safe_tag_name = tag_name.replace("'", "''")
+                res = self.t_table.search().where(f"name = '{safe_tag_name}'").limit(1).to_list()
+                if res:
+                    return int(res[0]['id'])
+            except ValueError as e:
+                # Fallback only for query parsing/filter errors; don't hide real DB failures
+                err = str(e).lower()
+                if "syntax" not in err and "parse" not in err and "datafusion" not in err and "lanceerror" not in err and "invalid user input" not in err:
+                    raise
+                logger.warning(f"LanceDB search failed for tag '{tag_name}', falling back to pandas. Error: {e}", exc_info=True)
+                t_df = self.t_table.to_pandas()
+                if not t_df.empty and tag_name in t_df['name'].values:
+                    return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
 
-        new_t_id = self.next_id()
-        self.t_table.add([{"id": new_t_id, "name": tag_name}])
-        return new_t_id
+            new_t_id = self.next_id()
+            self.t_table.add([{"id": new_t_id, "name": tag_name}])
+            return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
         qt_df = self.qt_table.to_pandas()
