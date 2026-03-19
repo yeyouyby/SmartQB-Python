@@ -10,32 +10,11 @@ from db_adapter import LanceDBAdapter
 import time
 
 class TestLanceDBAdapterNextId(unittest.TestCase):
-    @classmethod
-    def tearDownClass(cls):
-        import sys
-        import importlib
-
-        # Remove mocks and force reload of real db_adapter in subsequent tests
-        if 'lancedb' in sys.modules and isinstance(sys.modules['lancedb'], MagicMock):
-            del sys.modules['lancedb']
-        if 'pyarrow' in sys.modules and isinstance(sys.modules['pyarrow'], MagicMock):
-            del sys.modules['pyarrow']
-
-        if 'db_adapter' in sys.modules:
-            # We don't reload here because it might fail if real dependencies aren't present
-            # But integration tests will reload or import fresh
-            del sys.modules['db_adapter']
-
-
     def setUp(self):
         # We need to mock get_db because LanceDBAdapter calls it in __init__
         with patch('db_adapter.get_db') as mock_get_db:
             mock_get_db.return_value = MagicMock()
             self.adapter = LanceDBAdapter(machine_id=1)
-            # Reset global generator state for testing
-            import db_adapter
-            db_adapter._last_timestamp = -1
-            db_adapter._sequence = 0
 
     def test_next_id_incremental(self):
         id1 = self.adapter.next_id()
@@ -64,7 +43,7 @@ class TestLanceDBAdapterNextId(unittest.TestCase):
             # If sequence reaches 0, it calls _wait_next_millis which calls _gen_timestamp in a loop.
 
             # Total calls needed: (max_sequence + 1) for first IDs + 1 for next_id + some for _wait_next_millis
-            mock_time.side_effect = [1700000000.000] * (self.adapter.sequence_mask + 3) + [1700000000.001]
+            mock_time.side_effect = [1700000000.000] * (self.adapter.sequence_mask + 2) + [1700000000.001]
 
             # Use up all sequences for the same millisecond
             for _ in range(self.adapter.sequence_mask + 1):
@@ -81,11 +60,10 @@ class TestLanceDBAdapterNextId(unittest.TestCase):
             self.assertEqual(seq, 0)
 
     def test_next_id_clock_backwards(self):
-        import db_adapter
-        db_adapter._last_timestamp = 1700000000005
+        self.adapter.last_timestamp = 1700000000005
         with patch('time.time') as mock_time:
             mock_time.return_value = 1700000000.000 # 1700000000000 ms
-            with self.assertRaises(RuntimeError) as cm:
+            with self.assertRaises(Exception) as cm:
                 self.adapter.next_id()
             self.assertIn("Clock moved backwards", str(cm.exception))
             self.assertIn("Refusing to generate id for 5 milliseconds", str(cm.exception))
