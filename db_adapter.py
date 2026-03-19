@@ -128,12 +128,14 @@ class LanceDBAdapter:
     def execute_insert_tag(self, tag_name):
         # Prevent check-then-insert race
         with id_generator.lock:
-            t_df = self.t_table.to_pandas()
-            if t_df.empty or tag_name not in t_df['name'].values:
-                # We need to temporarily release lock for next_id to grab it
-                pass
-            else:
-                return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
+            # Escape single quotes in tag_name for the where clause
+            safe_tag_name = tag_name.replace("'", "''")
+            # Check for existing tag using LanceDB search for performance
+            existing = self.t_table.search().where(f"name = '{safe_tag_name}'").limit(1).to_list()
+            if existing:
+                return int(existing[0]['id'])
+            # Note: next_id() also uses id_generator.lock, so we MUST return or
+            # exit this 'with' block before calling it to avoid a deadlock.
 
         new_t_id = id_generator.next_id()
         self.t_table.add([{"id": new_t_id, "name": tag_name}])
