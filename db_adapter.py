@@ -227,3 +227,14 @@ class LanceDBAdapter:
             self.q_table.delete(f"id = {q_id}")
         except Exception as e:
             logger.error(f"Error deleting question: {e}")
+
+    def delete_questions(self, q_ids):
+        try:
+            if not q_ids:
+                return
+            q_ids = [int(q_id) for q_id in q_ids]
+            id_str = ",".join(map(str, q_ids))
+            self.qt_table.delete(f"question_id IN ({id_str})")
+            self.q_table.delete(f"id IN ({id_str})")
+        except Exception as e:
+            logger.error(f"Error deleting questions: {e}")
