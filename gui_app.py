@@ -1141,8 +1141,7 @@ class SmartQBApp(tk.Tk):
         if messagebox.askyesno("危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"):
             from db_adapter import LanceDBAdapter
             adapter = LanceDBAdapter()
-            for q_id in selected_ids:
-                adapter.delete_question(q_id)
+            adapter.delete_questions(selected_ids)
 
             selected_id_set = set(selected_ids)
             self.export_bag = [q for q in self.export_bag if q["id"] not in selected_id_set]
