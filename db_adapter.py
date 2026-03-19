@@ -10,21 +10,22 @@ def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
 
-class SnowflakeIDGenerator:
+class LanceDBAdapter:
     def __init__(self, machine_id=1):
+        self.db = get_db()
         self.machine_id = machine_id
         self.sequence = 0
         self.last_timestamp = -1
         self.lock = threading.Lock()
 
         # Custom Epoch (e.g., 2024-01-01)
-        self.epoch = 1704067200000
+        self.twepoch = 1704067200000
 
         self.machine_id_bits = 5
         self.sequence_bits = 12
 
         self.max_machine_id = -1 ^ (-1 << self.machine_id_bits)
-        self.max_sequence = -1 ^ (-1 << self.sequence_bits)
+        self.sequence_mask = -1 ^ (-1 << self.sequence_bits)
 
         self.machine_id_shift = self.sequence_bits
         self.timestamp_left_shift = self.sequence_bits + self.machine_id_bits
@@ -32,39 +33,6 @@ class SnowflakeIDGenerator:
         if machine_id < 0 or machine_id > self.max_machine_id:
             raise ValueError(f"Machine ID must be between 0 and {self.max_machine_id}")
 
-
-    def _gen_timestamp(self):
-        return int(time.time() * 1000)
-
-    def next_id(self):
-        with self.lock:
-            timestamp = self._gen_timestamp()
-
-            if timestamp < self.last_timestamp:
-                raise Exception("Clock moved backwards")
-
-            if timestamp == self.last_timestamp:
-                self.sequence = (self.sequence + 1) & self.max_sequence
-                if self.sequence == 0:
-                    timestamp = self._wait_next_millis(self.last_timestamp)
-            else:
-                self.sequence = 0
-
-            self.last_timestamp = timestamp
-
-            return ((timestamp - self.epoch) << self.timestamp_left_shift) |                    (self.machine_id << self.machine_id_shift) |                    self.sequence
-
-    def _wait_next_millis(self, last_timestamp):
-        timestamp = self._gen_timestamp()
-        while timestamp <= last_timestamp:
-            timestamp = self._gen_timestamp()
-        return timestamp
-
-id_generator = SnowflakeIDGenerator()
-
-class LanceDBAdapter:
-    def __init__(self):
-        self.db = get_db()
         try:
             self.q_table = self.db.open_table("questions")
         except FileNotFoundError:
@@ -111,10 +79,33 @@ class LanceDBAdapter:
                 ]),
             )
 
+    def _gen_timestamp(self):
+        return int(time.time() * 1000)
+
+    def next_id(self):
+        with self.lock:
+            timestamp = self._gen_timestamp()
+            if timestamp < self.last_timestamp:
+                raise Exception(f"Clock moved backwards. Refusing to generate id for {self.last_timestamp - timestamp} milliseconds")
+            if timestamp == self.last_timestamp:
+                self.sequence = (self.sequence + 1) & self.sequence_mask
+                if self.sequence == 0:
+                    timestamp = self._wait_next_millis(self.last_timestamp)
+            else:
+                self.sequence = 0
+            self.last_timestamp = timestamp
+            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | self.sequence
+
+    def _wait_next_millis(self, last_timestamp):
+        timestamp = self._gen_timestamp()
+        while timestamp <= last_timestamp:
+            timestamp = self._gen_timestamp()
+        return timestamp
+
     def execute_insert_question(self, content, logic, vec, diagram_b64):
         if not vec:
             vec = [0.0] * 1536
-        new_q_id = id_generator.next_id()
+        new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,
             "content": content,
@@ -127,7 +118,7 @@ class LanceDBAdapter:
 
     def execute_insert_tag(self, tag_name):
         # Prevent check-then-insert race
-        with id_generator.lock:
+        with self.lock:
             t_df = self.t_table.to_pandas()
             if t_df.empty or tag_name not in t_df['name'].values:
                 # We need to temporarily release lock for next_id to grab it
@@ -135,7 +126,7 @@ class LanceDBAdapter:
             else:
                 return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
 
-        new_t_id = id_generator.next_id()
+        new_t_id = self.next_id()
         self.t_table.add([{"id": new_t_id, "name": tag_name}])
         return new_t_id
 
