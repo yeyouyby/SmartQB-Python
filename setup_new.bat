@@ -150,43 +150,14 @@ if %errorlevel% neq 0 (
     goto end_script
 )
 
-:: 5. Pre-download AI Models
+:: 5. Setup AI Models
 echo.
-echo [5/6] Pre-downloading AI Models for Pix2Text and Surya...
-
-echo import sys > init_models.py
-echo print("\n========================================================") >> init_models.py
-echo print("   Initializing AI Vision Engines... ") >> init_models.py
-echo print("========================================================\n") >> init_models.py
-echo print("[!] First run: Auto-downloading AI models (approx 1-3 GB).") >> init_models.py
-echo print("[!] This may take 5 to 20 minutes depending on your network.") >> init_models.py
-echo print("[!] Please wait patiently and do NOT close this window...\n") >> init_models.py
-echo try: >> init_models.py
-echo     from pix2text import Pix2Text >> init_models.py
-echo     print("[INFO] Initializing Pix2Text...") >> init_models.py
-echo     p2t = Pix2Text.from_config() >> init_models.py
-echo except Exception as e: >> init_models.py
-echo     print(f"[WARNING] Pix2Text init failed: {e}") >> init_models.py
-echo try: >> init_models.py
-echo     from surya.layout import LayoutPredictor >> init_models.py
-echo     from surya.recognition import RecognitionPredictor >> init_models.py
-echo     from surya.foundation import FoundationPredictor >> init_models.py
-echo     print("[INFO] Initializing Surya Layout and OCR models...") >> init_models.py
-echo     fp = FoundationPredictor() >> init_models.py
-echo     lp = LayoutPredictor(fp) >> init_models.py
-echo     op = RecognitionPredictor(fp) >> init_models.py
-echo     print("\n[SUCCESS] AI Models downloaded and initialized successfully!") >> init_models.py
-echo     sys.exit(0) >> init_models.py
-echo except Exception as e: >> init_models.py
-echo     print(f"\n[ERROR] Surya Initialization failed: {e}") >> init_models.py
-echo     sys.exit(1) >> init_models.py
-
-python init_models.py
+echo [5/6] Setting up AI Models from local cache...
+python model_use.py
 set MODEL_ERR=%errorlevel%
-del init_models.py
 
 if %MODEL_ERR% neq 0 (
-    echo [ERROR] AI Model download failed. The application may not function correctly.
+    echo [ERROR] AI Model setup failed. Please make sure the 'model' folder exists and contains the model files.
     pause
     goto end_script
 )
