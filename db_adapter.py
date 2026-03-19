@@ -3,6 +3,8 @@ import logging
 import json
 import time
 import threading
+import uuid
+import zlib
 logger = logging.getLogger(__name__)
 
 import lancedb
@@ -15,14 +17,19 @@ _last_timestamp = -1
 _sequence = 0
 
 class LanceDBAdapter:
-    def __init__(self, machine_id=1):
+    def __init__(self, machine_id=None):
         self.db = get_db()
+
+        if machine_id is None:
+            mac_address = str(uuid.getnode())
+            machine_id = zlib.crc32(mac_address.encode('utf-8')) % 1024
+
         self.machine_id = machine_id
 
         # Custom Epoch (e.g., 2024-01-01)
         self.twepoch = 1704067200000
 
-        self.machine_id_bits = 5
+        self.machine_id_bits = 10  # 10 bits allows values 0-1023
         self.sequence_bits = 12
 
         self.max_machine_id = -1 ^ (-1 << self.machine_id_bits)
