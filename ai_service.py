@@ -16,14 +16,39 @@ class AIService:
 
     def _get_chat_kwargs(self):
         kwargs = {"model": self.settings.model_id}
+
         if hasattr(self.settings, 'temperature') and self.settings.temperature is not None:
-            kwargs['temperature'] = self.settings.temperature
+            try:
+                temp = float(self.settings.temperature)
+                if 0.0 <= temp <= 2.0:
+                    kwargs['temperature'] = temp
+            except ValueError:
+                pass
+
         if hasattr(self.settings, 'top_p') and self.settings.top_p is not None:
-            kwargs['top_p'] = self.settings.top_p
+            try:
+                top_p = float(self.settings.top_p)
+                if 0.0 < top_p <= 1.0:
+                    kwargs['top_p'] = top_p
+            except ValueError:
+                pass
+
         if hasattr(self.settings, 'max_tokens') and self.settings.max_tokens is not None:
-            kwargs['max_tokens'] = self.settings.max_tokens
-        if hasattr(self.settings, 'reasoning_effort') and self.settings.reasoning_effort and self.settings.reasoning_effort != 'none':
+            try:
+                max_tokens = int(self.settings.max_tokens)
+                if max_tokens > 0:
+                    kwargs['max_tokens'] = max_tokens
+            except ValueError:
+                pass
+
+        if (
+            hasattr(self.settings, 'reasoning_effort')
+            and self.settings.reasoning_effort
+            and self.settings.reasoning_effort != 'none'
+            and str(self.settings.model_id).startswith(("o1", "o3", "o4"))
+        ):
             kwargs['reasoning_effort'] = self.settings.reasoning_effort
+
         return kwargs
 
     def get_client(self):
@@ -310,11 +335,8 @@ class AIService:
         except Exception as e:
             print(f"Embedding error: {e}")
             return []
-        try:
-            res = self.get_client().embeddings.create(input=text, model="text-embedding-3-small")
-            return res.data[0].embedding
-        except Exception:
-            return []    def chat_with_tools(self, messages, callbacks):
+
+    def chat_with_tools(self, messages, callbacks):
         client = self.get_client()
         tools = [
             {
@@ -342,27 +364,6 @@ class AIService:
                             "question_ids": {
                                 "type": "array",
                                 "items": {"type": "integer", "description": "你要加入试卷的题目ID（通常来自于之前的搜索结果列表中的题号）"}
-                            }
-                        },
-                        "required": ["question_ids"]
-                    }
-                }
-            }
-        ]
-                    }
-                }
-            },
-            {
-                "type": "function",
-                "function": {
-                    "name": "add_to_bag",
-                    "description": "将题目加入到用户的组卷题目袋中。",
-                    "parameters": {
-                        "type": "object",
-                        "properties": {
-                            "question_ids": {
-                                "type": "array",
-                                "items": {"type": "integer"}
                             }
                         },
                         "required": ["question_ids"]

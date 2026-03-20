@@ -70,7 +70,9 @@ class SmartQBApp(tk.Tk):
             if layout_engine == 'Surya' or ocr_engine == 'Surya':
                 logger.warning("硬件不达标，强制回退到 DocLayout-YOLO + Pix2Text。")
             layout_engine = 'DocLayout-YOLO'
-            ocr_engine = 'Pix2Text'        self.surya_foundation = None
+            ocr_engine = 'Pix2Text'
+
+        self.surya_foundation = None
         self.surya_layout = None
         self.surya_ocr = None
         self.surya_detection = None
@@ -100,7 +102,9 @@ class SmartQBApp(tk.Tk):
                         logger.info("Surya Layout 引擎加载完成！")
                     except Exception as e:
                         logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
-                        self.surya_layout_failed = True            if ocr_engine == 'Surya':
+                        self.surya_layout_failed = True
+
+            if ocr_engine == 'Surya':
                 logger.info("正在加载 Surya OCR 与检测引擎...")
                 if RecognitionPredictor and DetectionPredictor and self.surya_foundation:
                     try:
@@ -283,16 +287,26 @@ class SmartQBApp(tk.Tk):
             messagebox.showinfo("提示", "已经是第一题，无法上移。")
             return
 
-        # move diagram and image_b64
-        self.staging_questions[idx - 1]["diagram"] = self.staging_questions[idx].get("diagram")
-        self.staging_questions[idx - 1]["image_b64"] = self.staging_questions[idx].get("image_b64")
-        self.staging_questions[idx]["diagram"] = None
-        self.staging_questions[idx]["image_b64"] = ""
+        current_q = self.staging_questions[idx]
+        prev_q = self.staging_questions[idx - 1]
+
+        # Check if the target already has a diagram to avoid losing it, ask user if they want to swap
+        if prev_q.get("diagram") or prev_q.get("image_b64"):
+            if not messagebox.askyesno("警告", "上一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
+                return
+
+        cur_diagram = current_q.get("diagram")
+        cur_image_b64 = current_q.get("image_b64") or ""
+        prev_diagram = prev_q.get("diagram")
+        prev_image_b64 = prev_q.get("image_b64") or ""
+
+        prev_q["diagram"], current_q["diagram"] = cur_diagram, prev_diagram
+        prev_q["image_b64"], current_q["image_b64"] = cur_image_b64, prev_image_b64
 
         self.refresh_staging_tree()
         self.tree_staging.selection_set(str(idx - 1))
         self.on_staging_select(None)
-        self.update_status(f"图样已移动至第 {idx} 题")
+        self.update_status(f"图样已与第 {idx} 题交换")
 
     def move_diagram_down(self):
         sel = self.tree_staging.selection()
@@ -302,15 +316,26 @@ class SmartQBApp(tk.Tk):
             messagebox.showinfo("提示", "已经是最后一题，无法下移。")
             return
 
-        self.staging_questions[idx + 1]["diagram"] = self.staging_questions[idx].get("diagram")
-        self.staging_questions[idx + 1]["image_b64"] = self.staging_questions[idx].get("image_b64")
-        self.staging_questions[idx]["diagram"] = None
-        self.staging_questions[idx]["image_b64"] = ""
+        current_q = self.staging_questions[idx]
+        next_q = self.staging_questions[idx + 1]
+
+        # Check if the target already has a diagram
+        if next_q.get("diagram") or next_q.get("image_b64"):
+            if not messagebox.askyesno("警告", "下一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
+                return
+
+        cur_diagram = current_q.get("diagram")
+        cur_image_b64 = current_q.get("image_b64") or ""
+        next_diagram = next_q.get("diagram")
+        next_image_b64 = next_q.get("image_b64") or ""
+
+        next_q["diagram"], current_q["diagram"] = cur_diagram, next_diagram
+        next_q["image_b64"], current_q["image_b64"] = cur_image_b64, next_image_b64
 
         self.refresh_staging_tree()
         self.tree_staging.selection_set(str(idx + 1))
         self.on_staging_select(None)
-        self.update_status(f"图样已移动至第 {idx + 2} 题")
+        self.update_status(f"图样已与第 {idx + 2} 题交换")
 
     def show_page_layout_view(self):
         sel = self.tree_staging.selection()
@@ -439,7 +464,9 @@ class SmartQBApp(tk.Tk):
                 if layout_predictor_to_use is None:
                     self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
                 if ocr_engine_to_use is None:
-                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return                pending_slices = DocumentService.process_doc_with_layout(
+                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
+
+                pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
                     layout_predictor_to_use,
                     ocr_engine_to_use,
@@ -1039,14 +1066,17 @@ class SmartQBApp(tk.Tk):
         if not text: return
         self.lbl_manual_status.config(text="正在生成标签...")
         def task():
-            res = self.ai_service.process_text_with_correction(text)
-            tags = res.get("Tags", [])
-            if tags:
-                self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
-                self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
-                self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
-            else:
-                self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
+            try:
+                res = self.ai_service.process_text_with_correction(text)
+                tags = res.get("Tags", [])
+                if tags:
+                    self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
+                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
+                    self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
+                else:
+                    self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
+            except Exception as e:
+                self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_preview_vector(self):
@@ -1595,7 +1625,9 @@ class SmartQBApp(tk.Tk):
         ttk.Label(container, text="Base URL:").pack(anchor=tk.W, pady=(15, 5))
         self.ent_base = ttk.Entry(container, width=50)
         self.ent_base.insert(0, self.settings.base_url)
-        self.ent_base.pack(anchor=tk.W)        ttk.Label(container, text="Model ID:").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_base.pack(anchor=tk.W)
+
+        ttk.Label(container, text="Model ID:").pack(anchor=tk.W, pady=(15, 5))
         self.ent_model = ttk.Entry(container, width=50)
         self.ent_model.insert(0, self.settings.model_id)
         self.ent_model.pack(anchor=tk.W)

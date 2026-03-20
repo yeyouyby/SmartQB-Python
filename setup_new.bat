@@ -180,3 +180,4 @@ echo.
 echo Please double click "run_smartqb.bat" to start.
 pause
 :end_script
+exit /b %errorlevel%

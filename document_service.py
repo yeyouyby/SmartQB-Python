@@ -119,9 +119,13 @@ class DocumentService:
                                         'y_center': (box[1] + box[3]) / 2,
                                         'type': 'TextLine'
                                     })
-                        elif ocr_engine_type == "Surya" and ocr_engine is not None and det_predictor is not None:
-                            # Surya full page OCR using detection predictor
-                            ocr_res = ocr_engine([img], det_predictor=det_predictor)[0]
+                        elif ocr_engine_type == "Surya" and ocr_engine is not None:
+                            # Surya full page OCR; use explicit detection predictor when available
+                            if det_predictor is not None:
+                                ocr_res = ocr_engine([img], det_predictor=det_predictor)[0]
+                            else:
+                                ocr_res = ocr_engine([img])[0]
+
                             for line in ocr_res.text_lines:
                                 text = line.text.replace('\n', ' ').strip()
                                 box = line.bbox
@@ -152,7 +156,7 @@ class DocumentService:
                     buf_anno = io.BytesIO()
                     annotated_img.save(buf_anno, format='PNG')
                     page_annotated_b64 = base64.b64encode(buf_anno.getvalue()).decode('utf-8')
-# 统一排序：按 y_center 进行从上到下的排序
+# 统一排序: 按 y_center 进行从上到下的排序
                     all_elements = []
                     for b in ocr_blocks:
                         all_elements.append({'source': 'ocr', 'y_center': b['y_center'], 'data': b})

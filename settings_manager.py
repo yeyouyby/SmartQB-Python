@@ -56,10 +56,10 @@ class SettingsManager:
                 self.layout_engine_type = layout_type if isinstance(layout_type, str) and layout_type in {"DocLayout-YOLO", "Surya"} else "DocLayout-YOLO"
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
-                    self.temperature = d.get("temperature", 1.0)
-                    self.top_p = d.get("top_p", 1.0)
-                    self.max_tokens = d.get("max_tokens", 4096)
-                    self.reasoning_effort = d.get("reasoning_effort", "medium")
+                self.temperature = d.get("temperature", 1.0)
+                self.top_p = d.get("top_p", 1.0)
+                self.max_tokens = d.get("max_tokens", 4096)
+                self.reasoning_effort = d.get("reasoning_effort", "medium")
 
                 if allow_plaintext_fallback:
                     self.api_key = d.get("api_key", "")

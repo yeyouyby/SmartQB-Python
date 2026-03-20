@@ -51,12 +51,13 @@ class DocLayoutYOLO:
             # Run inference
             # imgsz can be adjusted based on model requirements (e.g. 1024)
 
-            # Use half precision if CUDA is available to improve inference speed
-            try:
-                import torch
-                use_half = torch.cuda.is_available()
-            except ImportError:
-                use_half = False
+            # Use half precision only on compatible non-ONNX CUDA backends
+            use_half = bool(
+                'torch' in globals()
+                and torch is not None
+                and torch.cuda.is_available()
+                and not str(self.model_path).lower().endswith(".onnx")
+            )
 
             preds = self.model(img, verbose=False, half=use_half)
 
