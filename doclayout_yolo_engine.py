@@ -21,24 +21,30 @@ class DocLayoutYOLO:
     """
     def __init__(self, model_path="models/doclayout_yolo.onnx"):
         if YOLO is None:
-            raise ImportError("ultralytics library is required for DocLayout-YOLO. Please install it.")
+            logger.warning("ultralytics library is missing for DocLayout-YOLO.")
+            self.model_path = None
+            self.model = None
+            return
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.model_path = model_path if os.path.isabs(model_path) else os.path.join(base_dir, model_path)
-        if not os.path.exists(self.model_path):
-            raise FileNotFoundError(f"DocLayout-YOLO model not found at '{self.model_path}'. Please place the onnx model there.")
-
-        logger.info(f"Loading DocLayout-YOLO model from {self.model_path}...")
-        self.model = YOLO(self.model_path)
-        logger.info("DocLayout-YOLO model loaded.")
-
-
+        self.model = None # Lazy load in __call__
 
     def __call__(self, images):
         """
         Accepts a list of PIL Images (like Surya does).
         Returns a list of LayoutResult objects.
         """
+        if YOLO is None:
+            raise ImportError("ultralytics library is required for DocLayout-YOLO. Please install it.")
+
+        if self.model is None:
+            if not self.model_path or not os.path.exists(self.model_path):
+                raise FileNotFoundError(f"DocLayout-YOLO model not found at '{self.model_path}'. Please place the onnx model there.")
+            logger.info(f"Lazy loading DocLayout-YOLO model from {self.model_path}...")
+            self.model = YOLO(self.model_path)
+            logger.info("DocLayout-YOLO model loaded.")
+
         results = []
         for img in images:
             # Run inference
@@ -50,7 +56,7 @@ class DocLayoutYOLO:
             surya_bboxes = []
             if preds and len(preds) > 0:
                 pred = preds[0]
-                if pred.boxes:
+                if pred.boxes is not None and len(pred.boxes) > 0:
                     for box in pred.boxes:
                         # Extract xyxy and label
                         xyxy = box.xyxy[0].cpu().numpy().tolist() # [x_min, y_min, x_max, y_max]
@@ -66,7 +72,6 @@ class DocLayoutYOLO:
                             label_name = names[cls_id]
                         else:
                             label_name = f"Class_{cls_id}"
-
 
                         # Normalize label to Match Surya's expected strings if possible
                         # Surya expects things like 'Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form' for extraction

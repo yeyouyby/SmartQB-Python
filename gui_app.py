@@ -11,7 +11,11 @@ import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
-from pix2text import Pix2Text
+try:
+    from pix2text import Pix2Text
+except Exception as e:
+    Pix2Text = None
+    print(f"Warning: Failed to import Pix2Text: {e}")
 
 
 try:
@@ -377,6 +381,8 @@ class SmartQBApp(tk.Tk):
                         self.doclayout_yolo = DocLayoutYOLO()
                     except Exception as e:
                         logger.error(f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True)
+                        self.after(0, lambda err=e: messagebox.showerror("Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"))
+                        return
 
                 use_surya_layout = self.hardware_ok and layout_engine_type == 'Surya' and self.surya_layout is not None
                 use_surya_ocr = self.hardware_ok and ocr_engine_type == 'Surya' and self.surya_ocr is not None
@@ -386,9 +392,9 @@ class SmartQBApp(tk.Tk):
                 ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
 
                 if layout_predictor_to_use is None:
-                    raise RuntimeError("没有可用的版面分析引擎。请检查模型文件或安装对应依赖。")
+                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
                 if ocr_engine_to_use is None:
-                    raise RuntimeError("No OCR engine is available. Please install/load Pix2Text or Surya OCR first.")
+                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
 
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
