@@ -120,7 +120,7 @@ class DocumentService:
                                         pass
                             elif ocr_engine_type == "Surya" and ocr_engine is not None:
                                 # RecognitionPredictor expects list of images
-                                ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
+                                ocr_res = ocr_engine([cropped_img])[0]
                                 b_text = " ".join([line.text for line in ocr_res.text_lines])
 
                             b_text = b_text.replace('\n', ' ').strip()
