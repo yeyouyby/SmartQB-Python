@@ -13,6 +13,19 @@ class AIService:
     def __init__(self, settings):
         self.settings = settings
 
+
+    def _get_chat_kwargs(self):
+        kwargs = {"model": self.settings.model_id}
+        if hasattr(self.settings, 'temperature') and self.settings.temperature is not None:
+            kwargs['temperature'] = self.settings.temperature
+        if hasattr(self.settings, 'top_p') and self.settings.top_p is not None:
+            kwargs['top_p'] = self.settings.top_p
+        if hasattr(self.settings, 'max_tokens') and self.settings.max_tokens is not None:
+            kwargs['max_tokens'] = self.settings.max_tokens
+        if hasattr(self.settings, 'reasoning_effort') and self.settings.reasoning_effort and self.settings.reasoning_effort != 'none':
+            kwargs['reasoning_effort'] = self.settings.reasoning_effort
+        return kwargs
+
     def get_client(self):
         if not self.settings.api_key:
             raise ValueError("请先在设置中配置 API Key")
@@ -66,8 +79,9 @@ class AIService:
 【输入文本】：
 {raw_text}
 """
+        kwargs = self._get_chat_kwargs()
         response = client.chat.completions.create(
-            model=self.settings.model_id,
+            **kwargs,
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -133,8 +147,9 @@ class AIService:
             "text": f"【本地 OCR 初步提取的连续切片文本如下】：\n{slices_text}"
         })
 
+        kwargs = self._get_chat_kwargs()
         response = client.chat.completions.create(
-            model=self.settings.model_id,
+            **kwargs,
             messages=[{"role": "user", "content": messages_content}],
             response_format={"type": "json_object"}
         )
@@ -169,8 +184,9 @@ class AIService:
         ]
 
         try:
+            kwargs = self._get_chat_kwargs()
             res = self.get_client().chat.completions.create(
-                model=self.settings.model_id,
+                **kwargs,
                 messages=messages,
                 response_format={"type": "json_object"}
             )
@@ -199,8 +215,9 @@ class AIService:
         ]
 
         try:
+            kwargs = self._get_chat_kwargs()
             res = self.get_client().chat.completions.create(
-                model=self.settings.model_id,
+                **kwargs,
                 messages=messages,
                 response_format={"type": "json_object"}
             )
@@ -233,8 +250,9 @@ class AIService:
         ]
 
         try:
+            kwargs = self._get_chat_kwargs()
             res = self.get_client().chat.completions.create(
-                model=self.settings.model_id,
+                **kwargs,
                 messages=messages,
                 response_format={"type": "json_object"}
             )
@@ -264,8 +282,9 @@ class AIService:
             {"role": "user", "content": prompt}
         ]
         try:
+            kwargs = self._get_chat_kwargs()
             res = self.get_client().chat.completions.create(
-                model=self.settings.model_id,
+                **kwargs,
                 messages=messages,
                 response_format={"type": "json_object"}
             )
@@ -295,22 +314,41 @@ class AIService:
             res = self.get_client().embeddings.create(input=text, model="text-embedding-3-small")
             return res.data[0].embedding
         except Exception:
-            return []
-
-    def chat_with_tools(self, messages, callbacks):
+            return []    def chat_with_tools(self, messages, callbacks):
         client = self.get_client()
         tools = [
             {
                 "type": "function",
                 "function": {
                     "name": "search_database",
-                    "description": "通过语义搜索本地题库。当你需要查找题目、找相似题时调用此工具。",
+                    "description": "通过提取用户语句中的核心数学/物理等学科知识点关键字，搜索本地题库。例如：当用户说“帮我找几道关于导数极值的题目”，你需要提取核心词“导数极值”并调用此工具。",
                     "parameters": {
                         "type": "object",
                         "properties": {
-                            "query": {"type": "string", "description": "用于进行向量检索的语义搜索词"}
+                            "query": {"type": "string", "description": "高度凝练的学科或知识点关键词（如：导数、圆锥曲线、牛顿第二定律），不要包含冗余的聊天词语"}
                         },
                         "required": ["query"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "add_to_bag",
+                    "description": "如果用户要求将某些题或搜索出来的题加入到试卷/题目袋中，必须调用此工具。",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "question_ids": {
+                                "type": "array",
+                                "items": {"type": "integer", "description": "你要加入试卷的题目ID（通常来自于之前的搜索结果列表中的题号）"}
+                            }
+                        },
+                        "required": ["question_ids"]
+                    }
+                }
+            }
+        ]
                     }
                 }
             },
@@ -339,8 +377,9 @@ class AIService:
         # Allow multi-turn tool loops up to a limit
         max_turns = 3
         for _ in range(max_turns):
+            kwargs = self._get_chat_kwargs()
             response = client.chat.completions.create(
-                model=self.settings.model_id,
+                **kwargs,
                 messages=working_messages,
                 tools=tools,
                 tool_choice="auto"

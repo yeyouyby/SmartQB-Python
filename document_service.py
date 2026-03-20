@@ -13,7 +13,7 @@ from utils import logger
 class DocumentService:
 
     @staticmethod
-    def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None):
+    def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None, det_predictor=None):
         """
         使用 Surya 进行版面分析 (Pass 1) + (Surya或Pix2Text) OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
@@ -84,72 +84,75 @@ class DocumentService:
                     except Exception as e:
                         logger.error(f"Layout Analysis 识别失败: {e}", exc_info=True)
 
+
+
                     # ==========================================
-                    # PASS 2: OCR 文字提取
+                    # PASS 2: FULL PAGE OCR 文字提取
                     # ==========================================
                     ocr_blocks = []
                     annotated_img = img.copy()
                     draw = ImageDraw.Draw(annotated_img)
 
-                    if not text_regions:
-                        text_regions = [{
-                            'box': (0, 0, img.width, img.height),
-                            'y_center': img.height / 2,
-                            'type': 'FullPage'
-                        }]
-                    for region in text_regions:
+                    try:
+                        if ocr_engine_type == "Pix2Text" and ocr_engine is not None:
+                            # Pix2Text can process full page and return boxes
+                            res = ocr_engine.recognize(img, return_text=False)
+                            for block in res:
+                                text = block.get('text', '').replace('\n', ' ').strip()
+                                position = block.get('position', [])
+                                if text and len(position) == 4:
+                                    # [ [x_topleft, y_topleft], [x_topright, y_topright], [x_bottomright, y_bottomright], [x_bottomleft, y_bottomleft] ]
+                                    x_coords = [p[0] for p in position]
+                                    y_coords = [p[1] for p in position]
+                                    box = (min(x_coords), min(y_coords), max(x_coords), max(y_coords))
+                                    ocr_blocks.append({
+                                        'text': text,
+                                        'box': box,
+                                        'y_center': (box[1] + box[3]) / 2,
+                                        'type': 'TextLine'
+                                    })
+                                elif text and block.get('box_2d'): # fallback if it returns box_2d
+                                    box = block.get('box_2d')
+                                    ocr_blocks.append({
+                                        'text': text,
+                                        'box': box,
+                                        'y_center': (box[1] + box[3]) / 2,
+                                        'type': 'TextLine'
+                                    })
+                        elif ocr_engine_type == "Surya" and ocr_engine is not None and det_predictor is not None:
+                            # Surya full page OCR using detection predictor
+                            ocr_res = ocr_engine([img], det_predictor=det_predictor)[0]
+                            for line in ocr_res.text_lines:
+                                text = line.text.replace('\n', ' ').strip()
+                                box = line.bbox
+                                if text:
+                                    ocr_blocks.append({
+                                        'text': text,
+                                        'box': box,
+                                        'y_center': (box[1] + box[3]) / 2,
+                                        'type': 'TextLine'
+                                    })
+                    except Exception as e:
+                        logger.error(f"Full Page OCR failed: {e}", exc_info=True)
+
+                    # Draw boxes
+                    for b in ocr_blocks:
                         try:
-                            x_min, y_min, x_max, y_max = region['box']
-                            crop_box = (
-                                max(0, int(x_min)-2),
-                                max(0, int(y_min)-2),
-                                min(img.width, int(x_max)+2),
-                                min(img.height, int(y_max)+2)
-                            )
-                            cropped_img = img.crop(crop_box)
-
-                            b_text = ""
-                            if ocr_engine_type == "Pix2Text" and ocr_engine is not None:
-                                res = ocr_engine.recognize(cropped_img, return_text=True)
-                                if isinstance(res, str):
-                                    b_text = res
-                                else:
-                                    try:
-                                        b_text = "".join([b.get('text', '') for b in res])
-                                    except Exception:
-                                        pass
-                            elif ocr_engine_type == "Surya" and ocr_engine is not None:
-                                # RecognitionPredictor expects list of images
-                                ocr_res = ocr_engine([cropped_img])[0]
-                                b_text = " ".join([line.text for line in ocr_res.text_lines])
-
-                            b_text = b_text.replace('\n', ' ').strip()
-                            if b_text:
-                                ocr_blocks.append({
-                                    'text': b_text,
-                                    'y_center': region['y_center'],
-                                    'box': region['box'],
-                                    'type': region['type']
-                                })
-
-                            draw.rectangle(crop_box, outline='orange', width=2)
-                            draw.text((crop_box[0], max(0, crop_box[1] - 12)), f"OCR({region['type']})", fill='orange')
+                            draw.rectangle(b['box'], outline='orange', width=2)
                         except Exception as e:
-                            logger.warning(f"Failed OCR on region: {e}")
-
+                            logger.warning(f"Failed to draw OCR box: {e}")
                     for b in diagrams:
                         try:
                             x_min, y_min, x_max, y_max = b['box']
                             draw.rectangle([x_min, y_min, x_max, y_max], outline='green', width=3)
                             draw.text((x_min, max(0, y_min - 12)), f"Layout-{b['type']}", fill='green')
                         except Exception as e:
-                            logger.warning(f"Failed to draw diagram box: {e}", exc_info=True)
+                            logger.warning(f"Failed to draw diagram box: {e}")
 
                     buf_anno = io.BytesIO()
                     annotated_img.save(buf_anno, format='PNG')
                     page_annotated_b64 = base64.b64encode(buf_anno.getvalue()).decode('utf-8')
-
-                    # 统一排序：按 y_center 进行从上到下的排序
+# 统一排序：按 y_center 进行从上到下的排序
                     all_elements = []
                     for b in ocr_blocks:
                         all_elements.append({'source': 'ocr', 'y_center': b['y_center'], 'data': b})

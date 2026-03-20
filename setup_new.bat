@@ -178,5 +178,5 @@ echo [SUCCESS] Environment setup completed successfully!
 echo ========================================================
 echo.
 echo Please double click "run_smartqb.bat" to start.
-pause >nul
+pause
 :end_script
