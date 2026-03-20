@@ -44,7 +44,11 @@ def optimize_diagram_to_base64(img_bytes):
     except Exception as e:
         logger.error(f"图样转换失败: {e}")
         return base64.b64encode(img_bytes).decode('utf-8')
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 try:
     import torch
 except ImportError:
@@ -52,20 +56,24 @@ except ImportError:
 
 def check_hardware_requirements():
     """
-    Checks if hardware meets the requirements for Surya (16GB+ RAM, 6GB+ VRAM on GPU).
+    Checks if hardware meets the requirements for Surya (15GB+ RAM, 5.5GB+ VRAM on GPU).
     Returns True if hardware is sufficient, False otherwise.
     """
     MIN_RAM_GB = 15.0
     MIN_VRAM_GB = 5.5
     try:
-        # Check system memory (RAM) >= 16GB
-        # psutil.virtual_memory().total returns bytes
-        ram_gb = psutil.virtual_memory().total / (1024**3)
-        if ram_gb < MIN_RAM_GB:  # Allow some margin (e.g. 15.X GB usable)
-            logger.info(f"Hardware check: Insufficient RAM ({ram_gb:.1f}GB < 16GB). Surya will be disabled.")
+        if psutil is None:
+            logger.info("Hardware check: psutil not installed. Assuming insufficient hardware. Surya will be disabled.")
             return False
 
-        # Check GPU and VRAM >= 6GB
+        # Check system memory (RAM) >= MIN_RAM_GB
+        # psutil.virtual_memory().total returns bytes
+        ram_gb = psutil.virtual_memory().total / (1024**3)
+        if ram_gb < MIN_RAM_GB:
+            logger.info(f"Hardware check: Insufficient RAM ({ram_gb:.1f}GB < {MIN_RAM_GB}GB). Surya will be disabled.")
+            return False
+
+        # Check GPU and VRAM >= MIN_VRAM_GB
         if torch is None or not torch.cuda.is_available():
             logger.info("Hardware check: No CUDA GPU detected. Surya will be disabled.")
             return False
@@ -73,8 +81,8 @@ def check_hardware_requirements():
         # Check first available GPU (assuming index 0)
         vram_bytes = torch.cuda.get_device_properties(0).total_memory
         vram_gb = vram_bytes / (1024**3)
-        if vram_gb < MIN_VRAM_GB: # Allow some margin
-            logger.info(f"Hardware check: Insufficient GPU VRAM ({vram_gb:.1f}GB < 6GB). Surya will be disabled.")
+        if vram_gb < MIN_VRAM_GB:
+            logger.info(f"Hardware check: Insufficient GPU VRAM ({vram_gb:.1f}GB < {MIN_VRAM_GB}GB). Surya will be disabled.")
             return False
 
         logger.info(f"Hardware check: Passed (RAM: {ram_gb:.1f}GB, VRAM: {vram_gb:.1f}GB).")

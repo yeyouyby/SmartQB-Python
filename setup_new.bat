@@ -143,7 +143,7 @@ python -m pip install --upgrade pip >nul 2>&1
 :: 4. Direct Install Dependencies
 echo [4/6] Downloading and installing Python dependencies...
 :: Added surya-ocr ultralytics psutil dependency as required by the latest update
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple && (pip install surya-ocr -i https://pypi.tuna.tsinghua.edu.cn/simple || echo [WARNING] surya-ocr installation failed, Surya engine will be disabled.)
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple && (pip install "surya-ocr>=0.3.0" -i https://pypi.tuna.tsinghua.edu.cn/simple || echo [WARNING] surya-ocr installation failed, Surya engine will be disabled.)
 if %errorlevel% neq 0 (
     echo [ERROR] Installation failed. Please check your network and try again.
     pause

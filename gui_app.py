@@ -66,36 +66,40 @@ class SmartQBApp(tk.Tk):
             layout_engine = 'DocLayout-YOLO'
             ocr_engine = 'Pix2Text'
 
+        self.surya_foundation = None
         self.surya_layout = None
         self.surya_ocr = None
         self.doclayout_yolo = None
+        self.surya_init_failed = False
 
         if layout_engine == 'Surya' or ocr_engine == 'Surya':
             logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
-            foundation_predictor = None
             if FoundationPredictor:
                 try:
-                    foundation_predictor = FoundationPredictor()
+                    self.surya_foundation = FoundationPredictor()
                 except Exception as e:
                     logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
+                    self.surya_init_failed = True
 
             if layout_engine == 'Surya':
                 logger.info("正在加载 Surya Layout 版面分析引擎...")
-                if LayoutPredictor and foundation_predictor:
+                if LayoutPredictor and self.surya_foundation:
                     try:
-                        self.surya_layout = LayoutPredictor(foundation_predictor)
+                        self.surya_layout = LayoutPredictor(self.surya_foundation)
                         logger.info("Surya Layout 引擎加载完成！")
                     except Exception as e:
                         logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
+                        self.surya_init_failed = True
 
             if ocr_engine == 'Surya':
                 logger.info("正在加载 Surya OCR 引擎...")
-                if RecognitionPredictor and foundation_predictor:
+                if RecognitionPredictor and self.surya_foundation:
                     try:
-                        self.surya_ocr = RecognitionPredictor(foundation_predictor)
+                        self.surya_ocr = RecognitionPredictor(self.surya_foundation)
                         logger.info("Surya OCR 引擎加载完成！")
                     except Exception as e:
                         logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
+                        self.surya_init_failed = True
 
         if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
             logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
@@ -333,22 +337,33 @@ class SmartQBApp(tk.Tk):
                 ocr_engine_type = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
                 # Lazy load Surya if selected but not loaded
-                if self.hardware_ok and FoundationPredictor:
-                    if layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor:
+                if self.hardware_ok and FoundationPredictor and not getattr(self, 'surya_init_failed', False):
+                    # Ensure FoundationPredictor is initialized exactly once
+                    if (layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor) or \
+                       (ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor):
+                        if self.surya_foundation is None:
+                            self.update_status("正在加载 Surya 基础模型...")
+                            try:
+                                self.surya_foundation = FoundationPredictor()
+                            except Exception as e:
+                                logger.error(f"Failed to lazy load FoundationPredictor: {e}", exc_info=True)
+                                self.surya_init_failed = True
+
+                    if layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor and self.surya_foundation:
                         self.update_status("正在首次加载 Surya 版面引擎，请稍候...")
                         try:
-                            fp = FoundationPredictor()
-                            self.surya_layout = LayoutPredictor(fp)
+                            self.surya_layout = LayoutPredictor(self.surya_foundation)
                         except Exception as e:
                             logger.error(f"Failed to lazy load Surya Layout: {e}", exc_info=True)
+                            self.surya_init_failed = True
 
-                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor:
+                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
                         self.update_status("正在首次加载 Surya OCR 引擎，请稍候...")
                         try:
-                            fp = FoundationPredictor()
-                            self.surya_ocr = RecognitionPredictor(fp)
+                            self.surya_ocr = RecognitionPredictor(self.surya_foundation)
                         except Exception as e:
                             logger.error(f"Failed to lazy load Surya OCR: {e}", exc_info=True)
+                            self.surya_init_failed = True
 
                 # Lazy load DocLayout-YOLO if selected but not loaded
                 if layout_engine_type == 'DocLayout-YOLO' and self.doclayout_yolo is None:
@@ -1488,8 +1503,9 @@ class SmartQBApp(tk.Tk):
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
         ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        surya_layout_supported = self.hardware_ok and LayoutPredictor is not None and FoundationPredictor is not None
-        surya_ocr_supported = self.hardware_ok and RecognitionPredictor is not None and FoundationPredictor is not None
+        surya_init_failed = getattr(self, 'surya_init_failed', False)
+        surya_layout_supported = self.hardware_ok and not surya_init_failed and LayoutPredictor is not None and FoundationPredictor is not None
+        surya_ocr_supported = self.hardware_ok and not surya_init_failed and RecognitionPredictor is not None and FoundationPredictor is not None
 
         layout_vals = ["DocLayout-YOLO", "Surya"] if surya_layout_supported else ["DocLayout-YOLO"]
         self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
@@ -1499,6 +1515,8 @@ class SmartQBApp(tk.Tk):
 
         if not self.hardware_ok:
             ttk.Label(engine_frame, text="(硬件不达标，已禁用 Surya)").grid(row=0, column=2, sticky=tk.W)
+        elif surya_init_failed:
+            ttk.Label(engine_frame, text="(Surya 加载失败，已禁用)").grid(row=0, column=2, sticky=tk.W)
         elif not surya_layout_supported:
             ttk.Label(engine_frame, text="(Surya 依赖缺失，已禁用)").grid(row=0, column=2, sticky=tk.W)
 
