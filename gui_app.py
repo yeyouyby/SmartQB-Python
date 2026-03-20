@@ -1078,6 +1078,7 @@ class SmartQBApp(tk.Tk):
                 else:
                     self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
             except Exception as e:
+                logger.error(f"Manual Retag Error: {e}", exc_info=True)
                 self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
         threading.Thread(target=task, daemon=True).start()
 

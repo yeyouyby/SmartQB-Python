@@ -5,6 +5,8 @@ import base64
 from openai import OpenAI
 from utils import logger
 
+SUPPORTED_REASONING_MODELS = ('o1', 'o3', 'o4', 'deepseek-reasoner')
+
 # ==========================================
 # AI 服务与纠错闭环
 # ==========================================
@@ -45,7 +47,7 @@ class AIService:
             hasattr(self.settings, 'reasoning_effort')
             and self.settings.reasoning_effort
             and self.settings.reasoning_effort != 'none'
-            and str(self.settings.model_id).startswith(("o1", "o3", "o4"))
+            and str(self.settings.model_id).startswith(SUPPORTED_REASONING_MODELS)
         ):
             kwargs['reasoning_effort'] = self.settings.reasoning_effort
 

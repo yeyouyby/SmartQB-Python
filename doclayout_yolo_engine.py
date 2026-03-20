@@ -56,7 +56,7 @@ class DocLayoutYOLO:
                 'torch' in globals()
                 and torch is not None
                 and torch.cuda.is_available()
-                and not str(self.model_path).lower().endswith(".onnx")
+                and str(self.model_path).lower().endswith((".pt", ".engine"))
             )
 
             preds = self.model(img, verbose=False, half=use_half)
