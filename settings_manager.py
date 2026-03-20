@@ -25,6 +25,10 @@ class SettingsManager:
         self.layout_engine_type = 'DocLayout-YOLO'
         self.use_prm_optimization = False
         self.prm_batch_size = 3
+        self.temperature = 1.0
+        self.top_p = 1.0
+        self.max_tokens = 4096
+        self.reasoning_effort = 'medium'
 
         self.keyring_service_name = "SmartQB_Pro_V3"
         self.keyring_username_api = "default_api_key"
@@ -52,6 +56,10 @@ class SettingsManager:
                 self.layout_engine_type = layout_type if isinstance(layout_type, str) and layout_type in {"DocLayout-YOLO", "Surya"} else "DocLayout-YOLO"
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
+                self.temperature = d.get("temperature", 1.0)
+                self.top_p = d.get("top_p", 1.0)
+                self.max_tokens = d.get("max_tokens", 4096)
+                self.reasoning_effort = d.get("reasoning_effort", "medium")
 
                 if allow_plaintext_fallback:
                     self.api_key = d.get("api_key", "")
@@ -112,7 +120,11 @@ class SettingsManager:
                 "ocr_engine_type": self.ocr_engine_type,
                 "layout_engine_type": self.layout_engine_type,
                 "use_prm_optimization": self.use_prm_optimization,
-                "prm_batch_size": self.prm_batch_size
+                "prm_batch_size": self.prm_batch_size,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+                "max_tokens": self.max_tokens,
+                "reasoning_effort": self.reasoning_effort
             }
             if not keyring_success and allow_plaintext_fallback:
                 payload["api_key"] = self.api_key

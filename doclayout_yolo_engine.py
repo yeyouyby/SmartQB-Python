@@ -2,6 +2,7 @@ import os
 from utils import logger
 try:
     from ultralytics import YOLO
+    import torch
 except ImportError:
     YOLO = None
 
@@ -49,7 +50,16 @@ class DocLayoutYOLO:
         for img in images:
             # Run inference
             # imgsz can be adjusted based on model requirements (e.g. 1024)
-            preds = self.model(img, verbose=False)
+
+            # Use half precision only on compatible non-ONNX CUDA backends
+            use_half = bool(
+                'torch' in globals()
+                and torch is not None
+                and torch.cuda.is_available()
+                and str(self.model_path).lower().endswith((".pt", ".engine"))
+            )
+
+            preds = self.model(img, verbose=False, half=use_half)
 
             # Map predictions to Surya format
             # Each prediction contains boxes

@@ -22,10 +22,12 @@ try:
     from surya.layout import LayoutPredictor
     from surya.recognition import RecognitionPredictor
     from surya.foundation import FoundationPredictor
+    from surya.detection import DetectionPredictor
 except ImportError:
     LayoutPredictor = None
     RecognitionPredictor = None
     FoundationPredictor = None
+    DetectionPredictor = None
 from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
@@ -73,11 +75,13 @@ class SmartQBApp(tk.Tk):
         self.surya_foundation = None
         self.surya_layout = None
         self.surya_ocr = None
+        self.surya_detection = None
         self.doclayout_yolo = None
 
         self.surya_foundation_failed = False
         self.surya_layout_failed = False
         self.surya_ocr_failed = False
+        self.surya_detection_failed = False
 
         self._engine_load_lock = threading.Lock()
 
@@ -101,14 +105,16 @@ class SmartQBApp(tk.Tk):
                         self.surya_layout_failed = True
 
             if ocr_engine == 'Surya':
-                logger.info("正在加载 Surya OCR 引擎...")
-                if RecognitionPredictor and self.surya_foundation:
+                logger.info("正在加载 Surya OCR 与检测引擎...")
+                if RecognitionPredictor and DetectionPredictor and self.surya_foundation:
                     try:
                         self.surya_ocr = RecognitionPredictor(self.surya_foundation)
-                        logger.info("Surya OCR 引擎加载完成！")
+                        self.surya_detection = DetectionPredictor()
+                        logger.info("Surya OCR 与检测引擎加载完成！")
                     except Exception as e:
-                        logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
+                        logger.error(f"Failed to load Surya OCR/Detection: {e}", exc_info=True)
                         self.surya_ocr_failed = True
+                        self.surya_detection_failed = True
 
         if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
             logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
@@ -255,7 +261,12 @@ class SmartQBApp(tk.Tk):
         self.lbl_stg_diagram = ttk.Label(right_frame, text="图样显示区", background="#e0e0e0", anchor=tk.CENTER)
         self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
+        diag_btn_frame = ttk.Frame(right_frame)
+        diag_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(diag_btn_frame, text="⬆️ 将图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="⬇️ 将图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
+        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
 
         bottom_frame = ttk.Frame(self.tab_import)
         bottom_frame.pack(fill=tk.X, pady=5, padx=5)
@@ -266,6 +277,65 @@ class SmartQBApp(tk.Tk):
         ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
 
         ttk.Button(bottom_frame, text="✅ 确认暂存区无误，全部保存入库", command=self.save_staging_to_db).pack(side=tk.RIGHT)
+
+
+    def move_diagram_up(self):
+        sel = self.tree_staging.selection()
+        if not sel: return
+        idx = int(sel[0])
+        if idx == 0:
+            messagebox.showinfo("提示", "已经是第一题，无法上移。")
+            return
+
+        current_q = self.staging_questions[idx]
+        prev_q = self.staging_questions[idx - 1]
+
+        # Check if the target already has a diagram to avoid losing it, ask user if they want to swap
+        if prev_q.get("diagram") or prev_q.get("image_b64"):
+            if not messagebox.askyesno("警告", "上一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
+                return
+
+        cur_diagram = current_q.get("diagram")
+        cur_image_b64 = current_q.get("image_b64") or ""
+        prev_diagram = prev_q.get("diagram")
+        prev_image_b64 = prev_q.get("image_b64") or ""
+
+        prev_q["diagram"], current_q["diagram"] = cur_diagram, prev_diagram
+        prev_q["image_b64"], current_q["image_b64"] = cur_image_b64, prev_image_b64
+
+        self.refresh_staging_tree()
+        self.tree_staging.selection_set(str(idx - 1))
+        self.on_staging_select(None)
+        self.update_status(f"图样已与第 {idx} 题交换")
+
+    def move_diagram_down(self):
+        sel = self.tree_staging.selection()
+        if not sel: return
+        idx = int(sel[0])
+        if idx == len(self.staging_questions) - 1:
+            messagebox.showinfo("提示", "已经是最后一题，无法下移。")
+            return
+
+        current_q = self.staging_questions[idx]
+        next_q = self.staging_questions[idx + 1]
+
+        # Check if the target already has a diagram
+        if next_q.get("diagram") or next_q.get("image_b64"):
+            if not messagebox.askyesno("警告", "下一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
+                return
+
+        cur_diagram = current_q.get("diagram")
+        cur_image_b64 = current_q.get("image_b64") or ""
+        next_diagram = next_q.get("diagram")
+        next_image_b64 = next_q.get("image_b64") or ""
+
+        next_q["diagram"], current_q["diagram"] = cur_diagram, next_diagram
+        next_q["image_b64"], current_q["image_b64"] = cur_image_b64, next_image_b64
+
+        self.refresh_staging_tree()
+        self.tree_staging.selection_set(str(idx + 1))
+        self.on_staging_select(None)
+        self.update_status(f"图样已与第 {idx + 2} 题交换")
 
     def show_page_layout_view(self):
         sel = self.tree_staging.selection()
@@ -367,11 +437,13 @@ class SmartQBApp(tk.Tk):
                             self.surya_init_failed = True
 
                     if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
-                        self.update_status("正在首次加载 Surya OCR 引擎，请稍候...")
+                        self.update_status("正在首次加载 Surya OCR 与检测引擎，请稍候...")
                         try:
                             self.surya_ocr = RecognitionPredictor(self.surya_foundation)
+                            if DetectionPredictor and self.surya_detection is None:
+                                self.surya_detection = DetectionPredictor()
                         except Exception as e:
-                            logger.error(f"Failed to lazy load Surya OCR: {e}", exc_info=True)
+                            logger.error(f"Failed to lazy load Surya OCR/Detection: {e}", exc_info=True)
                             self.surya_init_failed = True
 
                 # Lazy load DocLayout-YOLO if selected but not loaded
@@ -401,7 +473,8 @@ class SmartQBApp(tk.Tk):
                     layout_predictor_to_use,
                     ocr_engine_to_use,
                     ocr_type_str,
-                    self.update_status, handle_slice_ready
+                    self.update_status, handle_slice_ready,
+                    det_predictor=self.surya_detection if use_surya_ocr else None
                 )
             elif file_type == "word":
                 def _clear_word():
@@ -930,6 +1003,10 @@ class SmartQBApp(tk.Tk):
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="✨ 呼叫 AI 自动排版纠错并生成标签", command=self.on_manual_ai).pack(side=tk.LEFT)
+        ttk.Button(btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector).pack(side=tk.LEFT, padx=5)
+
         self.lbl_manual_status = ttk.Label(btn_frame, text="", foreground="blue")
         self.lbl_manual_status.pack(side=tk.LEFT, padx=10)
 
@@ -970,6 +1047,55 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
             self.manual_diagram_b64 = None
+
+
+    def on_manual_reformat(self):
+        text = self.txt_manual.get("1.0", tk.END).strip()
+        if not text: return
+        self.lbl_manual_status.config(text="正在重新排版...")
+        def task():
+            formatted = self.ai_service.ai_format_question(text)
+            if formatted:
+                self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
+                self.after(0, lambda: self.txt_manual.insert(tk.END, formatted))
+                self.after(0, lambda: self.lbl_manual_status.config(text="重新排版完成"))
+            else:
+                self.after(0, lambda: self.lbl_manual_status.config(text="排版失败", foreground="red"))
+        threading.Thread(target=task, daemon=True).start()
+
+    def on_manual_retag(self):
+        text = self.txt_manual.get("1.0", tk.END).strip()
+        if not text: return
+        self.lbl_manual_status.config(text="正在生成标签...")
+        def task():
+            try:
+                res = self.ai_service.process_text_with_correction(text)
+                tags = res.get("Tags", [])
+                if tags:
+                    self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
+                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
+                    self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
+                else:
+                    self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
+            except Exception as e:
+                logger.error(f"Manual Retag Error: {e}", exc_info=True)
+                self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
+        threading.Thread(target=task, daemon=True).start()
+
+    def on_manual_preview_vector(self):
+        text = self.txt_manual.get("1.0", tk.END).strip()
+        if not text: return
+        self.lbl_manual_vector_status.config(text="正在生成...", foreground="blue")
+        def task():
+            vec = self.ai_service.get_embedding(text)
+            if vec:
+                self.manual_vector = vec
+                self.manual_vector_text_hash = hash(text)
+                preview = str([round(v, 3) for v in vec[:3]]) + "..."
+                self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+            else:
+                self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+        threading.Thread(target=task, daemon=True).start()
 
     def on_manual_ai(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
@@ -1441,6 +1567,21 @@ class SmartQBApp(tk.Tk):
         self.settings.base_url = self.ent_base.get().strip()
         self.settings.model_id = self.ent_model.get().strip()
 
+        try:
+            self.settings.temperature = float(self.ent_temp.get())
+        except ValueError:
+            self.settings.temperature = 1.0
+        try:
+            self.settings.top_p = float(self.ent_top_p.get())
+        except ValueError:
+            self.settings.top_p = 1.0
+        try:
+            self.settings.max_tokens = int(self.ent_max_tokens.get())
+        except ValueError:
+            self.settings.max_tokens = 4096
+
+        self.settings.reasoning_effort = self.cbo_reasoning.get()
+
         self.settings.embed_api_key = self.ent_embed_api.get().strip()
         self.settings.embed_base_url = self.ent_embed_base.get().strip()
         self.settings.embed_model_id = self.ent_embed_model.get().strip()
@@ -1493,6 +1634,32 @@ class SmartQBApp(tk.Tk):
         self.ent_model = ttk.Entry(container, width=50)
         self.ent_model.insert(0, self.settings.model_id)
         self.ent_model.pack(anchor=tk.W)
+
+        # ====== New Advanced API Params ======
+        adv_api_frame = ttk.LabelFrame(container, text="高级模型参数")
+        adv_api_frame.pack(anchor=tk.W, fill=tk.X, pady=(10, 5), padx=20)
+
+        ttk.Label(adv_api_frame, text="Temperature (0-2):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        self.ent_temp = ttk.Entry(adv_api_frame, width=10)
+        self.ent_temp.insert(0, str(getattr(self.settings, 'temperature', 1.0)))
+        self.ent_temp.grid(row=0, column=1, pady=2)
+
+        ttk.Label(adv_api_frame, text="Top P (0-1):").grid(row=0, column=2, sticky=tk.W, padx=(20, 5), pady=2)
+        self.ent_top_p = ttk.Entry(adv_api_frame, width=10)
+        self.ent_top_p.insert(0, str(getattr(self.settings, 'top_p', 1.0)))
+        self.ent_top_p.grid(row=0, column=3, pady=2)
+
+        ttk.Label(adv_api_frame, text="Max Tokens:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        self.ent_max_tokens = ttk.Entry(adv_api_frame, width=10)
+        self.ent_max_tokens.insert(0, str(getattr(self.settings, 'max_tokens', 4096)))
+        self.ent_max_tokens.grid(row=1, column=1, pady=2)
+
+        ttk.Label(adv_api_frame, text="思考强度(Reasoning Effort):").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2)
+        self.cbo_reasoning = ttk.Combobox(adv_api_frame, values=["low", "medium", "high", "none"], width=8, state="readonly")
+        current_reason = getattr(self.settings, 'reasoning_effort', 'medium')
+        self.cbo_reasoning.set(current_reason)
+        self.cbo_reasoning.grid(row=1, column=3, pady=2)
+        # ======================================
 
         ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_api = ttk.Entry(container, width=50, show="*")
