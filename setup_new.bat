@@ -142,8 +142,8 @@ python -m pip install --upgrade pip >nul 2>&1
 
 :: 4. Direct Install Dependencies
 echo [4/6] Downloading and installing Python dependencies...
-:: Added surya-ocr dependency as required by the latest update
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow surya-ocr -i https://pypi.tuna.tsinghua.edu.cn/simple
+:: Added surya-ocr ultralytics psutil dependency as required by the latest update
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow surya-ocr ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo [ERROR] Installation failed. Please check your network and try again.
     pause
