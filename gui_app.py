@@ -25,6 +25,8 @@ except ImportError:
 from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
+from utils import check_hardware_requirements
+from doclayout_yolo_engine import DocLayoutYOLO
 from ai_service import AIService
 from document_service import DocumentService
 from search_service import vector_search_db
@@ -52,36 +54,64 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
             self.ocr_engine = None
-        logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
-        foundation_predictor = None
-        if FoundationPredictor:
-            try:
-                foundation_predictor = FoundationPredictor()
-            except Exception as e:
-                logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
+        self.hardware_ok = check_hardware_requirements()
 
-        logger.info("正在加载 Surya Layout 版面分析引擎 (必选)...")
-        if LayoutPredictor and foundation_predictor:
-            try:
-                self.surya_layout = LayoutPredictor(foundation_predictor)
-                logger.info("Surya Layout 引擎加载完成！")
-            except Exception as e:
-                logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
-                self.surya_layout = None
-        else:
-            logger.error("缺少基础模型或 surya.layout，文档版面分析不可用。")
-            self.surya_layout = None
+        # Determine engines to load based on settings and hardware
+        layout_engine = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
+        ocr_engine = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
-        logger.info("正在加载 Surya OCR 引擎 (可选)...")
-        if RecognitionPredictor and foundation_predictor:
+        if not self.hardware_ok:
+            if layout_engine == 'Surya' or ocr_engine == 'Surya':
+                logger.warning("硬件不达标，强制回退到 DocLayout-YOLO + Pix2Text。")
+            layout_engine = 'DocLayout-YOLO'
+            ocr_engine = 'Pix2Text'
+
+        self.surya_foundation = None
+        self.surya_layout = None
+        self.surya_ocr = None
+        self.doclayout_yolo = None
+
+        self.surya_foundation_failed = False
+        self.surya_layout_failed = False
+        self.surya_ocr_failed = False
+
+        self._engine_load_lock = threading.Lock()
+
+        if layout_engine == 'Surya' or ocr_engine == 'Surya':
+            logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
+            if FoundationPredictor:
+                try:
+                    self.surya_foundation = FoundationPredictor()
+                except Exception as e:
+                    logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
+                    self.surya_foundation_failed = True
+
+            if layout_engine == 'Surya':
+                logger.info("正在加载 Surya Layout 版面分析引擎...")
+                if LayoutPredictor and self.surya_foundation:
+                    try:
+                        self.surya_layout = LayoutPredictor(self.surya_foundation)
+                        logger.info("Surya Layout 引擎加载完成！")
+                    except Exception as e:
+                        logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
+                        self.surya_layout_failed = True
+
+            if ocr_engine == 'Surya':
+                logger.info("正在加载 Surya OCR 引擎...")
+                if RecognitionPredictor and self.surya_foundation:
+                    try:
+                        self.surya_ocr = RecognitionPredictor(self.surya_foundation)
+                        logger.info("Surya OCR 引擎加载完成！")
+                    except Exception as e:
+                        logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
+                        self.surya_ocr_failed = True
+
+        if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
+            logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
             try:
-                self.surya_ocr = RecognitionPredictor(foundation_predictor)
-                logger.info("Surya OCR 引擎加载完成！")
+                self.doclayout_yolo = DocLayoutYOLO()
             except Exception as e:
-                logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
-                self.surya_ocr = None
-        else:
-            self.surya_ocr = None
+                logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
 
         self.staging_questions = []
         self.export_bag = []
@@ -308,11 +338,63 @@ class SmartQBApp(tk.Tk):
                     self.refresh_staging_tree()
                 self.after(0, _clear_stg)
 
+                layout_engine_type = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
+                ocr_engine_type = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
+
+                # Lazy load Surya if selected but not loaded
+                if self.hardware_ok and FoundationPredictor and not getattr(self, 'surya_init_failed', False):
+                    # Ensure FoundationPredictor is initialized exactly once
+                    if (layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor) or \
+                       (ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor):
+                        if self.surya_foundation is None:
+                            self.update_status("正在加载 Surya 基础模型...")
+                            try:
+                                self.surya_foundation = FoundationPredictor()
+                            except Exception as e:
+                                logger.error(f"Failed to lazy load FoundationPredictor: {e}", exc_info=True)
+                                self.surya_init_failed = True
+
+                    if layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor and self.surya_foundation:
+                        self.update_status("正在首次加载 Surya 版面引擎，请稍候...")
+                        try:
+                            self.surya_layout = LayoutPredictor(self.surya_foundation)
+                        except Exception as e:
+                            logger.error(f"Failed to lazy load Surya Layout: {e}", exc_info=True)
+                            self.surya_init_failed = True
+
+                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
+                        self.update_status("正在首次加载 Surya OCR 引擎，请稍候...")
+                        try:
+                            self.surya_ocr = RecognitionPredictor(self.surya_foundation)
+                        except Exception as e:
+                            logger.error(f"Failed to lazy load Surya OCR: {e}", exc_info=True)
+                            self.surya_init_failed = True
+
+                # Lazy load DocLayout-YOLO if selected but not loaded
+                if layout_engine_type == 'DocLayout-YOLO' and self.doclayout_yolo is None:
+                    self.update_status("正在首次加载 DocLayout-YOLO 引擎，请稍候...")
+                    try:
+                        self.doclayout_yolo = DocLayoutYOLO()
+                    except Exception as e:
+                        logger.error(f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True)
+
+                use_surya_layout = self.hardware_ok and layout_engine_type == 'Surya' and self.surya_layout is not None
+                use_surya_ocr = self.hardware_ok and ocr_engine_type == 'Surya' and self.surya_ocr is not None
+
+                layout_predictor_to_use = self.surya_layout if use_surya_layout else self.doclayout_yolo
+                ocr_engine_to_use = self.surya_ocr if use_surya_ocr else self.ocr_engine
+                ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
+
+                if layout_predictor_to_use is None:
+                    raise RuntimeError("没有可用的版面分析引擎。请检查模型文件或安装对应依赖。")
+                if ocr_engine_to_use is None:
+                    raise RuntimeError("No OCR engine is available. Please install/load Pix2Text or Surya OCR first.")
+
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
-                    self.surya_layout,
-                    self.surya_ocr if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else self.ocr_engine,
-                    'Surya' if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else 'Pix2Text',
+                    layout_predictor_to_use,
+                    ocr_engine_to_use,
+                    ocr_type_str,
                     self.update_status, handle_slice_ready
                 )
             elif file_type == "word":
@@ -1361,6 +1443,8 @@ class SmartQBApp(tk.Tk):
         self.settings.use_prm_optimization = self.var_use_prm.get()
         if hasattr(self, 'cbo_ocr_engine'):
             self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
+        if hasattr(self, 'cbo_layout_engine'):
+            self.settings.layout_engine_type = self.cbo_layout_engine.get()
         try:
             self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
         except ValueError:
@@ -1421,13 +1505,37 @@ class SmartQBApp(tk.Tk):
 
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
 
-        # --- NEW OCR TOGGLE ---
-        ocr_frame = ttk.Frame(container)
-        ocr_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
-        ttk.Label(ocr_frame, text="使用的 OCR 识别引擎 (版面分析已固定使用 Surya):").pack(side=tk.LEFT)
-        self.cbo_ocr_engine = ttk.Combobox(ocr_frame, values=["Pix2Text", "Surya"], width=15, state="readonly")
-        self.cbo_ocr_engine.set(self.settings.ocr_engine_type if hasattr(self.settings, 'ocr_engine_type') else 'Pix2Text')
-        self.cbo_ocr_engine.pack(side=tk.LEFT, padx=10)
+        # --- ENGINE TOGGLES ---
+        engine_frame = ttk.Frame(container)
+        engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
+
+        ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        surya_found_failed = getattr(self, 'surya_foundation_failed', False)
+        surya_layout_failed = getattr(self, 'surya_layout_failed', False)
+        surya_ocr_failed = getattr(self, 'surya_ocr_failed', False)
+
+        surya_layout_supported = self.hardware_ok and not surya_found_failed and not surya_layout_failed and LayoutPredictor is not None and FoundationPredictor is not None
+        surya_ocr_supported = self.hardware_ok and not surya_found_failed and not surya_ocr_failed and RecognitionPredictor is not None and FoundationPredictor is not None
+
+        layout_vals = ["DocLayout-YOLO", "Surya"] if surya_layout_supported else ["DocLayout-YOLO"]
+        self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
+        current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
+        self.cbo_layout_engine.set(current_layout if surya_layout_supported else "DocLayout-YOLO")
+        self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
+
+        if not self.hardware_ok:
+            ttk.Label(engine_frame, text="(硬件不达标，已禁用 Surya)").grid(row=0, column=2, sticky=tk.W)
+        elif surya_found_failed or surya_layout_failed:
+            ttk.Label(engine_frame, text="(Surya 版面加载失败，已禁用)").grid(row=0, column=2, sticky=tk.W)
+        elif not surya_layout_supported:
+            ttk.Label(engine_frame, text="(Surya 依赖缺失，已禁用)").grid(row=0, column=2, sticky=tk.W)
+
+        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        ocr_vals = ["Pix2Text", "Surya"] if surya_ocr_supported else ["Pix2Text"]
+        self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
+        current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
+        self.cbo_ocr_engine.set(current_ocr if surya_ocr_supported else "Pix2Text")
+        self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 
         self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)

@@ -82,7 +82,7 @@ class DocumentService:
                                         'type': p_type
                                     })
                     except Exception as e:
-                        logger.error(f"Surya Layout 识别失败: {e}", exc_info=True)
+                        logger.error(f"Layout Analysis 识别失败: {e}", exc_info=True)
 
                     # ==========================================
                     # PASS 2: OCR 文字提取
@@ -120,7 +120,7 @@ class DocumentService:
                                         pass
                             elif ocr_engine_type == "Surya" and ocr_engine is not None:
                                 # RecognitionPredictor expects list of images
-                                ocr_res = ocr_engine([cropped_img], langs=[["en", "zh"]])[0]
+                                ocr_res = ocr_engine([cropped_img])[0]
                                 b_text = " ".join([line.text for line in ocr_res.text_lines])
 
                             b_text = b_text.replace('\n', ' ').strip()
@@ -141,7 +141,7 @@ class DocumentService:
                         try:
                             x_min, y_min, x_max, y_max = b['box']
                             draw.rectangle([x_min, y_min, x_max, y_max], outline='green', width=3)
-                            draw.text((x_min, max(0, y_min - 12)), f"Surya-{b['type']}", fill='green')
+                            draw.text((x_min, max(0, y_min - 12)), f"Layout-{b['type']}", fill='green')
                         except Exception as e:
                             logger.warning(f"Failed to draw diagram box: {e}", exc_info=True)
 
