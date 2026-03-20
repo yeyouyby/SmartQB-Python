@@ -392,7 +392,7 @@ class SmartQBApp(tk.Tk):
                 ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
 
                 if layout_predictor_to_use is None:
-                    raise RuntimeError("没有可用的版面分析引擎。请检查模型文件或安装对应依赖。")
+                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
                 if ocr_engine_to_use is None:
                     self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
 
