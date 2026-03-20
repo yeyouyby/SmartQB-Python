@@ -1,5 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
+set "EXIT_CODE=0"
 color 0A
 
 echo ========================================================
@@ -132,6 +133,7 @@ if not exist "venv" (
 )
 if not exist "venv" (
     echo [ERROR] Failed to create virtual environment.
+    set "EXIT_CODE=1"
     pause
     goto end_script
 )
@@ -146,6 +148,7 @@ echo [4/6] Downloading and installing Python dependencies...
 pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple && (pip install "surya-ocr>=0.3.0" -i https://pypi.tuna.tsinghua.edu.cn/simple || echo [WARNING] surya-ocr installation failed, Surya engine will be disabled.)
 if %errorlevel% neq 0 (
     echo [ERROR] Installation failed. Please check your network and try again.
+    set "EXIT_CODE=1"
     pause
     goto end_script
 )
@@ -158,6 +161,7 @@ set MODEL_ERR=%errorlevel%
 
 if %MODEL_ERR% neq 0 (
     echo [ERROR] AI Model setup failed. Please make sure the 'model' folder exists and contains the model files.
+    set "EXIT_CODE=1"
     pause
     goto end_script
 )
@@ -180,4 +184,4 @@ echo.
 echo Please double click "run_smartqb.bat" to start.
 pause
 :end_script
-exit /b %errorlevel%
+exit /b %EXIT_CODE%

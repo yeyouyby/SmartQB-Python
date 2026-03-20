@@ -120,7 +120,11 @@ class SettingsManager:
                 "ocr_engine_type": self.ocr_engine_type,
                 "layout_engine_type": self.layout_engine_type,
                 "use_prm_optimization": self.use_prm_optimization,
-                "prm_batch_size": self.prm_batch_size
+                "prm_batch_size": self.prm_batch_size,
+                "temperature": self.temperature,
+                "top_p": self.top_p,
+                "max_tokens": self.max_tokens,
+                "reasoning_effort": self.reasoning_effort
             }
             if not keyring_success and allow_plaintext_fallback:
                 payload["api_key"] = self.api_key

@@ -434,7 +434,9 @@ class SmartQBApp(tk.Tk):
                             self.surya_layout = LayoutPredictor(self.surya_foundation)
                         except Exception as e:
                             logger.error(f"Failed to lazy load Surya Layout: {e}", exc_info=True)
-                            self.surya_init_failed = True                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
+                            self.surya_init_failed = True
+
+                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
                         self.update_status("正在首次加载 Surya OCR 与检测引擎，请稍候...")
                         try:
                             self.surya_ocr = RecognitionPredictor(self.surya_foundation)
