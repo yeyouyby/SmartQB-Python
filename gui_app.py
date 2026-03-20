@@ -70,7 +70,12 @@ class SmartQBApp(tk.Tk):
         self.surya_layout = None
         self.surya_ocr = None
         self.doclayout_yolo = None
-        self.surya_init_failed = False
+
+        self.surya_foundation_failed = False
+        self.surya_layout_failed = False
+        self.surya_ocr_failed = False
+
+        self._engine_load_lock = threading.Lock()
 
         if layout_engine == 'Surya' or ocr_engine == 'Surya':
             logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
@@ -79,7 +84,7 @@ class SmartQBApp(tk.Tk):
                     self.surya_foundation = FoundationPredictor()
                 except Exception as e:
                     logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
-                    self.surya_init_failed = True
+                    self.surya_foundation_failed = True
 
             if layout_engine == 'Surya':
                 logger.info("正在加载 Surya Layout 版面分析引擎...")
@@ -89,7 +94,7 @@ class SmartQBApp(tk.Tk):
                         logger.info("Surya Layout 引擎加载完成！")
                     except Exception as e:
                         logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
-                        self.surya_init_failed = True
+                        self.surya_layout_failed = True
 
             if ocr_engine == 'Surya':
                 logger.info("正在加载 Surya OCR 引擎...")
@@ -99,7 +104,7 @@ class SmartQBApp(tk.Tk):
                         logger.info("Surya OCR 引擎加载完成！")
                     except Exception as e:
                         logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
-                        self.surya_init_failed = True
+                        self.surya_ocr_failed = True
 
         if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
             logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
@@ -380,6 +385,8 @@ class SmartQBApp(tk.Tk):
                 ocr_engine_to_use = self.surya_ocr if use_surya_ocr else self.ocr_engine
                 ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
 
+                if layout_predictor_to_use is None:
+                    raise RuntimeError("没有可用的版面分析引擎。请检查模型文件或安装对应依赖。")
                 if ocr_engine_to_use is None:
                     raise RuntimeError("No OCR engine is available. Please install/load Pix2Text or Surya OCR first.")
 
@@ -1503,9 +1510,12 @@ class SmartQBApp(tk.Tk):
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
         ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        surya_init_failed = getattr(self, 'surya_init_failed', False)
-        surya_layout_supported = self.hardware_ok and not surya_init_failed and LayoutPredictor is not None and FoundationPredictor is not None
-        surya_ocr_supported = self.hardware_ok and not surya_init_failed and RecognitionPredictor is not None and FoundationPredictor is not None
+        surya_found_failed = getattr(self, 'surya_foundation_failed', False)
+        surya_layout_failed = getattr(self, 'surya_layout_failed', False)
+        surya_ocr_failed = getattr(self, 'surya_ocr_failed', False)
+
+        surya_layout_supported = self.hardware_ok and not surya_found_failed and not surya_layout_failed and LayoutPredictor is not None and FoundationPredictor is not None
+        surya_ocr_supported = self.hardware_ok and not surya_found_failed and not surya_ocr_failed and RecognitionPredictor is not None and FoundationPredictor is not None
 
         layout_vals = ["DocLayout-YOLO", "Surya"] if surya_layout_supported else ["DocLayout-YOLO"]
         self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
@@ -1515,8 +1525,8 @@ class SmartQBApp(tk.Tk):
 
         if not self.hardware_ok:
             ttk.Label(engine_frame, text="(硬件不达标，已禁用 Surya)").grid(row=0, column=2, sticky=tk.W)
-        elif surya_init_failed:
-            ttk.Label(engine_frame, text="(Surya 加载失败，已禁用)").grid(row=0, column=2, sticky=tk.W)
+        elif surya_found_failed or surya_layout_failed:
+            ttk.Label(engine_frame, text="(Surya 版面加载失败，已禁用)").grid(row=0, column=2, sticky=tk.W)
         elif not surya_layout_supported:
             ttk.Label(engine_frame, text="(Surya 依赖缺失，已禁用)").grid(row=0, column=2, sticky=tk.W)
 
