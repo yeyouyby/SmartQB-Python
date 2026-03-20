@@ -57,10 +57,13 @@ class DocLayoutYOLO:
                         cls_id = int(box.cls[0].item())
 
                         # Get label name, default to original if unknown mapping
-                        if isinstance(pred.names, dict):
-                            label_name = pred.names.get(cls_id, f"Class_{cls_id}")
-                        elif isinstance(pred.names, list) and cls_id < len(pred.names):
-                            label_name = pred.names[cls_id]
+                        names = pred.names if hasattr(pred, "names") else None
+                        if not names:
+                            names = getattr(self.model, "names", None)
+                        if isinstance(names, dict):
+                            label_name = names.get(cls_id, f"Class_{cls_id}")
+                        elif isinstance(names, (list, tuple)) and 0 <= cls_id < len(names):
+                            label_name = names[cls_id]
                         else:
                             label_name = f"Class_{cls_id}"
 

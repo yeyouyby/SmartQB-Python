@@ -332,6 +332,32 @@ class SmartQBApp(tk.Tk):
                 layout_engine_type = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
                 ocr_engine_type = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
+                # Lazy load Surya if selected but not loaded
+                if self.hardware_ok and FoundationPredictor:
+                    if layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor:
+                        self.update_status("正在首次加载 Surya 版面引擎，请稍候...")
+                        try:
+                            fp = FoundationPredictor()
+                            self.surya_layout = LayoutPredictor(fp)
+                        except Exception as e:
+                            logger.error(f"Failed to lazy load Surya Layout: {e}", exc_info=True)
+
+                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor:
+                        self.update_status("正在首次加载 Surya OCR 引擎，请稍候...")
+                        try:
+                            fp = FoundationPredictor()
+                            self.surya_ocr = RecognitionPredictor(fp)
+                        except Exception as e:
+                            logger.error(f"Failed to lazy load Surya OCR: {e}", exc_info=True)
+
+                # Lazy load DocLayout-YOLO if selected but not loaded
+                if layout_engine_type == 'DocLayout-YOLO' and self.doclayout_yolo is None:
+                    self.update_status("正在首次加载 DocLayout-YOLO 引擎，请稍候...")
+                    try:
+                        self.doclayout_yolo = DocLayoutYOLO()
+                    except Exception as e:
+                        logger.error(f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True)
+
                 use_surya_layout = self.hardware_ok and layout_engine_type == 'Surya' and self.surya_layout is not None
                 use_surya_ocr = self.hardware_ok and ocr_engine_type == 'Surya' and self.surya_ocr is not None
 
