@@ -49,7 +49,7 @@ class SettingsManager:
                 engine_type = d.get("ocr_engine_type", "Pix2Text")
                 self.ocr_engine_type = engine_type if engine_type in {"Pix2Text", "Surya"} else "Pix2Text"
                 layout_type = d.get("layout_engine_type", "DocLayout-YOLO")
-                self.layout_engine_type = layout_type if layout_type in {"DocLayout-YOLO", "Surya"} else "DocLayout-YOLO"
+                self.layout_engine_type = layout_type if isinstance(layout_type, str) and layout_type in {"DocLayout-YOLO", "Surya"} else "DocLayout-YOLO"
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
 

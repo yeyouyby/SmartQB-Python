@@ -1,5 +1,4 @@
 import os
-import sys
 from utils import logger
 try:
     from ultralytics import YOLO
@@ -24,7 +23,8 @@ class DocLayoutYOLO:
         if YOLO is None:
             raise ImportError("ultralytics library is required for DocLayout-YOLO. Please install it.")
 
-        self.model_path = model_path
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        self.model_path = model_path if os.path.isabs(model_path) else os.path.join(base_dir, model_path)
         if not os.path.exists(self.model_path):
             raise FileNotFoundError(f"DocLayout-YOLO model not found at '{self.model_path}'. Please place the onnx model there.")
 
@@ -32,20 +32,7 @@ class DocLayoutYOLO:
         self.model = YOLO(self.model_path)
         logger.info("DocLayout-YOLO model loaded.")
 
-        # Map class indices from DocLayout-YOLO to Surya's label types
-        # This mapping assumes DocLayout-YOLO has standard classes.
-        # You may need to adjust this depending on the exact model.
-        # Typical classes: text, title, list, table, figure, mathematical expression, etc.
-        self.class_map = {
-            0: "Text",            # Example index mapping
-            1: "Title",
-            2: "List",
-            3: "Table",
-            4: "Figure",
-            5: "Formula",
-            6: "Form",
-            7: "Text-inline-math"
-        }
+
 
     def __call__(self, images):
         """
@@ -70,8 +57,13 @@ class DocLayoutYOLO:
                         cls_id = int(box.cls[0].item())
 
                         # Get label name, default to original if unknown mapping
-                        # Default mapping for models that return names directly:
-                        label_name = pred.names.get(cls_id, f"Class_{cls_id}")
+                        if isinstance(pred.names, dict):
+                            label_name = pred.names.get(cls_id, f"Class_{cls_id}")
+                        elif isinstance(pred.names, list) and cls_id < len(pred.names):
+                            label_name = pred.names[cls_id]
+                        else:
+                            label_name = f"Class_{cls_id}"
+
 
                         # Normalize label to Match Surya's expected strings if possible
                         # Surya expects things like 'Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form' for extraction

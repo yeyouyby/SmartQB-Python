@@ -55,11 +55,13 @@ def check_hardware_requirements():
     Checks if hardware meets the requirements for Surya (16GB+ RAM, 6GB+ VRAM on GPU).
     Returns True if hardware is sufficient, False otherwise.
     """
+    MIN_RAM_GB = 15.0
+    MIN_VRAM_GB = 5.5
     try:
         # Check system memory (RAM) >= 16GB
         # psutil.virtual_memory().total returns bytes
         ram_gb = psutil.virtual_memory().total / (1024**3)
-        if ram_gb < 15.0:  # Allow some margin (e.g. 15.X GB usable)
+        if ram_gb < MIN_RAM_GB:  # Allow some margin (e.g. 15.X GB usable)
             logger.info(f"Hardware check: Insufficient RAM ({ram_gb:.1f}GB < 16GB). Surya will be disabled.")
             return False
 
@@ -71,7 +73,7 @@ def check_hardware_requirements():
         # Check first available GPU (assuming index 0)
         vram_bytes = torch.cuda.get_device_properties(0).total_memory
         vram_gb = vram_bytes / (1024**3)
-        if vram_gb < 5.5: # Allow some margin
+        if vram_gb < MIN_VRAM_GB: # Allow some margin
             logger.info(f"Hardware check: Insufficient GPU VRAM ({vram_gb:.1f}GB < 6GB). Surya will be disabled.")
             return False
 

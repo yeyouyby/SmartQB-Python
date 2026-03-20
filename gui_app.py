@@ -97,7 +97,7 @@ class SmartQBApp(tk.Tk):
                     except Exception as e:
                         logger.error(f"Failed to load Surya OCR: {e}", exc_info=True)
 
-        if layout_engine == 'DocLayout-YOLO':
+        if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
             logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
             try:
                 self.doclayout_yolo = DocLayoutYOLO()
@@ -329,15 +329,18 @@ class SmartQBApp(tk.Tk):
                     self.refresh_staging_tree()
                 self.after(0, _clear_stg)
 
-                layout_predictor_to_use = self.surya_layout if getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO') == 'Surya' and self.surya_layout is not None else self.doclayout_yolo
-                ocr_engine_to_use = self.surya_ocr if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else self.ocr_engine
-                ocr_type_str = 'Surya' if getattr(self.settings, 'ocr_engine_type', 'Pix2Text') == 'Surya' and self.surya_ocr is not None else 'Pix2Text'
+                layout_engine_type = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
+                ocr_engine_type = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
-                # Hardware override
-                if not self.hardware_ok:
-                    layout_predictor_to_use = self.doclayout_yolo
-                    ocr_engine_to_use = self.ocr_engine
-                    ocr_type_str = 'Pix2Text'
+                use_surya_layout = self.hardware_ok and layout_engine_type == 'Surya' and self.surya_layout is not None
+                use_surya_ocr = self.hardware_ok and ocr_engine_type == 'Surya' and self.surya_ocr is not None
+
+                layout_predictor_to_use = self.surya_layout if use_surya_layout else self.doclayout_yolo
+                ocr_engine_to_use = self.surya_ocr if use_surya_ocr else self.ocr_engine
+                ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
+
+                if ocr_engine_to_use is None:
+                    raise RuntimeError("No OCR engine is available. Please install/load Pix2Text or Surya OCR first.")
 
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
@@ -1459,19 +1462,25 @@ class SmartQBApp(tk.Tk):
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
         ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        layout_vals = ["DocLayout-YOLO", "Surya"] if self.hardware_ok else ["DocLayout-YOLO"]
+        surya_layout_supported = self.hardware_ok and LayoutPredictor is not None and FoundationPredictor is not None
+        surya_ocr_supported = self.hardware_ok and RecognitionPredictor is not None and FoundationPredictor is not None
+
+        layout_vals = ["DocLayout-YOLO", "Surya"] if surya_layout_supported else ["DocLayout-YOLO"]
         self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
         current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-        self.cbo_layout_engine.set(current_layout if self.hardware_ok else "DocLayout-YOLO")
+        self.cbo_layout_engine.set(current_layout if surya_layout_supported else "DocLayout-YOLO")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
+
         if not self.hardware_ok:
             ttk.Label(engine_frame, text="(硬件不达标，已禁用 Surya)").grid(row=0, column=2, sticky=tk.W)
+        elif not surya_layout_supported:
+            ttk.Label(engine_frame, text="(Surya 依赖缺失，已禁用)").grid(row=0, column=2, sticky=tk.W)
 
         ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ocr_vals = ["Pix2Text", "Surya"] if self.hardware_ok else ["Pix2Text"]
+        ocr_vals = ["Pix2Text", "Surya"] if surya_ocr_supported else ["Pix2Text"]
         self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
         current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
-        self.cbo_ocr_engine.set(current_ocr if self.hardware_ok else "Pix2Text")
+        self.cbo_ocr_engine.set(current_ocr if surya_ocr_supported else "Pix2Text")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 
