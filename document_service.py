@@ -160,11 +160,14 @@ class DocumentService:
                     # Sort text blocks by y_min top-down
                     ocr_blocks.sort(key=lambda x: x['box'][1])
 
-                    diagram_map = {} # Maps diagram index to base64
+                    diagram_map = {} # Maps global diagram index to base64
 
                     for d_idx, d in enumerate(diagrams):
                         d_y_min = d['box'][1]
-                        diagram_map[d_idx] = d['diagram_b64']
+                        # Use a globally unique identifier using page_index and d_idx
+                        # This avoids conflicts when questions span multiple pages
+                        global_d_idx = f"{page_index}_{d_idx}"
+                        diagram_map[global_d_idx] = d['diagram_b64']
 
                         best_t_idx = -1
                         min_dist = float('inf')
@@ -180,27 +183,31 @@ class DocumentService:
 
                         if best_t_idx != -1:
                             # Attach to the nearest text block above
-                            marker = f"\n[[{{ima_dont_del_{d_idx}}}]]\n"
+                            marker = f"\n[[{{ima_dont_del_{global_d_idx}}}]]\n"
                             ocr_blocks[best_t_idx]['text'] += marker
-                        else:
+                        elif ocr_blocks:
                             # If no text block is above, attach to the first text block (below it)
-                            if ocr_blocks:
-                                marker = f"[[{{ima_dont_del_{d_idx}}}]]\n"
-                                ocr_blocks[0]['text'] = marker + ocr_blocks[0]['text']
-                            else:
-                                # Edge case: no text in the entire page, just diagram
-                                ocr_blocks.append({
-                                    'text': f"[[{{ima_dont_del_{d_idx}}}]]",
-                                    'box': d['box']
-                                })
+                            marker = f"[[{{ima_dont_del_{global_d_idx}}}]]\n"
+                            ocr_blocks[0]['text'] = marker + ocr_blocks[0]['text']
+                        else:
+                            # Edge case: no text in the entire page, just diagram
+                            ocr_blocks.append({
+                                'text': f"[[{{ima_dont_del_{global_d_idx}}}]]",
+                                'box': d['box']
+                            })
 
                     # Combine all text blocks into a single page-level text payload
                     full_page_text = "\n".join([t['text'] for t in ocr_blocks])
 
+                    # Save the full page image for vision model
+                    buf_page = io.BytesIO()
+                    img.save(buf_page, format='PNG')
+                    page_image_b64 = base64.b64encode(buf_page.getvalue()).decode('utf-8')
+
                     # Package the entire page as ONE slice
                     slice_obj = {
                         "text": full_page_text,
-                        "image_b64": "",  # Whole page crop could go here if needed
+                        "image_b64": page_image_b64,  # Whole page for vision model
                         "diagram": None,  # Resolved later
                         "diagram_map": diagram_map, # New field holding the diagrams for this page
                         "page_annotated_b64": page_annotated_b64

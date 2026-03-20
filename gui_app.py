@@ -6,7 +6,6 @@ import io
 import json
 import threading
 import base64
-import re
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -551,8 +550,7 @@ class SmartQBApp(tk.Tk):
                     page_annotated_b64 = ""
                     content_text = q.get("Content", "")
 
-                    # Combine all diagram maps from source slices into one big dict for this question
-                    merged_diagram_map = {}
+                    # Extract basic page data (image and layout) from source slices
                     for idx in source_indices:
                         if 0 <= idx < len(pending_slices):
                             if not image_b64 and pending_slices[idx].get("image_b64"):
@@ -560,40 +558,49 @@ class SmartQBApp(tk.Tk):
                             if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
                                 page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
 
-                            d_map = pending_slices[idx].get("diagram_map", {})
-                            if d_map:
-                                # Prepend the slice index to make the key unique if cross-slice diagrams exist
-                                # However, our markers are just [[{ima_dont_del_X}]] so we search the text
-                                # We'll just merge them directly if the page has isolated diagram indices 0,1,2...
-                                # In a real cross-page scenario, it might collide, so let's rely on finding the marker in text.
-                                # Let's find any [[{ima_dont_del_X}]] in content_text and replace it.
-                                pass
-
                     # Resolve diagram markers within the content text
-                    # We will scan the source_indices again to map the markers correctly.
-                    # Since markers are [[{ima_dont_del_X}]], we search the text for them.
-                    import re
-                    marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+)\}\]\]')
+                    # Marker format is now globally unique per page: [[{ima_dont_del_0_1}]]
+                    marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
                     matches = marker_pattern.findall(content_text)
 
+                    # Instead of single string diagram, we will collect all matched diagrams
+                    diagrams_list = []
+
                     if matches:
-                        # Grab the first match to set as diagram
-                        first_d_idx = int(matches[0])
+                        # Ensure we don't try to fetch duplicates
+                        unique_matches = []
+                        for m in matches:
+                            if m not in unique_matches:
+                                unique_matches.append(m)
 
-                        # Find the corresponding diagram b64 from the source slices
-                        for idx in source_indices:
-                            if 0 <= idx < len(pending_slices):
-                                d_map = pending_slices[idx].get("diagram_map", {})
-                                # Note: keys might be stored as strings if parsed from json elsewhere, but here they are ints
-                                if first_d_idx in d_map:
-                                    diagram = d_map[first_d_idx]
-                                    break
-                                elif str(first_d_idx) in d_map:
-                                    diagram = d_map[str(first_d_idx)]
-                                    break
+                        for marker_idx in unique_matches:
+                            found = False
+                            # Find the corresponding diagram b64 from the slice that actually contains this marker's map
+                            for idx in source_indices:
+                                if 0 <= idx < len(pending_slices):
+                                    d_map = pending_slices[idx].get("diagram_map", {})
+                                    if marker_idx in d_map:
+                                        diagrams_list.append(d_map[marker_idx])
+                                        found = True
+                                        break
+                                    elif str(marker_idx) in d_map:
+                                        diagrams_list.append(d_map[str(marker_idx)])
+                                        found = True
+                                        break
 
-                        # Clean up ALL markers from the content text to keep LaTeX pure
-                        content_text = marker_pattern.sub('', content_text).strip()
+                        # Only clean up markers if we successfully resolved at least one diagram
+                        # (If AI hallucinated a marker, we keep it so the user sees it)
+                        if len(diagrams_list) > 0:
+                            content_text = marker_pattern.sub('', content_text).strip()
+
+                    # Serialize multiple diagrams via JSON if needed (to keep compatibility with single string field)
+                    if len(diagrams_list) == 1:
+                        diagram = diagrams_list[0]
+                    elif len(diagrams_list) > 1:
+                        import json
+                        diagram = json.dumps(diagrams_list)
+                    else:
+                        diagram = None
 
                     item = {
                         "content": content_text,
@@ -669,6 +676,20 @@ class SmartQBApp(tk.Tk):
 
         # Determine what to display (diagram if present, else layout image)
         display_img_b64 = q.get("diagram")
+        is_multi_img = False
+
+        # Parse multiple diagrams if stored as JSON list
+        if display_img_b64 and display_img_b64.startswith('['):
+            try:
+                import json
+                parsed_list = json.loads(display_img_b64)
+                if parsed_list and len(parsed_list) > 0:
+                    display_img_b64 = parsed_list[0]
+                    if len(parsed_list) > 1:
+                        is_multi_img = True
+            except Exception:
+                pass
+
         if not display_img_b64 and q.get("image_b64"):
             display_img_b64 = q.get("image_b64")
 
@@ -677,7 +698,8 @@ class SmartQBApp(tk.Tk):
                 img = Image.open(io.BytesIO(base64.b64decode(display_img_b64))).copy()
                 img.thumbnail((400, 300))
                 photo = ImageTk.PhotoImage(img)
-                self.lbl_stg_diagram.config(image=photo, text="")
+                multi_text = " (含多图, 仅预览首张)" if is_multi_img else ""
+                self.lbl_stg_diagram.config(image=photo, text=multi_text)
                 self.lbl_stg_diagram.image = photo
             except Exception as e:
                 self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
@@ -1353,12 +1375,27 @@ class SmartQBApp(tk.Tk):
                 if diagram_base64:
                     import io, base64
                     from PIL import Image, ImageTk
+                    is_multi_img = False
+                    first_img_b64 = diagram_base64
+
+                    if diagram_base64.startswith('['):
+                        try:
+                            import json
+                            parsed_list = json.loads(diagram_base64)
+                            if parsed_list and len(parsed_list) > 0:
+                                first_img_b64 = parsed_list[0]
+                                if len(parsed_list) > 1:
+                                    is_multi_img = True
+                        except Exception:
+                            pass
+
                     try:
-                        img_data = base64.b64decode(diagram_base64.split(",")[-1] if "," in diagram_base64 else diagram_base64)
+                        img_data = base64.b64decode(first_img_b64.split(",")[-1] if "," in first_img_b64 else first_img_b64)
                         img = Image.open(io.BytesIO(img_data)).copy()
                         img.thumbnail((400, 200))
                         photo = ImageTk.PhotoImage(img)
-                        self.lbl_lib_diagram.config(image=photo, text="")
+                        multi_text = " (含多图, 仅预览首张)" if is_multi_img else ""
+                        self.lbl_lib_diagram.config(image=photo, text=multi_text)
                         self.lbl_lib_diagram.image = photo
                     except Exception as e:
                         self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
@@ -1535,16 +1572,33 @@ class SmartQBApp(tk.Tk):
             tex.append(r"\item " + tex_content)
 
             if q.get("diagram"):
-                img_data = base64.b64decode(q["diagram"])
-                img_filename = f"diagram_{q['id']}.png"
-                img_filepath = os.path.join(img_dir, img_filename)
-                with open(img_filepath, "wb") as f:
-                    f.write(img_data)
+                diag_data = q["diagram"]
+                diags = []
+                if diag_data.startswith('['):
+                    try:
+                        import json
+                        parsed_list = json.loads(diag_data)
+                        if parsed_list:
+                            diags = parsed_list
+                    except Exception:
+                        diags = [diag_data]
+                else:
+                    diags = [diag_data]
 
-                rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
-                tex.append(r"\begin{center}")
-                tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
-                tex.append(r"\end{center}")
+                for di_idx, diag_b64 in enumerate(diags):
+                    try:
+                        img_data = base64.b64decode(diag_b64)
+                        img_filename = f"diagram_{q['id']}_{di_idx}.png"
+                        img_filepath = os.path.join(img_dir, img_filename)
+                        with open(img_filepath, "wb") as f:
+                            f.write(img_data)
+
+                        rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
+                        tex.append(r"\begin{center}")
+                        tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
+                        tex.append(r"\end{center}")
+                    except Exception as e:
+                        print(f"Failed to export diagram {di_idx} for Q {q['id']}: {e}")
 
             tex.append(r"\vspace{0.5em}")
 
