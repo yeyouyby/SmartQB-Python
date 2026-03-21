@@ -21,7 +21,7 @@ def ensure_lancedb_tables():
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), 1536)),
+                    pa.field("vector", pa.list_(pa.float32(), 1024)),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )

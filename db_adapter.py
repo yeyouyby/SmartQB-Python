@@ -22,7 +22,7 @@ class LanceDBAdapter:
 
         from settings_manager import SettingsManager
         self.settings = SettingsManager()
-        self.embedding_dimension = int(getattr(self.settings, 'embedding_dimension', 1536) or 1536)
+        self.embedding_dimension = int(getattr(self.settings, 'embedding_dimension', 1024) or 1024)
 
         if machine_id is None:
             mac_address = str(uuid.getnode())

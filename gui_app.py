@@ -1858,9 +1858,9 @@ class SmartQBApp(tk.Tk):
         try:
             self.settings.embedding_dimension = int(self.ent_embed_dim.get().strip())
         except ValueError:
-            self.settings.embedding_dimension = 1536
+            self.settings.embedding_dimension = 1024
             self.ent_embed_dim.delete(0, 'end')
-            self.ent_embed_dim.insert(0, '1536')
+            self.ent_embed_dim.insert(0, '1024')
 
         try:
             self.settings.save()
@@ -1941,7 +1941,7 @@ class SmartQBApp(tk.Tk):
 
         ttk.Label(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_dim = ttk.Entry(container, width=15)
-        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1536)))
+        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
         self.ent_embed_dim.pack(anchor=tk.W)
 
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
