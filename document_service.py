@@ -166,17 +166,20 @@ class DocumentService:
                     diagram_map = {}  # Maps globally unique marker to base64
 
                     for d_idx, d in enumerate(diagrams):
-                        d_y_min = d['box'][1]
+                        d_x_min, d_y_min, d_x_max, d_y_max = d['box']
                         global_marker = f"{page_index}_{d_idx}"
                         diagram_map[global_marker] = d['diagram_b64']
 
                         best_t_idx = -1
                         min_dist = float('inf')
 
-                        # Find the text block immediately above this diagram
+                        # Find the text block immediately above this diagram with horizontal overlap
                         for t_idx, t in enumerate(ocr_blocks):
-                            t_y_max = t['box'][3]
-                            if t_y_max <= d_y_min:
+                            t_x_min, t_y_min, t_x_max, t_y_max = t['box']
+
+                            # Check for horizontal overlap
+                            h_overlap = max(0, min(d_x_max, t_x_max) - max(d_x_min, t_x_min))
+                            if h_overlap > 0 and t_y_max <= d_y_min:
                                 dist = d_y_min - t_y_max
                                 if dist < min_dist:
                                     min_dist = dist
@@ -187,9 +190,16 @@ class DocumentService:
                             marker = f"\n[[{{ima_dont_del_{global_marker}}}]]\n"
                             ocr_blocks[best_t_idx]['text'] += marker
                         elif ocr_blocks:
-                            # If no text block is strictly above, attach to the nearest text block by vertical distance
+                            # If no text block is strictly above, attach to the nearest text block by center distance
+                            d_cx = (d_x_min + d_x_max) / 2
+                            d_cy = (d_y_min + d_y_max) / 2
+                            def distance(t):
+                                t_cx = (t['box'][0] + t['box'][2]) / 2
+                                t_cy = (t['box'][1] + t['box'][3]) / 2
+                                return (d_cx - t_cx)**2 + (d_cy - t_cy)**2
+
                             marker = f"[[{{ima_dont_del_{global_marker}}}]]\n"
-                            nearest_idx = min(range(len(ocr_blocks)), key=lambda i: abs(ocr_blocks[i]['box'][1] - d_y_min))
+                            nearest_idx = min(range(len(ocr_blocks)), key=lambda i: distance(ocr_blocks[i]))
                             ocr_blocks[nearest_idx]['text'] = marker + ocr_blocks[nearest_idx]['text']
                         else:
                             # Edge case: no text in the entire page, just diagram

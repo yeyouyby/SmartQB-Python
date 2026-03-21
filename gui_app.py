@@ -216,12 +216,18 @@ class SmartQBApp(tk.Tk):
         gc.collect()
 
     def check_and_fix_latex(self):
-        if not self.staging_questions: return
-        self.update_status("正在检查 LaTeX 编译...")
-        from utils import logger
-        logger.info("Starting LaTeX check for staged questions...")
+        sel = self.tree_staging.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请选择需要检查 LaTeX 的题目。")
+            return
 
+        self.update_status("正在检查选中题目的 LaTeX 编译...")
+        from utils import logger
+        logger.info("Starting LaTeX check for selected staged questions...")
+
+        selected_indices = [int(s) for s in sel]
         import threading
+
         def task():
             import tempfile, os, subprocess
             from utils import logger
@@ -229,10 +235,10 @@ class SmartQBApp(tk.Tk):
             failed_indices = []
             successful_questions = []
 
-            questions_snapshot = list(enumerate(self.staging_questions))
-            total_questions = len(questions_snapshot)
-            for idx, q in questions_snapshot:
-                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1}/{t} 题..."))
+            total_questions = len(selected_indices)
+            for idx in selected_indices:
+                q = self.staging_questions[idx]
+                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1} 题..."))
                 content_text = q["content"]
                 tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
 
@@ -270,8 +276,16 @@ class SmartQBApp(tk.Tk):
 
             def update_ui():
                 self.refresh_staging_tree()
-                self.update_status(f"LaTeX 检查完成。成功 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。")
-                messagebox.showinfo("检查完成", f"成功检查 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。")
+                # Restore selection
+                for idx in selected_indices:
+                    try:
+                        self.tree_staging.selection_add(str(idx))
+                    except:
+                        pass
+                if len(selected_indices) > 0:
+                    self.on_staging_select(None)
+                self.update_status(f"LaTeX 检查完成。选中 {total_questions} 题，成功修复 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。")
+                messagebox.showinfo("检查完成", f"成功检查修复 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。")
 
             self.after(0, update_ui)
 
@@ -714,16 +728,17 @@ class SmartQBApp(tk.Tk):
                     page_annotated_b64 = ""
                     content_text = q.get("Content", "")
 
-                    combined_d_map = {}
+                    # Accumulate slices specifically requested by AI, plus we need to ensure any pending_fragment diagrams are retained
+                    # Instead of rebuilding combined_d_map from just `source_indices`, we use `cumulative_d_map` which holds
+                    # everything from all processed batches up to this point.
                     for idx in source_indices:
                         if 0 <= idx < len(pending_slices):
                             if not image_b64 and pending_slices[idx].get("image_b64"):
                                 image_b64 = pending_slices[idx]["image_b64"]
                             if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
                                 page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
-                            combined_d_map.update(pending_slices[idx].get("diagram_map", {}))
 
-                    content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, combined_d_map)
+                    content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map)
 
                     item = {
                         "content": content_text,
@@ -1856,7 +1871,10 @@ class SmartQBApp(tk.Tk):
             messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
 
         try:
-            self.settings.embedding_dimension = int(self.ent_embed_dim.get().strip())
+            val = int(self.ent_embed_dim.get().strip())
+            if val <= 0:
+                raise ValueError("Embedding dimension must be > 0")
+            self.settings.embedding_dimension = val
         except ValueError:
             self.settings.embedding_dimension = 1024
             self.ent_embed_dim.delete(0, 'end')

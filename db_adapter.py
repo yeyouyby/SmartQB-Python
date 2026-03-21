@@ -120,7 +120,6 @@ class LanceDBAdapter:
             vec = []
         vec = list(vec)
 
-        # Pad or truncate the vector to match the table's vector dimension
         target_dim = self.embedding_dimension
         try:
             schema = self.q_table.schema
@@ -131,10 +130,13 @@ class LanceDBAdapter:
         except Exception:
             pass
 
-        if len(vec) < target_dim:
-            vec.extend([0.0] * (target_dim - len(vec)))
-        elif len(vec) > target_dim:
-            vec = vec[:target_dim]
+        if len(vec) != target_dim:
+            if len(vec) == 0:
+                vec = [0.0] * target_dim
+            else:
+                msg = f"Vector dimension mismatch. Expected {target_dim}, but got {len(vec)}."
+                logger.error(msg)
+                raise ValueError(msg)
 
         new_q_id = self.next_id()
         self.q_table.add([{
