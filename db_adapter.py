@@ -19,6 +19,9 @@ _sequence = 0
 class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
+        from settings_manager import SettingsManager
+        self.settings = SettingsManager()
+        self.embedding_dimension = getattr(self.settings, 'embedding_dimension', 1024)
 
         if machine_id is None:
             mac_address = str(uuid.getnode())
@@ -43,6 +46,15 @@ class LanceDBAdapter:
 
         try:
             self.q_table = self.db.open_table("questions")
+            # If table opened successfully, sync embedding_dimension to existing table's vector dim
+            try:
+                schema = self.q_table.schema
+                vector_field = schema.field("vector")
+                # Arrow vector lists have a 'list_size' property
+                if hasattr(vector_field.type, "list_size"):
+                    self.embedding_dimension = vector_field.type.list_size
+            except Exception as e:
+                logger.warning(f"Could not determine vector dimension from existing table: {e}")
         except FileNotFoundError:
             pass
         except Exception:
@@ -54,7 +66,7 @@ class LanceDBAdapter:
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), 1536)),
+                    pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
@@ -113,7 +125,7 @@ class LanceDBAdapter:
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
         if not vec:
-            vec = [0.0] * 1536
+            vec = [0.0] * self.embedding_dimension
         new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,

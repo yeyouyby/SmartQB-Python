@@ -276,7 +276,8 @@ class SmartQBApp(tk.Tk):
         self.ent_batch_tag.pack(side=tk.LEFT, padx=5)
         ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
 
-        ttk.Button(bottom_frame, text="✅ 确认暂存区无误，全部保存入库", command=self.save_staging_to_db).pack(side=tk.RIGHT)
+        ttk.Button(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
 
 
     def move_diagram_up(self):
@@ -392,24 +393,7 @@ class SmartQBApp(tk.Tk):
 
         def handle_slice_ready(s):
             if mode == 1:
-                raw_text = s["text"]
-                d_map = s.get("diagram_map", {})
-                diags = []
-                marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
-                matches = list(dict.fromkeys(marker_pattern.findall(raw_text)))
-                for marker_idx in matches:
-                    if marker_idx in d_map:
-                        diags.append(d_map[marker_idx])
-                        raw_text = raw_text.replace(f"[[{{ima_dont_del_{marker_idx}}}]]", "")
-                    elif str(marker_idx) in d_map:
-                        diags.append(d_map[str(marker_idx)])
-                        raw_text = raw_text.replace(f"[[{{ima_dont_del_{marker_idx}}}]]", "")
-                raw_text = raw_text.strip()
-                diagram_json = None
-                if len(diags) == 1:
-                    diagram_json = diags[0]
-                elif len(diags) > 1:
-                    diagram_json = json.dumps(diags)
+                raw_text, diagram_json = self._resolve_markers_and_extract_diagrams(s["text"], s.get("diagram_map", {}))
                 item = {
                     "content": raw_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram_json, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
                 }
@@ -1767,6 +1751,10 @@ class SmartQBApp(tk.Tk):
         self.settings.embed_api_key = self.ent_embed_api.get().strip()
         self.settings.embed_base_url = self.ent_embed_base.get().strip()
         self.settings.embed_model_id = self.ent_embed_model.get().strip()
+        try:
+            self.settings.embedding_dimension = int(self.ent_embed_dim.get().strip())
+        except ValueError:
+            self.settings.embedding_dimension = 1024
 
         self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
@@ -1857,6 +1845,11 @@ class SmartQBApp(tk.Tk):
         self.ent_embed_model = ttk.Entry(container, width=50)
         self.ent_embed_model.insert(0, self.settings.embed_model_id)
         self.ent_embed_model.pack(anchor=tk.W)
+
+        ttk.Label(container, text="Embedding Vector Dimension (默认 1024):").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_dim = ttk.Entry(container, width=50)
+        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
+        self.ent_embed_dim.pack(anchor=tk.W)
 
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
 
