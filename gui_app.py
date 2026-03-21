@@ -1,16 +1,13 @@
-import gc
 # gui_app.py
 import os
 import warnings
 import io
-import json
-import threading
 import base64
 import re
+import tempfile
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from PIL import Image, ImageTk
 try:
     from pix2text import Pix2Text
 except Exception as e:
@@ -28,7 +25,6 @@ except ImportError:
     RecognitionPredictor = None
     FoundationPredictor = None
     DetectionPredictor = None
-from utils import logger
 from config import DB_NAME
 from settings_manager import SettingsManager
 from utils import check_hardware_requirements
@@ -163,8 +159,7 @@ class SmartQBApp(tk.Tk):
                 if isinstance(parsed_list, list) and parsed_list:
                     return parsed_list
             except json.JSONDecodeError as e:
-                from utils import logger
-                logger.debug(f"Failed to decode diagram JSON: {e}")
+                                logger.debug(f"Failed to decode diagram JSON: {e}")
         return [diag_data]
 
     def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
@@ -200,7 +195,6 @@ class SmartQBApp(tk.Tk):
         return content_text, diagram
 
     def _clear_staging_ui(self):
-        import gc
         for q in self.staging_questions:
             q.pop('diagram', None)
             q.pop('image_b64', None)
@@ -222,15 +216,11 @@ class SmartQBApp(tk.Tk):
             return
 
         self.update_status("正在检查选中题目的 LaTeX 编译...")
-        from utils import logger
         logger.info("Starting LaTeX check for selected staged questions...")
 
         selected_indices = [int(s) for s in sel]
-        import threading
 
         def task():
-            import tempfile, os, subprocess
-            from utils import logger
 
             failed_indices = []
             successful_questions = []
@@ -280,7 +270,7 @@ class SmartQBApp(tk.Tk):
                 for idx in selected_indices:
                     try:
                         self.tree_staging.selection_add(str(idx))
-                    except:
+                    except tk.TclError:
                         pass
                 if len(selected_indices) > 0:
                     self.on_staging_select(None)
@@ -756,7 +746,6 @@ class SmartQBApp(tk.Tk):
                 current_idx = next_index
 
             except Exception as e:
-                from utils import logger
                 logger.error(f"AI 处理异常: {e}")
                 if self.ask_api_retry_sync(str(e)):
                     continue
@@ -937,7 +926,6 @@ class SmartQBApp(tk.Tk):
         texts_to_merge = [self.staging_questions[idx]["content"] for idx in indices]
 
         self.update_status(f"🚀 AI 正在合并 {len(indices)} 道题目...")
-        import threading
 
         def task():
             merged = self.ai_service.ai_merge_questions(texts_to_merge)
@@ -992,7 +980,6 @@ class SmartQBApp(tk.Tk):
         text_to_split = q["content"]
 
         self.update_status("🚀 AI 正在尝试拆分题目...")
-        import threading
 
         def task():
             splits = self.ai_service.ai_split_question(text_to_split)
@@ -1040,7 +1027,6 @@ class SmartQBApp(tk.Tk):
         if not text_to_format: return
 
         self.update_status("🚀 AI 正在重新排版格式化题目...")
-        import threading
 
         def task():
             formatted = self.ai_service.ai_format_question(text_to_format)
@@ -1100,7 +1086,6 @@ class SmartQBApp(tk.Tk):
                 del self.lbl_stg_diagram.image
             if hasattr(self, 'lbl_stg_diag_info'):
                 self.lbl_stg_diag_info.config(text="")
-            import gc
             gc.collect()
 
     def apply_batch_tags(self):
@@ -1117,11 +1102,8 @@ class SmartQBApp(tk.Tk):
         logger.info("Starting LaTeX check and DB insertion for staged questions...")
 
         # We need to run this in background thread because compilation takes time
-        import threading
 
         def task():
-            from utils import logger
-            import tempfile, os, subprocess
             from db_adapter import LanceDBAdapter
 
             failed_indices = []
@@ -1188,7 +1170,6 @@ class SmartQBApp(tk.Tk):
 
             # 3. Update UI
             def update_ui():
-                import gc
                 if not failed_indices:
                     for q in self.staging_questions:
                         q.pop('diagram', None)
@@ -1562,8 +1543,7 @@ class SmartQBApp(tk.Tk):
                 self._render_lib_diagram()
 
         except Exception as e:
-            from utils import logger
-            logger.error(f"DB Load Question Error: {e}", exc_info=True)
+                        logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
     def _render_lib_diagram(self):
         if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
@@ -1575,8 +1555,6 @@ class SmartQBApp(tk.Tk):
 
         display_img_b64 = self.lib_current_diags[self.lib_img_index]
         if display_img_b64:
-            import io, base64
-            from PIL import Image, ImageTk
             try:
                 img_data = base64.b64decode(display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64)
                 img = Image.open(io.BytesIO(img_data)).copy()
@@ -1782,8 +1760,7 @@ class SmartQBApp(tk.Tk):
                         tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
                         tex.append(r"\end{center}")
                     except Exception as e:
-                        from utils import logger
-                        logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
+                                                logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
 
             tex.append(r"\vspace{0.5em}")
 

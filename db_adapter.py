@@ -8,6 +8,7 @@ import zlib
 logger = logging.getLogger(__name__)
 
 import lancedb
+from settings_manager import SettingsManager
 def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
@@ -20,7 +21,6 @@ class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
 
-        from settings_manager import SettingsManager
         self.settings = SettingsManager()
         self.embedding_dimension = int(getattr(self.settings, 'embedding_dimension', 1024) or 1024)
 
@@ -127,8 +127,8 @@ class LanceDBAdapter:
                 vector_type = schema.field("vector").type
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not get target vector dimension from schema: {e}")
 
         if len(vec) != target_dim:
             if len(vec) == 0:

@@ -1,5 +1,6 @@
 import json
 import numpy as np
+import pyarrow as pa
 from config import DB_NAME
 from utils import logger
 from db_adapter import LanceDBAdapter
@@ -16,7 +17,6 @@ def vector_search_db(ai_service, query_text, limit=10):
         return []
 
     try:
-        import pyarrow as pa
         db = LanceDBAdapter()
         # Direct access to db.db.open_table was causing issues with unified adapter usage.
         # We now use db.q_table which handles the internal initialization.
@@ -34,13 +34,16 @@ def vector_search_db(ai_service, query_text, limit=10):
                 vector_type = schema.field("vector").type
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Could not get target vector dimension from schema: {e}")
 
-        if len(query_vec) < target_dim:
-            query_vec.extend([0.0] * (target_dim - len(query_vec)))
-        elif len(query_vec) > target_dim:
-            query_vec = query_vec[:target_dim]
+        if len(query_vec) != target_dim:
+            if len(query_vec) == 0:
+                query_vec = [0.0] * target_dim
+            else:
+                msg = f"Vector dimension mismatch during search. Expected {target_dim}, but got {len(query_vec)}."
+                logger.error(msg)
+                raise ValueError(msg)
 
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")

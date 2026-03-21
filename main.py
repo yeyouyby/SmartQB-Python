@@ -3,7 +3,7 @@ from db_adapter import LanceDBAdapter
 from utils import logger
 from gui_app import SmartQBApp
 
-def ensure_lancedb_tables():
+from settings_manager import SettingsManager\n\ndef ensure_lancedb_tables():
     logger.info("Initializing LanceDB database and verifying core tables...")
     try:
         adapter = LanceDBAdapter()
@@ -21,7 +21,7 @@ def ensure_lancedb_tables():
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), 1024)),
+                    pa.field("vector", pa.list_(pa.float32(), getattr(SettingsManager(), 'embedding_dimension', 1024))),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
