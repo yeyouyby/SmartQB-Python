@@ -127,12 +127,11 @@ class LanceDBAdapter:
         if vec is None:
             vec = []
         vec = list(vec)
-        if len(vec) == 0:
-            vec = [0.0] * self.embedding_dimension
+        # Pad or truncate the vector to match the embedding dimension
+        if len(vec) < self.embedding_dimension:
+            vec.extend([0.0] * (self.embedding_dimension - len(vec)))
         elif len(vec) > self.embedding_dimension:
             vec = vec[:self.embedding_dimension]
-        elif len(vec) < self.embedding_dimension:
-            vec = vec + [0.0] * (self.embedding_dimension - len(vec))
         new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,

@@ -577,7 +577,6 @@ class SmartQBApp(tk.Tk):
                     "image_b64": pending_slices[i].get("image_b64", "")
                 })
                 cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
-                cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
             self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
@@ -931,27 +930,49 @@ class SmartQBApp(tk.Tk):
         self.staging_questions[idx]["tags"] = [t.strip() for t in self.ent_stg_tags.get().split(",") if t.strip()]
         self.refresh_staging_tree()
 
+    def _clear_staging_ui(self):
+        import gc
+        for q in self.staging_questions:
+            q.pop('diagram', None)
+            q.pop('image_b64', None)
+            q.pop('page_annotated_b64', None)
+        self.staging_questions.clear()
+        self.txt_stg_content.delete("1.0", tk.END)
+        self.ent_stg_tags.delete(0, tk.END)
+        if hasattr(self, 'lbl_stg_diagram'):
+            self.lbl_stg_diagram.config(image='', text="无图样")
+            if hasattr(self.lbl_stg_diagram, 'image'):
+                del self.lbl_stg_diagram.image
+        if hasattr(self, 'lbl_vector_info'):
+            self.lbl_vector_info.config(text="未生成向量")
+        gc.collect()
+        self.refresh_staging_tree()
+
     def delete_staging_item(self):
         sel = self.tree_staging.selection()
         if not sel: return
         if messagebox.askyesno("警告", f"确定要彻底删除选中的 {len(sel)} 道题目吗？"):
-            # Delete in reverse order to keep indices valid
-            indices = sorted([int(s) for s in sel], reverse=True)
-            for idx in indices:
-                item = self.staging_questions.pop(idx)
-                # Cleanup heavy images
-                item.pop('diagram', None)
-                item.pop('image_b64', None)
-                item.pop('page_annotated_b64', None)
-            self.refresh_staging_tree()
-            self.txt_stg_content.delete("1.0", tk.END)
-            self.ent_stg_tags.delete(0, tk.END)
-            if hasattr(self, 'lbl_vector_info'):
-                self.lbl_vector_info.config(text="未生成向量")
-            self.lbl_stg_diagram.config(image='', text="图样显示区")
-            if hasattr(self.lbl_stg_diagram, 'image'):
-                del self.lbl_stg_diagram.image
-            gc.collect()
+            if len(sel) == len(self.staging_questions):
+                # Deleting all items, just use the fast cleaner
+                self._clear_staging_ui()
+            else:
+                # Delete in reverse order to keep indices valid
+                indices = sorted([int(s) for s in sel], reverse=True)
+                for idx in indices:
+                    item = self.staging_questions.pop(idx)
+                    item.pop('diagram', None)
+                    item.pop('image_b64', None)
+                    item.pop('page_annotated_b64', None)
+                self.refresh_staging_tree()
+                self.txt_stg_content.delete("1.0", tk.END)
+                self.ent_stg_tags.delete(0, tk.END)
+                if hasattr(self, 'lbl_vector_info'):
+                    self.lbl_vector_info.config(text="未生成向量")
+                self.lbl_stg_diagram.config(image='', text="无图样")
+                if hasattr(self.lbl_stg_diagram, 'image'):
+                    del self.lbl_stg_diagram.image
+                import gc
+                gc.collect()
 
     def apply_batch_tags(self):
         batch_tag = self.ent_batch_tag.get().strip()
@@ -1704,7 +1725,7 @@ class SmartQBApp(tk.Tk):
         try:
             self.settings.embedding_dimension = int(self.ent_embed_dim.get().strip())
         except ValueError:
-            self.settings.embedding_dimension = 1024
+            self.settings.embedding_dimension = 1536
 
         self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
@@ -1796,9 +1817,9 @@ class SmartQBApp(tk.Tk):
         self.ent_embed_model.insert(0, self.settings.embed_model_id)
         self.ent_embed_model.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding Vector Dimension (默认 1024):").pack(anchor=tk.W, pady=(15, 5))
+        ttk.Label(container, text="Embedding Vector Dimension (默认 1536):").pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_dim = ttk.Entry(container, width=50)
-        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
+        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1536)))
         self.ent_embed_dim.pack(anchor=tk.W)
 
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
