@@ -579,6 +579,7 @@ class SmartQBApp(tk.Tk):
 
         current_idx = 0
         pending_fragment = ""
+        cumulative_d_map = {}
 
         while current_idx < len(pending_slices):
             end_idx = min(current_idx + batch_size + 1, len(pending_slices))
@@ -591,6 +592,7 @@ class SmartQBApp(tk.Tk):
                     "text": pending_slices[i]["text"],
                     "image_b64": pending_slices[i].get("image_b64", "")
                 })
+                cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
             self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
