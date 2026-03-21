@@ -20,6 +20,10 @@ class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
 
+        from settings_manager import SettingsManager
+        self.settings = SettingsManager()
+        self.embedding_dimension = int(getattr(self.settings, 'embedding_dimension', 1536) or 1536)
+
         if machine_id is None:
             mac_address = str(uuid.getnode())
             machine_id = zlib.crc32(mac_address.encode('utf-8')) % 1024
@@ -54,7 +58,7 @@ class LanceDBAdapter:
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), 1536)),
+                    pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
@@ -112,8 +116,16 @@ class LanceDBAdapter:
         return timestamp
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
-        if not vec:
-            vec = [0.0] * 1536
+        if vec is None:
+            vec = []
+        vec = list(vec)
+
+        # Pad or truncate the vector to match the embedding dimension
+        if len(vec) < self.embedding_dimension:
+            vec.extend([0.0] * (self.embedding_dimension - len(vec)))
+        elif len(vec) > self.embedding_dimension:
+            vec = vec[:self.embedding_dimension]
+
         new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,
