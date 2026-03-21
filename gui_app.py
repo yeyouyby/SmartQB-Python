@@ -515,6 +515,10 @@ class SmartQBApp(tk.Tk):
             self.update_status("✅ 处理完毕！没有提取到文字。")
             return
 
+        # 委托给私有方法处理 AI 分析和组合逻辑
+        self._process_ai_slices(pending_slices, mode, file_type)
+
+    def _process_ai_slices(self, pending_slices, mode, file_type):
         # 模式 2 & 3 的核心处理循环
         # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
         def _clear_pre_ai():
@@ -677,6 +681,7 @@ class SmartQBApp(tk.Tk):
             self.after(0, self.refresh_staging_tree)
 
         self.update_status("✅ 文件全部处理并关联合并完毕！")
+
     def update_status(self, text):
         self.after(0, lambda: self.lbl_import_status.config(text=text))
 
