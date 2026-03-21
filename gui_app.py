@@ -1128,7 +1128,7 @@ class SmartQBApp(tk.Tk):
                             f_tex.write(code)
                         try:
                             res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
-                                                 cwd=td, capture_output=True, text=True, timeout=15)
+                                                 cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")
                             if res.returncode == 0:
                                 return True, ""
                             else:

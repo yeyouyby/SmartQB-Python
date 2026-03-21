@@ -16,6 +16,7 @@ def vector_search_db(ai_service, query_text, limit=10):
         return []
 
     try:
+        import pyarrow as pa
         db = LanceDBAdapter()
         # Direct access to db.db.open_table was causing issues with unified adapter usage.
         # We now use db.q_table which handles the internal initialization.
@@ -24,6 +25,22 @@ def vector_search_db(ai_service, query_text, limit=10):
         if table is None:
             logger.error("LanceDB questions table is missing or failed to initialize.")
             return []
+
+        # Pad or truncate the vector to match the table's vector dimension
+        target_dim = db.embedding_dimension
+        try:
+            schema = table.schema
+            if schema and "vector" in schema.names:
+                vector_type = schema.field("vector").type
+                if pa.types.is_fixed_size_list(vector_type):
+                    target_dim = vector_type.list_size
+        except Exception:
+            pass
+
+        if len(query_vec) < target_dim:
+            query_vec.extend([0.0] * (target_dim - len(query_vec)))
+        elif len(query_vec) > target_dim:
+            query_vec = query_vec[:target_dim]
 
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")
