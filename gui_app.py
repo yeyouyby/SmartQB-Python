@@ -2,12 +2,16 @@
 import os
 import warnings
 import io
+import json
+import gc
+import threading
 import base64
 import re
 import tempfile
 import subprocess
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
+from PIL import Image, ImageTk
 try:
     from pix2text import Pix2Text
 except Exception as e:
@@ -214,6 +218,13 @@ class SmartQBApp(tk.Tk):
         if not sel:
             messagebox.showinfo("提示", "请选择需要检查 LaTeX 的题目。")
             return
+
+        selected_indices = [int(s) for s in sel]
+        for idx in selected_indices:
+            q = self.staging_questions[idx]
+            if q.get("logic") == "等待 AI 处理...":
+                messagebox.showwarning("无法检查", "选中的部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再检查！")
+                return
 
         self.update_status("正在检查选中题目的 LaTeX 编译...")
         logger.info("Starting LaTeX check for selected staged questions...")
