@@ -382,8 +382,7 @@ class SmartQBApp(tk.Tk):
         exts = {"pdf": [("PDF", "*.pdf")], "word": [("Word", "*.docx")], "image": [("Image", "*.png;*.jpg;*.jpeg")]}
         file_path = filedialog.askopenfilename(filetypes=exts[file_type])
         if not file_path: return
-        self.staging_questions.clear()
-        self.refresh_staging_tree()
+        self._clear_staging_ui()
         threading.Thread(target=self.run_ingestion_pipeline, args=(file_path, file_type), daemon=True).start()
 
     def run_ingestion_pipeline(self, file_path, file_type):
@@ -1396,14 +1395,27 @@ class SmartQBApp(tk.Tk):
 
     def on_hard_search(self):
         kw = self.ent_lib_search.get().strip()
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        rows = adapter.search_questions(kw)
-        for item in self.tree_lib.get_children():
-            self.tree_lib.delete(item)
-        for r in rows:
-            short_c = r[1][:30].replace('\n', ' ')
-            self.tree_lib.insert('', 'end', values=(r[0], short_c))
+        # To avoid GUI freeze during database query and pandas operations, run it in a thread
+        def task():
+            try:
+                from db_adapter import LanceDBAdapter
+                adapter = LanceDBAdapter()
+                rows = adapter.search_questions(kw)
+            except Exception as e:
+                from utils import logger
+                logger.error(f"Search failed: {e}", exc_info=True)
+                rows = []
+
+            def update_ui():
+                for item in self.tree_lib.get_children():
+                    self.tree_lib.delete(item)
+                for r in rows:
+                    short_c = r[1][:30].replace('\n', ' ')
+                    self.tree_lib.insert('', 'end', values=(r[0], short_c))
+            self.after(0, update_ui)
+
+        import threading
+        threading.Thread(target=task, daemon=True).start()
     def on_lib_select(self, event):
         sel = self.tree_lib.selection()
         if not sel: return
