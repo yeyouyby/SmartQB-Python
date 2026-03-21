@@ -518,6 +518,54 @@ class SmartQBApp(tk.Tk):
         # 委托给私有方法处理 AI 分析和组合逻辑
         self._process_ai_slices(pending_slices, mode, file_type)
 
+
+    def _parse_diagram_json(self, diagram_str):
+        """Safely parse multiple diagram strings into a list."""
+        if not diagram_str:
+            return []
+        if diagram_str.startswith('['):
+            try:
+                parsed_list = json.loads(diagram_str)
+                if isinstance(parsed_list, list):
+                    return parsed_list
+            except json.JSONDecodeError as e:
+                logger.debug(f"Failed to parse diagram JSON array, treating as single image string: {e}")
+        return [diagram_str]
+
+    def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
+        """
+        Finds all [[{ima_dont_del_X_X}]] markers in content_text, extracts their diagrams from combined_d_map,
+        removes the successful markers from content_text, and returns the cleaned text and JSON string of diagrams.
+        """
+        marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
+        matches = marker_pattern.findall(content_text)
+
+        diagrams_list = []
+
+        if matches:
+            # Ensure unique matches in insertion order
+            unique_matches = list(dict.fromkeys(matches))
+            resolved_markers = []
+
+            for marker_idx in unique_matches:
+                diagram_b64 = combined_d_map.get(marker_idx) or combined_d_map.get(str(marker_idx))
+                if diagram_b64:
+                    diagrams_list.append(diagram_b64)
+                    resolved_markers.append(marker_idx)
+
+            if resolved_markers:
+                for m in resolved_markers:
+                    content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
+                content_text = content_text.strip()
+
+        diagram_json = None
+        if len(diagrams_list) == 1:
+            diagram_json = diagrams_list[0]
+        elif len(diagrams_list) > 1:
+            diagram_json = json.dumps(diagrams_list)
+
+        return content_text, diagram_json
+
     def _process_ai_slices(self, pending_slices, mode, file_type):
         # 模式 2 & 3 的核心处理循环
         # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
@@ -653,11 +701,15 @@ class SmartQBApp(tk.Tk):
                     fallback_end = min(current_idx + batch_size, len(pending_slices))
                     if fallback_end == current_idx: fallback_end += 1
                     for i in range(current_idx, fallback_end):
+                        d_map = pending_slices[i].get("diagram_map", {})
+                        raw_text = pending_slices[i]["text"]
+                        clean_text, diag_json = self._resolve_markers_and_extract_diagrams(raw_text, d_map)
+
                         item = {
-                            "content": pending_slices[i]["text"],
+                            "content": clean_text,
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
-                            "diagram": pending_slices[i].get("diagram"),
+                            "diagram": diag_json,
                             "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
                         }
                         def _safe_append_f(itm=item):
@@ -668,11 +720,21 @@ class SmartQBApp(tk.Tk):
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
+            # In order to not lose fragment diagrams, combine d_map of the last batch slice indices
+            frag_d_map = {}
+            if pending_slices:
+                # the fragment usually stems from the very last slices processed
+                frag_d_map.update(pending_slices[-1].get("diagram_map", {}))
+                if len(pending_slices) >= 2:
+                    frag_d_map.update(pending_slices[-2].get("diagram_map", {}))
+
+            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, frag_d_map)
+
             item = {
-                "content": pending_fragment,
+                "content": clean_frag,
                 "logic": "跨页未完结残段 (合并结束仍遗留)",
                 "tags": ["需人工校对"],
-                "diagram": None,
+                "diagram": diag_frag,
                 "image_b64": ""
             }
             def _safe_append_rem(itm=item):
