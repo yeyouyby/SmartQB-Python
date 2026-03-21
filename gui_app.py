@@ -4,6 +4,7 @@ import os
 import warnings
 import io
 import json
+import re
 import threading
 import base64
 import subprocess
@@ -391,8 +392,26 @@ class SmartQBApp(tk.Tk):
 
         def handle_slice_ready(s):
             if mode == 1:
+                raw_text = s["text"]
+                d_map = s.get("diagram_map", {})
+                diags = []
+                marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
+                matches = list(dict.fromkeys(marker_pattern.findall(raw_text)))
+                for marker_idx in matches:
+                    if marker_idx in d_map:
+                        diags.append(d_map[marker_idx])
+                        raw_text = raw_text.replace(f"[[{{ima_dont_del_{marker_idx}}}]]", "")
+                    elif str(marker_idx) in d_map:
+                        diags.append(d_map[str(marker_idx)])
+                        raw_text = raw_text.replace(f"[[{{ima_dont_del_{marker_idx}}}]]", "")
+                raw_text = raw_text.strip()
+                diagram_json = None
+                if len(diags) == 1:
+                    diagram_json = diags[0]
+                elif len(diags) > 1:
+                    diagram_json = json.dumps(diags)
                 item = {
-                    "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "diagram_map": s.get("diagram_map", {}), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                    "content": raw_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram_json, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
                 }
             else:
                 item = {
@@ -568,10 +587,7 @@ class SmartQBApp(tk.Tk):
 
                     if matches:
                         # Ensure we don't try to fetch duplicates
-                        unique_matches = []
-                        for m in matches:
-                            if m not in unique_matches:
-                                unique_matches.append(m)
+                        unique_matches = list(dict.fromkeys(matches))
 
                         for marker_idx in unique_matches:
                             found = False
@@ -588,16 +604,23 @@ class SmartQBApp(tk.Tk):
                                         found = True
                                         break
 
-                        # Only clean up markers if we successfully resolved at least one diagram
-                        # (If AI hallucinated a marker, we keep it so the user sees it)
-                        if len(diagrams_list) > 0:
-                            content_text = marker_pattern.sub('', content_text).strip()
+                        # Remove only markers that were actually resolved
+                        resolved_markers = []
+                        for m in unique_matches:
+                            if m in d_map or str(m) in d_map:
+                                resolved_markers.append(m)
+
+                        if resolved_markers:
+                            for m in resolved_markers:
+                                content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
+                            content_text = content_text.strip()
 
                     # Serialize multiple diagrams via JSON if needed (to keep compatibility with single string field)
                     if len(diagrams_list) == 1:
                         diagram = diagrams_list[0]
                     elif len(diagrams_list) > 1:
                         import json
+
                         diagram = json.dumps(diagrams_list)
                     else:
                         diagram = None
@@ -682,6 +705,7 @@ class SmartQBApp(tk.Tk):
         if display_img_b64 and display_img_b64.startswith('['):
             try:
                 import json
+
                 parsed_list = json.loads(display_img_b64)
                 if parsed_list and len(parsed_list) > 0:
                     display_img_b64 = parsed_list[0]
@@ -1381,6 +1405,7 @@ class SmartQBApp(tk.Tk):
                     if diagram_base64.startswith('['):
                         try:
                             import json
+
                             parsed_list = json.loads(diagram_base64)
                             if parsed_list and len(parsed_list) > 0:
                                 first_img_b64 = parsed_list[0]
@@ -1577,6 +1602,7 @@ class SmartQBApp(tk.Tk):
                 if diag_data.startswith('['):
                     try:
                         import json
+
                         parsed_list = json.loads(diag_data)
                         if parsed_list:
                             diags = parsed_list
@@ -1598,7 +1624,7 @@ class SmartQBApp(tk.Tk):
                         tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
                         tex.append(r"\end{center}")
                     except Exception as e:
-                        print(f"Failed to export diagram {di_idx} for Q {q['id']}: {e}")
+                        logger.error(f"Failed to export diagram {di_idx} for Q {q['id']}: {e}")
 
             tex.append(r"\vspace{0.5em}")
 
