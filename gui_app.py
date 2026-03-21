@@ -168,7 +168,7 @@ class SmartQBApp(tk.Tk):
         return [diag_data]
 
     def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
-        marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\\d+_\\d+)\}\]\]')
+        marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
         matches = marker_pattern.findall(content_text)
         diagrams_list = []
         if matches:
@@ -218,6 +218,7 @@ class SmartQBApp(tk.Tk):
     def check_and_fix_latex(self):
         if not self.staging_questions: return
         self.update_status("正在检查 LaTeX 编译...")
+        from utils import logger
         logger.info("Starting LaTeX check for staged questions...")
 
         import threading
@@ -228,8 +229,10 @@ class SmartQBApp(tk.Tk):
             failed_indices = []
             successful_questions = []
 
-            for idx, q in enumerate(self.staging_questions):
-                self.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
+            questions_snapshot = list(enumerate(self.staging_questions))
+            total_questions = len(questions_snapshot)
+            for idx, q in questions_snapshot:
+                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1}/{t} 题..."))
                 content_text = q["content"]
                 tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
 
@@ -845,19 +848,21 @@ class SmartQBApp(tk.Tk):
         if not sel: return
         idx = int(sel[0])
 
-        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
-            del self.stg_current_diags[self.current_img_index]
+        if not (hasattr(self, 'stg_current_diags') and self.stg_current_diags):
+            return
 
-            q = self.staging_questions[idx]
-            if not self.stg_current_diags:
-                q["diagram"] = None
-            elif len(self.stg_current_diags) == 1:
-                q["diagram"] = self.stg_current_diags[0]
-            else:
-                q["diagram"] = json.dumps(self.stg_current_diags)
+        del self.stg_current_diags[self.current_img_index]
 
-            self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
-            self._render_stg_diagram()
+        q = self.staging_questions[idx]
+        if not self.stg_current_diags:
+            q["diagram"] = None
+        elif len(self.stg_current_diags) == 1:
+            q["diagram"] = self.stg_current_diags[0]
+        else:
+            q["diagram"] = json.dumps(self.stg_current_diags)
+
+        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+        self._render_stg_diagram()
 
 
         vec = q.get("embedding", [])
@@ -1071,7 +1076,17 @@ class SmartQBApp(tk.Tk):
                 item.pop('image_b64', None)
                 item.pop('page_annotated_b64', None)
             self.refresh_staging_tree()
-            self._clear_staging_ui()
+            self.txt_stg_content.delete("1.0", tk.END)
+            self.ent_stg_tags.delete(0, tk.END)
+            if hasattr(self, 'lbl_vector_info'):
+                self.lbl_vector_info.config(text="未生成向量")
+            self.lbl_stg_diagram.config(image='', text="无图样")
+            if hasattr(self.lbl_stg_diagram, 'image'):
+                del self.lbl_stg_diagram.image
+            if hasattr(self, 'lbl_stg_diag_info'):
+                self.lbl_stg_diag_info.config(text="")
+            import gc
+            gc.collect()
 
     def apply_batch_tags(self):
         batch_tag = self.ent_batch_tag.get().strip()

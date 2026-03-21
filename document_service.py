@@ -187,9 +187,10 @@ class DocumentService:
                             marker = f"\n[[{{ima_dont_del_{global_marker}}}]]\n"
                             ocr_blocks[best_t_idx]['text'] += marker
                         elif ocr_blocks:
-                            # If no text block is above, attach to the first text block (below it)
+                            # If no text block is strictly above, attach to the nearest text block by vertical distance
                             marker = f"[[{{ima_dont_del_{global_marker}}}]]\n"
-                            ocr_blocks[0]['text'] = marker + ocr_blocks[0]['text']
+                            nearest_idx = min(range(len(ocr_blocks)), key=lambda i: abs(ocr_blocks[i]['box'][1] - d_y_min))
+                            ocr_blocks[nearest_idx]['text'] = marker + ocr_blocks[nearest_idx]['text']
                         else:
                             # Edge case: no text in the entire page, just diagram
                             ocr_blocks.append({

@@ -120,11 +120,21 @@ class LanceDBAdapter:
             vec = []
         vec = list(vec)
 
-        # Pad or truncate the vector to match the embedding dimension
-        if len(vec) < self.embedding_dimension:
-            vec.extend([0.0] * (self.embedding_dimension - len(vec)))
-        elif len(vec) > self.embedding_dimension:
-            vec = vec[:self.embedding_dimension]
+        # Pad or truncate the vector to match the table's vector dimension
+        target_dim = self.embedding_dimension
+        try:
+            schema = self.q_table.schema
+            if schema and "vector" in schema.names:
+                vector_type = schema.field("vector").type
+                if pa.types.is_fixed_size_list(vector_type):
+                    target_dim = vector_type.list_size
+        except Exception:
+            pass
+
+        if len(vec) < target_dim:
+            vec.extend([0.0] * (target_dim - len(vec)))
+        elif len(vec) > target_dim:
+            vec = vec[:target_dim]
 
         new_q_id = self.next_id()
         self.q_table.add([{
