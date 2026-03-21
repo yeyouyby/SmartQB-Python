@@ -577,6 +577,7 @@ class SmartQBApp(tk.Tk):
                     "image_b64": pending_slices[i].get("image_b64", "")
                 })
                 cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
+                cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
             self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
@@ -607,61 +608,18 @@ class SmartQBApp(tk.Tk):
                     page_annotated_b64 = ""
                     content_text = q.get("Content", "")
 
-                    # Extract basic page data (image and layout) from source slices
+                    # Combine all diagram maps from all source slices to correctly bind cross-page markers
+                    combined_d_map = {}
                     for idx in source_indices:
                         if 0 <= idx < len(pending_slices):
+                            combined_d_map.update(pending_slices[idx].get("diagram_map", {}))
                             if not image_b64 and pending_slices[idx].get("image_b64"):
                                 image_b64 = pending_slices[idx]["image_b64"]
                             if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
                                 page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
 
-                    # Resolve diagram markers within the content text
-                    # Marker format is now globally unique per page: [[{ima_dont_del_0_1}]]
-                    marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
-                    matches = marker_pattern.findall(content_text)
-
-                    # Instead of single string diagram, we will collect all matched diagrams
-                    diagrams_list = []
-
-                    if matches:
-                        # Ensure we don't try to fetch duplicates
-                        unique_matches = list(dict.fromkeys(matches))
-
-                        for marker_idx in unique_matches:
-                            found = False
-                            # Find the corresponding diagram b64 from the slice that actually contains this marker's map
-                            for idx in source_indices:
-                                if 0 <= idx < len(pending_slices):
-                                    d_map = pending_slices[idx].get("diagram_map", {})
-                                    if marker_idx in d_map:
-                                        diagrams_list.append(d_map[marker_idx])
-                                        found = True
-                                        break
-                                    elif str(marker_idx) in d_map:
-                                        diagrams_list.append(d_map[str(marker_idx)])
-                                        found = True
-                                        break
-
-                        # Remove only markers that were actually resolved
-                        resolved_markers = []
-                        for m in unique_matches:
-                            if m in d_map or str(m) in d_map:
-                                resolved_markers.append(m)
-
-                        if resolved_markers:
-                            for m in resolved_markers:
-                                content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
-                            content_text = content_text.strip()
-
-                    # Serialize multiple diagrams via JSON if needed (to keep compatibility with single string field)
-                    if len(diagrams_list) == 1:
-                        diagram = diagrams_list[0]
-                    elif len(diagrams_list) > 1:
-                        import json
-
-                        diagram = json.dumps(diagrams_list)
-                    else:
-                        diagram = None
+                    # Extract diagrams and clean text
+                    content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, combined_d_map)
 
                     item = {
                         "content": content_text,
@@ -706,15 +664,7 @@ class SmartQBApp(tk.Tk):
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
-            # In order to not lose fragment diagrams, combine d_map of the last batch slice indices
-            frag_d_map = {}
-            if pending_slices:
-                # the fragment usually stems from the very last slices processed
-                frag_d_map.update(pending_slices[-1].get("diagram_map", {}))
-                if len(pending_slices) >= 2:
-                    frag_d_map.update(pending_slices[-2].get("diagram_map", {}))
-
-            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, frag_d_map)
+            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, cumulative_d_map)
 
             item = {
                 "content": clean_frag,
@@ -1011,29 +961,24 @@ class SmartQBApp(tk.Tk):
                 q["tags"].append(batch_tag)
         self.refresh_staging_tree()
 
-    def save_staging_to_db(self):
-        if not self.staging_questions: return
-        self.update_status("正在检查 LaTeX 编译并准备入库...")
-        logger.info("Starting LaTeX check and DB insertion for staged questions...")
+    def check_and_fix_latex(self):
+        sel = self.tree_staging.selection()
+        if not sel:
+            import tkinter.messagebox as messagebox
+            messagebox.showinfo("提示", "请选择要检查和修复 LaTeX 的题目。")
+            return
 
-        # We need to run this in background thread because compilation takes time
-        import threading
+        indices_to_check = [int(s) for s in sel]
+        self.update_status(f"正在检查 {len(indices_to_check)} 道题目的 LaTeX 编译...")
 
         def task():
-            from utils import logger
             import tempfile, os, subprocess
-            from db_adapter import LanceDBAdapter
 
-            failed_indices = []
-            successful_questions = []
-
-            # 1. LaTeX check & Auto Fix
-            for idx, q in enumerate(self.staging_questions):
-                self.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
-
+            for idx in indices_to_check:
+                self.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1} 题..."))
+                q = self.staging_questions[idx]
                 content_text = q["content"]
 
-                # Create a minimal tex document to test compilation
                 tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
 
                 def test_compile(code):
@@ -1043,7 +988,7 @@ class SmartQBApp(tk.Tk):
                             f_tex.write(code)
                         try:
                             res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
-                                                 cwd=td, capture_output=True, text=True, timeout=15)
+                                                 cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")
                             if res.returncode == 0:
                                 return True, ""
                             else:
@@ -1052,73 +997,78 @@ class SmartQBApp(tk.Tk):
                             return False, str(e)
 
                 success, err_msg = test_compile(tex_code)
-
                 if not success:
                     self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
                     fixed_content = self.ai_service.ai_fix_latex(content_text, err_msg)
                     if fixed_content:
-                        # Test again
                         new_tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{fixed_content}\n\\end{{document}}'''
-                        success2, err_msg2 = test_compile(new_tex_code)
+                        success2, _ = test_compile(new_tex_code)
                         if success2:
-                            q["content"] = fixed_content # accept fix
-                            successful_questions.append((idx, q))
+                            q["content"] = fixed_content
+                            self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题 LaTeX 修复成功！"))
                         else:
-                            failed_indices.append(idx)
+                            self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题 LaTeX 修复后依然失败，请手动干预。"))
                     else:
-                        failed_indices.append(idx)
+                        self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题 AI 修复未能返回内容。"))
                 else:
-                    successful_questions.append((idx, q))
+                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题 LaTeX 编译通过！"))
 
-            # 2. Save successful questions to DB
-            self.after(0, lambda: self.update_status("编译检查完成，正在生成向量并保存..."))
+            self.after(0, lambda: self.update_status("LaTeX 检查与修复完成。"))
+            self.after(0, self.refresh_staging_tree)
+            if sel:
+                self.after(0, lambda: self.on_staging_select(None))
+
+        import threading
+        threading.Thread(target=task, daemon=True).start()
+
+    def save_staging_to_db(self):
+        if not self.staging_questions: return
+        self.update_status("正在生成向量并直接入库...")
+
+        def task():
+            from db_adapter import LanceDBAdapter
+            from utils import logger
+            import tkinter.messagebox as messagebox
+            import gc
+
+            successful_count = 0
             try:
                 adapter = LanceDBAdapter()
-                for _, q in successful_questions:
-                    vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
-                    q_id = adapter.execute_insert_question(q["content"], q["logic"], vec, q["diagram"])
-                    for t in q["tags"]:
+                for idx, q in enumerate(self.staging_questions):
+                    self.after(0, lambda i=idx: self.update_status(f"正在保存第 {i+1}/{len(self.staging_questions)} 题..."))
+                    vec = q.get("embedding") or self.ai_service.get_embedding(q.get("logic", "") or q["content"])
+                    q_id = adapter.execute_insert_question(q["content"], q.get("logic", ""), vec, q.get("diagram"))
+                    for t in q.get("tags", []):
                         if not t: continue
                         t_id = adapter.execute_insert_tag(t)
                         adapter.execute_insert_question_tag(q_id, t_id)
+                    successful_count += 1
             except Exception as e:
                 logger.error(f"DB Insert Error: {e}", exc_info=True)
                 self.after(0, lambda err=e: messagebox.showerror("错误", f"数据库保存失败: {err}"))
                 return
 
-            # 3. Update UI
             def update_ui():
                 import gc
-                if not failed_indices:
-                    for q in self.staging_questions:
-                        q.pop('diagram', None)
-                        q.pop('image_b64', None)
-                        q.pop('page_annotated_b64', None)
-                    self.staging_questions.clear()
-                    self.txt_stg_content.delete("1.0", tk.END)
-                    self.ent_stg_tags.delete(0, tk.END)
-                    self.lbl_stg_diagram.config(image='', text="图样显示区")
-                    if hasattr(self.lbl_stg_diagram, 'image'):
-                        del self.lbl_stg_diagram.image
-                    gc.collect()
-                    self.refresh_staging_tree()
-                    self.update_status("入库成功！您可以前往题库查看。")
-                    logger.info("All staged questions saved to DB successfully.")
-                    messagebox.showinfo("成功", "已全部保存至题库！")
-                else:
-                    # Remove successful ones from staging, keep failed ones
-                    for idx, q in reversed(successful_questions):
-                        q.pop('diagram', None)
-                        q.pop('image_b64', None)
-                        q.pop('page_annotated_b64', None)
-                        self.staging_questions.pop(idx)
-
-                    self.refresh_staging_tree()
-                    self.update_status(f"部分入库完成。保留了 {len(failed_indices)} 道编译失败的题目。")
-                    messagebox.showwarning("部分完成", f"已入库成功 {len(successful_questions)} 题。有 {len(failed_indices)} 题由于 LaTeX 编译错误（AI 修复仍失败）未能入库，请手动检查列表中的剩余项。")
+                import tkinter.messagebox as messagebox
+                for q in self.staging_questions:
+                    q.pop('diagram', None)
+                    q.pop('image_b64', None)
+                    q.pop('page_annotated_b64', None)
+                self.staging_questions.clear()
+                self.txt_stg_content.delete("1.0", tk.END)
+                self.ent_stg_tags.delete(0, tk.END)
+                self.lbl_stg_diagram.config(image='', text="无图样")
+                if hasattr(self.lbl_stg_diagram, 'image'):
+                    del self.lbl_stg_diagram.image
+                gc.collect()
+                self.refresh_staging_tree()
+                self.update_status(f"成功直接入库 {successful_count} 题！您可以前往题库查看。")
+                messagebox.showinfo("成功", f"已直接保存 {successful_count} 题至题库！")
 
             self.after(0, update_ui)
 
+        import threading
         threading.Thread(target=task, daemon=True).start()
 
     # ------------------------------------------

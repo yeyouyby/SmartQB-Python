@@ -21,7 +21,7 @@ class LanceDBAdapter:
         self.db = get_db()
         from settings_manager import SettingsManager
         self.settings = SettingsManager()
-        self.embedding_dimension = getattr(self.settings, 'embedding_dimension', 1024)
+        self.embedding_dimension = int(getattr(self.settings, 'embedding_dimension', 1536) or 1536)
 
         if machine_id is None:
             mac_address = str(uuid.getnode())
@@ -124,8 +124,15 @@ class LanceDBAdapter:
         return timestamp
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
-        if not vec:
+        if vec is None:
+            vec = []
+        vec = list(vec)
+        if len(vec) == 0:
             vec = [0.0] * self.embedding_dimension
+        elif len(vec) > self.embedding_dimension:
+            vec = vec[:self.embedding_dimension]
+        elif len(vec) < self.embedding_dimension:
+            vec = vec + [0.0] * (self.embedding_dimension - len(vec))
         new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,
