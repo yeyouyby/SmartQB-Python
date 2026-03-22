@@ -133,10 +133,12 @@ class LanceDBAdapter:
         if len(vec) != target_dim:
             if len(vec) == 0:
                 vec = [0.0] * target_dim
+            elif len(vec) > target_dim:
+                logger.warning(f"Vector dimension mismatch. Truncating vector from {len(vec)} to {target_dim}.")
+                vec = vec[:target_dim]
             else:
-                msg = f"Vector dimension mismatch. Expected {target_dim}, but got {len(vec)}."
-                logger.error(msg)
-                raise ValueError(msg)
+                logger.warning(f"Vector dimension mismatch. Padding vector from {len(vec)} to {target_dim}.")
+                vec.extend([0.0] * (target_dim - len(vec)))
 
         new_q_id = self.next_id()
         self.q_table.add([{

@@ -40,10 +40,12 @@ def vector_search_db(ai_service, query_text, limit=10):
         if len(query_vec) != target_dim:
             if len(query_vec) == 0:
                 query_vec = [0.0] * target_dim
+            elif len(query_vec) > target_dim:
+                logger.warning(f"Search query vector dimension mismatch. Truncating vector from {len(query_vec)} to {target_dim}.")
+                query_vec = query_vec[:target_dim]
             else:
-                msg = f"Vector dimension mismatch during search. Expected {target_dim}, but got {len(query_vec)}."
-                logger.error(msg)
-                raise ValueError(msg)
+                logger.warning(f"Search query vector dimension mismatch. Padding vector from {len(query_vec)} to {target_dim}.")
+                query_vec.extend([0.0] * (target_dim - len(query_vec)))
 
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")
@@ -65,9 +67,6 @@ def vector_search_db(ai_service, query_text, limit=10):
 
         logger.info(f"Vector search returned {len(ret)} results.")
         return ret
-    except ValueError as e:
-        logger.error(f"Vector search validation error: {e}")
-        return []
     except Exception as e:
         logger.error(f"LanceDB Search Error: {e}", exc_info=True)
         return []

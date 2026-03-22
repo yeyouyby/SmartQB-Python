@@ -15,7 +15,7 @@ class DocumentService:
     @staticmethod
     def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None, det_predictor=None):
         """
-        使用 Surya 进行版面分析 (Pass 1) + (Surya或Pix2Text) OCR 的双层分析引擎
+        使用 DocLayout-YOLO 进行版面分析 (Pass 1) + Pix2Text OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
         """
         pending_slices = []
@@ -40,7 +40,7 @@ class DocumentService:
 
                 try:
                     # ==========================================
-                    # PASS 1: Surya Layout 图样提取
+                    # PASS 1: Layout 图样提取
                     # ==========================================
                     layout_boxes = []
                     diagrams = []
@@ -48,11 +48,11 @@ class DocumentService:
 
                     try:
                         if layout_predictor is not None:
-                            # surya LayoutPredictor
-                            layout_result = layout_predictor([img])[0]
-                            for poly in layout_result.bboxes:
-                                box = poly.bbox
-                                p_type = poly.label
+                            # DocLayout-YOLO Predictor
+                            layout_result = layout_predictor(img)
+                            for item in layout_result:
+                                box = item['bbox']
+                                p_type = item['type']
 
                                 # 加入 table 和 equation 等
                                 if p_type in ['Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form']:
@@ -119,23 +119,7 @@ class DocumentService:
                                         'y_center': (box[1] + box[3]) / 2,
                                         'type': 'TextLine'
                                     })
-                        elif ocr_engine_type == "Surya" and ocr_engine is not None:
-                            # Surya full page OCR; use explicit detection predictor when available
-                            if det_predictor is not None:
-                                ocr_res = ocr_engine([img], det_predictor=det_predictor)[0]
-                            else:
-                                ocr_res = ocr_engine([img])[0]
 
-                            for line in ocr_res.text_lines:
-                                text = line.text.replace('\n', ' ').strip()
-                                box = line.bbox
-                                if text:
-                                    ocr_blocks.append({
-                                        'text': text,
-                                        'box': box,
-                                        'y_center': (box[1] + box[3]) / 2,
-                                        'type': 'TextLine'
-                                    })
                     except Exception as e:
                         logger.error(f"Full Page OCR failed: {e}", exc_info=True)
 
