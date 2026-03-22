@@ -3,7 +3,9 @@ from db_adapter import LanceDBAdapter
 from utils import logger
 from gui_app import SmartQBApp
 
-from settings_manager import SettingsManager\n\ndef ensure_lancedb_tables():
+from settings_manager import SettingsManager
+
+def ensure_lancedb_tables():
     logger.info("Initializing LanceDB database and verifying core tables...")
     try:
         adapter = LanceDBAdapter()

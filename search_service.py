@@ -65,6 +65,9 @@ def vector_search_db(ai_service, query_text, limit=10):
 
         logger.info(f"Vector search returned {len(ret)} results.")
         return ret
+    except ValueError as e:
+        logger.error(f"Vector search validation error: {e}")
+        raise e
     except Exception as e:
         logger.error(f"LanceDB Search Error: {e}", exc_info=True)
         return []

@@ -189,6 +189,13 @@ class SmartQBApp(tk.Tk):
                 for m in resolved_markers:
                     content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
                 content_text = content_text.strip()
+        else:
+            # Fallback for legacy items without markers
+            if "diagram" in combined_d_map and combined_d_map["diagram"]:
+                diagrams_list.append(combined_d_map["diagram"])
+            elif len(combined_d_map) == 1:
+                # If there's exactly one diagram in the map but no marker, use it
+                diagrams_list.append(next(iter(combined_d_map.values())))
 
         diagram = None
         if len(diagrams_list) == 1:
@@ -1760,7 +1767,8 @@ class SmartQBApp(tk.Tk):
                 diags = self._parse_diagram_json(q.get("diagram"))
                 for i, d in enumerate(diags):
                     try:
-                        img_data = base64.b64decode(d)
+                        d_clean = d.split(",")[-1] if "," in d else d
+                        img_data = base64.b64decode(d_clean)
                         img_filename = f"diagram_{q['id']}_{i}.png"
                         img_filepath = os.path.join(img_dir, img_filename)
                         with open(img_filepath, "wb") as f:
