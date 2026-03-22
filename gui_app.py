@@ -10,6 +10,7 @@ import re
 import tempfile
 import subprocess
 import tkinter as tk
+from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 try:
@@ -163,7 +164,7 @@ class SmartQBApp(tk.Tk):
                 if isinstance(parsed_list, list) and parsed_list:
                     return parsed_list
             except json.JSONDecodeError as e:
-                                logger.debug(f"Failed to decode diagram JSON: {e}")
+                logger.debug(f"Failed to decode diagram JSON: {e}")
         return [diag_data]
 
     def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
@@ -828,6 +829,13 @@ class SmartQBApp(tk.Tk):
         self.stg_current_diags = self._parse_diagram_json(display_img_b64)
         self.current_img_index = 0
         self._render_stg_diagram()
+
+        vec = q.get("embedding", [])
+        if vec:
+            preview = str([round(v, 3) for v in vec[:3]]) + "..."
+            self.lbl_vector_info.config(text=f"已生成 (维度: {len(vec)}) {preview}")
+        else:
+            self.lbl_vector_info.config(text="未生成向量")
 
     def _render_stg_diagram(self):
         if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
@@ -1561,7 +1569,7 @@ class SmartQBApp(tk.Tk):
                 self._render_lib_diagram()
 
         except Exception as e:
-                        logger.error(f"DB Load Question Error: {e}", exc_info=True)
+            logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
     def _render_lib_diagram(self):
         if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
@@ -1779,7 +1787,7 @@ class SmartQBApp(tk.Tk):
                         tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
                         tex.append(r"\end{center}")
                     except Exception as e:
-                                                logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
+                        logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
 
             tex.append(r"\vspace{0.5em}")
 
