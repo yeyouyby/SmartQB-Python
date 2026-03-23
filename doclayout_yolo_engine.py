@@ -32,7 +32,7 @@ class DocLayoutYOLO:
     A wrapper for DocLayout-YOLO (onnx model) that mimics Surya's LayoutPredictor interface
     so it can drop-in replace it in document_service.py.
     """
-    def __init__(self, model_path="models/doclayout_yolo.onnx"):
+    def __init__(self, model_path="model/doclayoutyolo/DocLayout-YOLO-DocStructBench.onnx"):
         if YOLO is None:
             logger.warning("ultralytics library is missing for DocLayout-YOLO.")
             self.model_path = None
