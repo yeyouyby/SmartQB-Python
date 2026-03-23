@@ -14,8 +14,11 @@ from tkinter import messagebox
 
 def download_models():
     logger.info("Checking and downloading models...")
-    os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-    base_dir = os.path.dirname(os.path.abspath(__file__))
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "model")
 
     p2t_dir = os.path.join(model_dir, "pix2text")
@@ -82,9 +85,17 @@ def check_and_install_miktex():
         logger.info(f"Downloading MiKTeX installer from {installer_url}...")
         urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310
         logger.info("Download complete. Running silent installation...")
+        expected_sha256 = os.environ.get("MIKTEX_INSTALLER_SHA256")
+        if expected_sha256:
+            import hashlib
+            with open(installer_path, "rb") as f_sha:
+                actual_sha256 = hashlib.sha256(f_sha.read()).hexdigest()
+            if actual_sha256.lower() != expected_sha256.lower():
+                raise RuntimeError("MiKTeX installer checksum mismatch; aborting installation.")
+            logger.info("Checksum verified.")
         import shlex
         safe_path = shlex.quote(installer_path)
-        subprocess.run([installer_path, "--unattended", "--private"], check=True)  # nosec
+        subprocess.run([safe_path, "--unattended", "--private"], check=True)  # nosec B603
         logger.info("MiKTeX installed successfully.")
 
         # Add to PATH for current session if possible
@@ -163,8 +174,8 @@ def ensure_lancedb_tables():
 
 
 if __name__ == "__main__":
-    download_models()
-    check_and_install_miktex()
+    threading.Thread(target=download_models, daemon=True).start()
+    threading.Thread(target=check_and_install_miktex, daemon=True).start()
     # 启动 GUI 主程序
 
     ensure_lancedb_tables()

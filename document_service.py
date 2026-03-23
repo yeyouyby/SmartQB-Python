@@ -49,10 +49,10 @@ class DocumentService:
                     try:
                         if layout_predictor is not None:
                             # DocLayout-YOLO Predictor
-                            layout_result = layout_predictor(img)
-                            for item in layout_result:
-                                box = item['bbox']
-                                p_type = item['type']
+                            layout_result = layout_predictor([img])[0]
+                            for item in layout_result.bboxes:
+                                box = item.bbox
+                                p_type = item.label
 
                                 # 加入 table 和 equation 等
                                 if p_type in ['Picture', 'Figure', 'Table', 'Formula', 'Text-inline-math', 'Form']:

@@ -63,6 +63,7 @@ class SmartQBApp(tk.Tk):
             self.doclayout_yolo = DocLayoutYOLO()
         except Exception as e:
             logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
+            self.doclayout_yolo = None
 
         self.staging_questions = []
         self.export_bag = []
