@@ -1,14 +1,16 @@
-import gc
 # gui_app.py
 import os
 import warnings
 import io
 import json
+import gc
 import threading
 import base64
 import re
+import tempfile
 import subprocess
 import tkinter as tk
+from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
 try:
@@ -18,20 +20,9 @@ except Exception as e:
     print(f"Warning: Failed to import Pix2Text: {e}")
 
 
-try:
-    from surya.layout import LayoutPredictor
-    from surya.recognition import RecognitionPredictor
-    from surya.foundation import FoundationPredictor
-    from surya.detection import DetectionPredictor
-except ImportError:
-    LayoutPredictor = None
-    RecognitionPredictor = None
-    FoundationPredictor = None
-    DetectionPredictor = None
-from utils import logger
+
 from config import DB_NAME
 from settings_manager import SettingsManager
-from utils import check_hardware_requirements
 from doclayout_yolo_engine import DocLayoutYOLO
 from ai_service import AIService
 from document_service import DocumentService
@@ -60,68 +51,19 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
             self.ocr_engine = None
-        self.hardware_ok = check_hardware_requirements()
 
-        # Determine engines to load based on settings and hardware
-        layout_engine = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-        ocr_engine = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
-        if not self.hardware_ok:
-            if layout_engine == 'Surya' or ocr_engine == 'Surya':
-                logger.warning("硬件不达标，强制回退到 DocLayout-YOLO + Pix2Text。")
-            layout_engine = 'DocLayout-YOLO'
-            ocr_engine = 'Pix2Text'
 
-        self.surya_foundation = None
-        self.surya_layout = None
-        self.surya_ocr = None
-        self.surya_detection = None
-        self.doclayout_yolo = None
 
-        self.surya_foundation_failed = False
-        self.surya_layout_failed = False
-        self.surya_ocr_failed = False
-        self.surya_detection_failed = False
 
-        self._engine_load_lock = threading.Lock()
 
-        if layout_engine == 'Surya' or ocr_engine == 'Surya':
-            logger.info("正在加载 Surya 基础引擎 (FoundationPredictor)...")
-            if FoundationPredictor:
-                try:
-                    self.surya_foundation = FoundationPredictor()
-                except Exception as e:
-                    logger.error(f"Failed to load FoundationPredictor: {e}", exc_info=True)
-                    self.surya_foundation_failed = True
 
-            if layout_engine == 'Surya':
-                logger.info("正在加载 Surya Layout 版面分析引擎...")
-                if LayoutPredictor and self.surya_foundation:
-                    try:
-                        self.surya_layout = LayoutPredictor(self.surya_foundation)
-                        logger.info("Surya Layout 引擎加载完成！")
-                    except Exception as e:
-                        logger.error(f"Failed to load Surya Layout: {e}", exc_info=True)
-                        self.surya_layout_failed = True
-
-            if ocr_engine == 'Surya':
-                logger.info("正在加载 Surya OCR 与检测引擎...")
-                if RecognitionPredictor and DetectionPredictor and self.surya_foundation:
-                    try:
-                        self.surya_ocr = RecognitionPredictor(self.surya_foundation)
-                        self.surya_detection = DetectionPredictor()
-                        logger.info("Surya OCR 与检测引擎加载完成！")
-                    except Exception as e:
-                        logger.error(f"Failed to load Surya OCR/Detection: {e}", exc_info=True)
-                        self.surya_ocr_failed = True
-                        self.surya_detection_failed = True
-
-        if layout_engine == 'DocLayout-YOLO' or self.surya_layout is None:
-            logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
-            try:
-                self.doclayout_yolo = DocLayoutYOLO()
-            except Exception as e:
-                logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
+        logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
+        try:
+            self.doclayout_yolo = DocLayoutYOLO()
+        except Exception as e:
+            logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
+            self.doclayout_yolo = None
 
         self.staging_questions = []
         self.export_bag = []
@@ -152,6 +94,148 @@ class SmartQBApp(tk.Tk):
     # ------------------------------------------
     # API 错误拦截
     # ------------------------------------------
+    def _parse_diagram_json(self, diag_data):
+        if not diag_data:
+            return []
+        if isinstance(diag_data, list):
+            return diag_data
+        if isinstance(diag_data, str):
+            try:
+                # Attempt to parse the string as a JSON list
+                parsed_list = json.loads(diag_data)
+                if isinstance(parsed_list, list):
+                    return parsed_list
+            except json.JSONDecodeError:
+                # If parsing fails, assume it's a single base64 string
+                pass
+        # If it's not a list or a valid JSON list string, wrap it in a list
+        return [diag_data]
+
+    def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
+        marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
+        matches = marker_pattern.findall(content_text)
+        diagrams_list = []
+        if matches:
+            unique_matches = list(dict.fromkeys(matches))
+            for marker_idx in unique_matches:
+                if marker_idx in combined_d_map:
+                    diagrams_list.append(combined_d_map[marker_idx])
+
+            resolved_markers = []
+            for m in unique_matches:
+                if m in combined_d_map:
+                    resolved_markers.append(m)
+            if resolved_markers:
+                for m in resolved_markers:
+                    content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
+                content_text = content_text.strip()
+        else:
+            # Fallback for legacy items without markers
+            if "diagram" in combined_d_map and combined_d_map["diagram"]:
+                diagrams_list.append(combined_d_map["diagram"])
+            elif len(combined_d_map) == 1:
+                # If there's exactly one diagram in the map but no marker, use it
+                diagrams_list.append(next(iter(combined_d_map.values())))
+
+        diagram = None
+        if len(diagrams_list) == 1:
+            diagram = diagrams_list[0]
+        elif len(diagrams_list) > 1:
+            diagram = json.dumps(diagrams_list)
+
+        return content_text, diagram
+
+    def _test_compile_latex(self, content_text):
+        tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
+        with tempfile.TemporaryDirectory() as td:
+            tex_file = os.path.join(td, "test.tex")
+            with open(tex_file, "w", encoding="utf-8") as f_tex:
+                f_tex.write(tex_code)
+            try:
+                res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
+                                     cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")  # nosec
+                if res.returncode == 0:
+                    return True, ""
+                else:
+                    return False, res.stdout
+            except Exception as e:
+                return False, str(e)
+
+    def _clear_staging_ui(self):
+        for q in self.staging_questions:
+            q.pop('diagram', None)
+            q.pop('image_b64', None)
+            q.pop('page_annotated_b64', None)
+        self.staging_questions.clear()
+        self.txt_stg_content.delete("1.0", tk.END)
+        self.ent_stg_tags.delete(0, tk.END)
+        if hasattr(self, 'lbl_vector_info'):
+            self.lbl_vector_info.config(text="未生成向量")
+        self.lbl_stg_diagram.config(image='', text="无图样")
+        if hasattr(self.lbl_stg_diagram, 'image'):
+            del self.lbl_stg_diagram.image
+        gc.collect()
+
+    def check_and_fix_latex(self):
+        sel = self.tree_staging.selection()
+        if not sel:
+            messagebox.showinfo("提示", "请选择需要检查 LaTeX 的题目。")
+            return
+
+        selected_indices = [int(s) for s in sel]
+        for idx in selected_indices:
+            q = self.staging_questions[idx]
+            if q.get("logic") == "等待 AI 处理...":
+                messagebox.showwarning("无法检查", "选中的部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再检查！")
+                return
+
+        self.update_status("正在检查选中题目的 LaTeX 编译...")
+        logger.info("Starting LaTeX check for selected staged questions...")
+
+        selected_indices = [int(s) for s in sel]
+
+        def task():
+
+            failed_indices = []
+            successful_questions = []
+
+            total_questions = len(selected_indices)
+            for idx in selected_indices:
+                q = self.staging_questions[idx]
+                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1} 题..."))
+                success, err_msg = self._test_compile_latex(q["content"])
+                if not success:
+                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
+                    fixed_content = self.ai_service.ai_fix_latex(q["content"], err_msg)
+                    if fixed_content:
+                        success2, err_msg2 = self._test_compile_latex(fixed_content)
+                        if success2:
+                            q["content"] = fixed_content
+                            successful_questions.append((idx, q))
+                        else:
+                            failed_indices.append(idx)
+                    else:
+                        failed_indices.append(idx)
+                else:
+                    successful_questions.append((idx, q))
+
+            def update_ui():
+                self.refresh_staging_tree()
+                # Restore selection
+                for idx in selected_indices:
+                    try:
+                        self.tree_staging.selection_add(str(idx))
+                    except tk.TclError:
+                        pass
+                if len(selected_indices) > 0:
+                    self.on_staging_select(None)
+                self.update_status(f"LaTeX 检查完成。选中 {total_questions} 题，成功修复 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。")
+                messagebox.showinfo("检查完成", f"成功检查修复 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。")
+
+            self.after(0, update_ui)
+
+        threading.Thread(target=task, daemon=True).start()
+
     def ask_api_retry_sync(self, error_msg):
         result = [False]
         event = threading.Event()
@@ -258,13 +342,22 @@ class SmartQBApp(tk.Tk):
         ttk.Button(vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector).pack(side=tk.RIGHT)
 
 
-        self.lbl_stg_diagram = ttk.Label(right_frame, text="图样显示区", background="#e0e0e0", anchor=tk.CENTER)
+        self.lbl_stg_diagram = ttk.Label(right_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
         self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
+
+        self.lbl_stg_diag_info = ttk.Label(right_frame, text="", anchor=tk.CENTER)
+        self.lbl_stg_diag_info.pack(fill=tk.X)
 
         diag_btn_frame = ttk.Frame(right_frame)
         diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(diag_btn_frame, text="⬆️ 将图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="⬇️ 将图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
+        move_btn_frame = ttk.Frame(right_frame)
+        move_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(move_btn_frame, text="⬇️ 将当前图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
         ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
 
@@ -276,7 +369,8 @@ class SmartQBApp(tk.Tk):
         self.ent_batch_tag.pack(side=tk.LEFT, padx=5)
         ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
 
-        ttk.Button(bottom_frame, text="✅ 确认暂存区无误，全部保存入库", command=self.save_staging_to_db).pack(side=tk.RIGHT)
+        ttk.Button(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
 
 
     def move_diagram_up(self):
@@ -287,26 +381,37 @@ class SmartQBApp(tk.Tk):
             messagebox.showinfo("提示", "已经是第一题，无法上移。")
             return
 
+        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
+            messagebox.showinfo("提示", "当前题目没有图样。")
+            return
+
         current_q = self.staging_questions[idx]
         prev_q = self.staging_questions[idx - 1]
 
-        # Check if the target already has a diagram to avoid losing it, ask user if they want to swap
-        if prev_q.get("diagram") or prev_q.get("image_b64"):
-            if not messagebox.askyesno("警告", "上一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
-                return
+        diag_to_move = self.stg_current_diags.pop(self.current_img_index)
 
-        cur_diagram = current_q.get("diagram")
-        cur_image_b64 = current_q.get("image_b64") or ""
-        prev_diagram = prev_q.get("diagram")
-        prev_image_b64 = prev_q.get("image_b64") or ""
+        # update current
+        if not self.stg_current_diags:
+            current_q["diagram"] = None
+        elif len(self.stg_current_diags) == 1:
+            current_q["diagram"] = self.stg_current_diags[0]
+        else:
+            current_q["diagram"] = json.dumps(self.stg_current_diags)
 
-        prev_q["diagram"], current_q["diagram"] = cur_diagram, prev_diagram
-        prev_q["image_b64"], current_q["image_b64"] = cur_image_b64, prev_image_b64
+        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+
+        # update prev
+        prev_diags = self._parse_diagram_json(prev_q.get("diagram"))
+        prev_diags.append(diag_to_move)
+        if len(prev_diags) == 1:
+            prev_q["diagram"] = prev_diags[0]
+        else:
+            prev_q["diagram"] = json.dumps(prev_diags)
 
         self.refresh_staging_tree()
         self.tree_staging.selection_set(str(idx - 1))
         self.on_staging_select(None)
-        self.update_status(f"图样已与第 {idx} 题交换")
+        self.update_status(f"图样已移至第 {idx} 题")
 
     def move_diagram_down(self):
         sel = self.tree_staging.selection()
@@ -316,26 +421,37 @@ class SmartQBApp(tk.Tk):
             messagebox.showinfo("提示", "已经是最后一题，无法下移。")
             return
 
+        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
+            messagebox.showinfo("提示", "当前题目没有图样。")
+            return
+
         current_q = self.staging_questions[idx]
         next_q = self.staging_questions[idx + 1]
 
-        # Check if the target already has a diagram
-        if next_q.get("diagram") or next_q.get("image_b64"):
-            if not messagebox.askyesno("警告", "下一题已有图样或图片。确定要与当前题目的图样进行交换吗？"):
-                return
+        diag_to_move = self.stg_current_diags.pop(self.current_img_index)
 
-        cur_diagram = current_q.get("diagram")
-        cur_image_b64 = current_q.get("image_b64") or ""
-        next_diagram = next_q.get("diagram")
-        next_image_b64 = next_q.get("image_b64") or ""
+        # update current
+        if not self.stg_current_diags:
+            current_q["diagram"] = None
+        elif len(self.stg_current_diags) == 1:
+            current_q["diagram"] = self.stg_current_diags[0]
+        else:
+            current_q["diagram"] = json.dumps(self.stg_current_diags)
 
-        next_q["diagram"], current_q["diagram"] = cur_diagram, next_diagram
-        next_q["image_b64"], current_q["image_b64"] = cur_image_b64, next_image_b64
+        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+
+        # update next
+        next_diags = self._parse_diagram_json(next_q.get("diagram"))
+        next_diags.append(diag_to_move)
+        if len(next_diags) == 1:
+            next_q["diagram"] = next_diags[0]
+        else:
+            next_q["diagram"] = json.dumps(next_diags)
 
         self.refresh_staging_tree()
         self.tree_staging.selection_set(str(idx + 1))
         self.on_staging_select(None)
-        self.update_status(f"图样已与第 {idx + 2} 题交换")
+        self.update_status(f"图样已移至第 {idx + 2} 题")
 
     def show_page_layout_view(self):
         sel = self.tree_staging.selection()
@@ -392,8 +508,10 @@ class SmartQBApp(tk.Tk):
 
         def handle_slice_ready(s):
             if mode == 1:
+                combined_map = dict(s.get("diagram_map", {}))
+                content_text, diagram = self._resolve_markers_and_extract_diagrams(s["text"], combined_map)
                 item = {
-                    "content": s["text"], "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                    "content": content_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
                 }
             else:
                 item = {
@@ -412,42 +530,11 @@ class SmartQBApp(tk.Tk):
                     self.refresh_staging_tree()
                 self.after(0, _clear_stg)
 
-                layout_engine_type = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-                ocr_engine_type = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
 
-                # Lazy load Surya if selected but not loaded
-                if self.hardware_ok and FoundationPredictor and not getattr(self, 'surya_init_failed', False):
-                    # Ensure FoundationPredictor is initialized exactly once
-                    if (layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor) or \
-                       (ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor):
-                        if self.surya_foundation is None:
-                            self.update_status("正在加载 Surya 基础模型...")
-                            try:
-                                self.surya_foundation = FoundationPredictor()
-                            except Exception as e:
-                                logger.error(f"Failed to lazy load FoundationPredictor: {e}", exc_info=True)
-                                self.surya_init_failed = True
 
-                    if layout_engine_type == 'Surya' and self.surya_layout is None and LayoutPredictor and self.surya_foundation:
-                        self.update_status("正在首次加载 Surya 版面引擎，请稍候...")
-                        try:
-                            self.surya_layout = LayoutPredictor(self.surya_foundation)
-                        except Exception as e:
-                            logger.error(f"Failed to lazy load Surya Layout: {e}", exc_info=True)
-                            self.surya_init_failed = True
-
-                    if ocr_engine_type == 'Surya' and self.surya_ocr is None and RecognitionPredictor and self.surya_foundation:
-                        self.update_status("正在首次加载 Surya OCR 与检测引擎，请稍候...")
-                        try:
-                            self.surya_ocr = RecognitionPredictor(self.surya_foundation)
-                            if DetectionPredictor and self.surya_detection is None:
-                                self.surya_detection = DetectionPredictor()
-                        except Exception as e:
-                            logger.error(f"Failed to lazy load Surya OCR/Detection: {e}", exc_info=True)
-                            self.surya_init_failed = True
 
                 # Lazy load DocLayout-YOLO if selected but not loaded
-                if layout_engine_type == 'DocLayout-YOLO' and self.doclayout_yolo is None:
+                if self.doclayout_yolo is None:
                     self.update_status("正在首次加载 DocLayout-YOLO 引擎，请稍候...")
                     try:
                         self.doclayout_yolo = DocLayoutYOLO()
@@ -456,25 +543,18 @@ class SmartQBApp(tk.Tk):
                         self.after(0, lambda err=e: messagebox.showerror("Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"))
                         return
 
-                use_surya_layout = self.hardware_ok and layout_engine_type == 'Surya' and self.surya_layout is not None
-                use_surya_ocr = self.hardware_ok and ocr_engine_type == 'Surya' and self.surya_ocr is not None
-
-                layout_predictor_to_use = self.surya_layout if use_surya_layout else self.doclayout_yolo
-                ocr_engine_to_use = self.surya_ocr if use_surya_ocr else self.ocr_engine
-                ocr_type_str = 'Surya' if use_surya_ocr else 'Pix2Text'
-
-                if layout_predictor_to_use is None:
+                if self.doclayout_yolo is None:
                     self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
-                if ocr_engine_to_use is None:
+                if self.ocr_engine is None:
                     self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
 
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path, file_type,
-                    layout_predictor_to_use,
-                    ocr_engine_to_use,
-                    ocr_type_str,
+                    self.doclayout_yolo,
+                    self.ocr_engine,
+                    "Pix2Text",
                     self.update_status, handle_slice_ready,
-                    det_predictor=self.surya_detection if use_surya_ocr else None
+                    det_predictor=None
                 )
             elif file_type == "word":
                 def _clear_word():
@@ -504,11 +584,74 @@ class SmartQBApp(tk.Tk):
             self.refresh_staging_tree()
         self.after(0, _clear_pre_ai)
 
+        self._process_ai_slices(pending_slices, mode, file_type)
+        self.update_status("✅ 文件全部处理并关联合并完毕！")
+
+    def _parse_and_append_ai_res(self, ai_res, current_idx, pending_slices, cumulative_d_map):
+        questions = ai_res.get("Questions", [])
+        pending_fragment = ai_res.get("PendingFragment", "")
+
+        try:
+            next_index = int(ai_res.get("NextIndex", current_idx + 1))
+        except (TypeError, ValueError):
+            next_index = current_idx + 1
+
+        if next_index <= current_idx:
+            next_index = current_idx + 1
+
+        for q in questions:
+            status = q.get("Status", "Complete")
+            if status == "NotQuestion":
+                continue
+
+            source_indices_raw = q.get("SourceSliceIndices", [])
+            if not isinstance(source_indices_raw, list):
+                source_indices_raw = []
+
+            source_indices = []
+            for raw_idx in source_indices_raw:
+                try:
+                    source_indices.append(int(raw_idx))
+                except (TypeError, ValueError):
+                    pass
+
+            image_b64 = ""
+            page_annotated_b64 = ""
+            content_text = q.get("Content", "")
+
+            per_question_d_map = {}
+            for idx in source_indices:
+                if 0 <= idx < len(pending_slices):
+                    if not image_b64 and pending_slices[idx].get("image_b64"):
+                        image_b64 = pending_slices[idx]["image_b64"]
+                    if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
+                        page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
+                    per_question_d_map.update(pending_slices[idx].get("diagram_map", {}))
+
+            content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map, per_question_d_map)
+
+            item = {
+                "content": content_text,
+                "logic": q.get("LogicDescriptor", ""),
+                "tags": q.get("Tags") if isinstance(q.get("Tags"), list) else [],
+                "diagram": diagram,
+                "image_b64": image_b64,
+                "page_annotated_b64": page_annotated_b64
+            }
+            def _safe_append(i=item):
+                self.staging_questions.append(i)
+            self.after(0, _safe_append)
+
+        self.after(0, self.refresh_staging_tree)
+        return next_index, pending_fragment
+
+    def _process_ai_slices(self, pending_slices, mode, file_type):
         use_vision = (mode == 3 and file_type != "word")
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
 
         current_idx = 0
         pending_fragment = ""
+        cumulative_d_map = {}
 
         while current_idx < len(pending_slices):
             end_idx = min(current_idx + batch_size + 1, len(pending_slices))
@@ -521,6 +664,7 @@ class SmartQBApp(tk.Tk):
                     "text": pending_slices[i]["text"],
                     "image_b64": pending_slices[i].get("image_b64", "")
                 })
+                cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
             self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
@@ -533,52 +677,10 @@ class SmartQBApp(tk.Tk):
                     is_last_batch=is_last_batch
                 )
 
-                questions = ai_res.get("Questions", [])
-                pending_fragment = ai_res.get("PendingFragment", "")
-
-                next_index = ai_res.get("NextIndex", current_idx + 1)
-                if next_index <= current_idx:
-                    next_index = current_idx + 1
-
-                for q in questions:
-                    status = q.get("Status", "Complete")
-                    if status == "NotQuestion":
-                        continue
-
-                    source_indices = q.get("SourceSliceIndices", [])
-                    diagram = None
-                    image_b64 = ""
-                    page_annotated_b64 = ""
-
-                    for idx in source_indices:
-                        if 0 <= idx < len(pending_slices):
-                            if not image_b64 and pending_slices[idx].get("image_b64"):
-                                image_b64 = pending_slices[idx]["image_b64"]
-                            if not diagram and pending_slices[idx].get("diagram"):
-                                diagram = pending_slices[idx]["diagram"]
-                            if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
-                                page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
-
-                        if diagram and image_b64 and page_annotated_b64:
-                            break
-
-                    item = {
-                        "content": q.get("Content", ""),
-                        "logic": q.get("LogicDescriptor", ""),
-                        "tags": q.get("Tags", []),
-                        "diagram": diagram,
-                        "image_b64": image_b64,
-                        "page_annotated_b64": page_annotated_b64
-                    }
-                    def _safe_append(i=item):
-                        self.staging_questions.append(i)
-                    self.after(0, _safe_append)
-
-                self.after(0, self.refresh_staging_tree)
-                current_idx = next_index
+                current_idx, pending_fragment = self._parse_and_append_ai_res(ai_res, current_idx, pending_slices, cumulative_d_map)
 
             except Exception as e:
-                print(f"AI 处理异常: {e}")
+                logger.error(f"AI 处理异常: {e}", exc_info=True)
                 if self.ask_api_retry_sync(str(e)):
                     continue
                 else:
@@ -586,11 +688,14 @@ class SmartQBApp(tk.Tk):
                     fallback_end = min(current_idx + batch_size, len(pending_slices))
                     if fallback_end == current_idx: fallback_end += 1
                     for i in range(current_idx, fallback_end):
+                        raw_text = pending_slices[i]["text"]
+                        clean_text, fallback_diagram = self._resolve_markers_and_extract_diagrams(raw_text, cumulative_d_map, pending_slices[i].get("diagram_map", {}))
+
                         item = {
-                            "content": pending_slices[i]["text"],
+                            "content": clean_text,
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
-                            "diagram": pending_slices[i].get("diagram"),
+                            "diagram": fallback_diagram,
                             "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
                         }
                         def _safe_append_f(itm=item):
@@ -601,11 +706,12 @@ class SmartQBApp(tk.Tk):
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
+            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, cumulative_d_map)
             item = {
-                "content": pending_fragment,
+                "content": clean_frag,
                 "logic": "跨页未完结残段 (合并结束仍遗留)",
                 "tags": ["需人工校对"],
-                "diagram": None,
+                "diagram": diag_frag,
                 "image_b64": ""
             }
             def _safe_append_rem(itm=item):
@@ -613,7 +719,6 @@ class SmartQBApp(tk.Tk):
             self.after(0, _safe_append_rem)
             self.after(0, self.refresh_staging_tree)
 
-        self.update_status("✅ 文件全部处理并关联合并完毕！")
     def update_status(self, text):
         self.after(0, lambda: self.lbl_import_status.config(text=text))
 
@@ -634,22 +739,11 @@ class SmartQBApp(tk.Tk):
         self.ent_stg_tags.delete(0, tk.END)
         self.ent_stg_tags.insert(0, ",".join(q.get("tags", [])))
 
-        # Determine what to display (diagram if present, else layout image)
+        # Determine what to display (diagram if present)
         display_img_b64 = q.get("diagram")
-        if not display_img_b64 and q.get("image_b64"):
-            display_img_b64 = q.get("image_b64")
-
-        if display_img_b64:
-            try:
-                img = Image.open(io.BytesIO(base64.b64decode(display_img_b64))).copy()
-                img.thumbnail((400, 300))
-                photo = ImageTk.PhotoImage(img)
-                self.lbl_stg_diagram.config(image=photo, text="")
-                self.lbl_stg_diagram.image = photo
-            except Exception as e:
-                self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
-        else:
-            self.lbl_stg_diagram.config(image='', text="无图样附图或切片原图")
+        self.stg_current_diags = self._parse_diagram_json(display_img_b64)
+        self.current_img_index = 0
+        self._render_stg_diagram()
 
         vec = q.get("embedding", [])
         if vec:
@@ -657,6 +751,64 @@ class SmartQBApp(tk.Tk):
             self.lbl_vector_info.config(text=f"已生成 (维度: {len(vec)}) {preview}")
         else:
             self.lbl_vector_info.config(text="未生成向量")
+
+    def _render_stg_diagram(self):
+        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
+            self.lbl_stg_diagram.config(image='', text="无图样")
+            if hasattr(self.lbl_stg_diagram, 'image'):
+                del self.lbl_stg_diagram.image
+            self.lbl_stg_diag_info.config(text="")
+            return
+
+        display_img_b64 = self.stg_current_diags[self.current_img_index]
+        if display_img_b64:
+            try:
+                display_img_clean = display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64
+                img = Image.open(io.BytesIO(base64.b64decode(display_img_clean))).copy()
+                img.thumbnail((400, 300))
+                photo = ImageTk.PhotoImage(img)
+                self.lbl_stg_diagram.config(image=photo, text="")
+                self.lbl_stg_diagram.image = photo
+
+                info_text = f"图样 {self.current_img_index + 1} / {len(self.stg_current_diags)}"
+                self.lbl_stg_diag_info.config(text=info_text)
+            except Exception as e:
+                self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
+                self.lbl_stg_diag_info.config(text="")
+        else:
+            self.lbl_stg_diagram.config(image='', text="无图样")
+            self.lbl_stg_diag_info.config(text="")
+
+    def stg_prev_diagram(self):
+        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
+            self.current_img_index = (self.current_img_index - 1) % len(self.stg_current_diags)
+            self._render_stg_diagram()
+
+    def stg_next_diagram(self):
+        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
+            self.current_img_index = (self.current_img_index + 1) % len(self.stg_current_diags)
+            self._render_stg_diagram()
+
+    def stg_delete_diagram(self):
+        sel = self.tree_staging.selection()
+        if not sel: return
+        idx = int(sel[0])
+
+        if not (hasattr(self, 'stg_current_diags') and self.stg_current_diags):
+            return
+
+        del self.stg_current_diags[self.current_img_index]
+
+        q = self.staging_questions[idx]
+        if not self.stg_current_diags:
+            q["diagram"] = None
+        elif len(self.stg_current_diags) == 1:
+            q["diagram"] = self.stg_current_diags[0]
+        else:
+            q["diagram"] = json.dumps(self.stg_current_diags)
+
+        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+        self._render_stg_diagram()
 
     def update_staging_vector(self):
         sel = self.tree_staging.selection()
@@ -708,7 +860,6 @@ class SmartQBApp(tk.Tk):
         texts_to_merge = [self.staging_questions[idx]["content"] for idx in indices]
 
         self.update_status(f"🚀 AI 正在合并 {len(indices)} 道题目...")
-        import threading
 
         def task():
             merged = self.ai_service.ai_merge_questions(texts_to_merge)
@@ -763,7 +914,6 @@ class SmartQBApp(tk.Tk):
         text_to_split = q["content"]
 
         self.update_status("🚀 AI 正在尝试拆分题目...")
-        import threading
 
         def task():
             splits = self.ai_service.ai_split_question(text_to_split)
@@ -811,7 +961,6 @@ class SmartQBApp(tk.Tk):
         if not text_to_format: return
 
         self.update_status("🚀 AI 正在重新排版格式化题目...")
-        import threading
 
         def task():
             formatted = self.ai_service.ai_format_question(text_to_format)
@@ -866,9 +1015,11 @@ class SmartQBApp(tk.Tk):
             self.ent_stg_tags.delete(0, tk.END)
             if hasattr(self, 'lbl_vector_info'):
                 self.lbl_vector_info.config(text="未生成向量")
-            self.lbl_stg_diagram.config(image='', text="图样显示区")
+            self.lbl_stg_diagram.config(image='', text="无图样")
             if hasattr(self.lbl_stg_diagram, 'image'):
                 del self.lbl_stg_diagram.image
+            if hasattr(self, 'lbl_stg_diag_info'):
+                self.lbl_stg_diag_info.config(text="")
             gc.collect()
 
     def apply_batch_tags(self):
@@ -881,109 +1032,40 @@ class SmartQBApp(tk.Tk):
 
     def save_staging_to_db(self):
         if not self.staging_questions: return
-        self.update_status("正在检查 LaTeX 编译并准备入库...")
-        logger.info("Starting LaTeX check and DB insertion for staged questions...")
 
-        # We need to run this in background thread because compilation takes time
-        import threading
+        # Check if any items are still being processed by AI
+        for q in self.staging_questions:
+            if q.get("logic") == "等待 AI 处理...":
+                messagebox.showwarning("无法入库", "部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再入库！")
+                return
+
+        self.update_status("正在保存入库...")
+        logger.info("Saving staged questions directly to DB without compile check...")
 
         def task():
-            from utils import logger
-            import tempfile, os, subprocess
             from db_adapter import LanceDBAdapter
 
-            failed_indices = []
-            successful_questions = []
-
-            # 1. LaTeX check & Auto Fix
-            for idx, q in enumerate(self.staging_questions):
-                self.after(0, lambda i=idx: self.update_status(f"正在编译检查第 {i+1}/{len(self.staging_questions)} 题..."))
-
-                content_text = q["content"]
-
-                # Create a minimal tex document to test compilation
-                tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
-
-                def test_compile(code):
-                    with tempfile.TemporaryDirectory() as td:
-                        tex_file = os.path.join(td, "test.tex")
-                        with open(tex_file, "w", encoding="utf-8") as f_tex:
-                            f_tex.write(code)
-                        try:
-                            res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
-                                                 cwd=td, capture_output=True, text=True, timeout=15)
-                            if res.returncode == 0:
-                                return True, ""
-                            else:
-                                return False, res.stdout
-                        except Exception as e:
-                            return False, str(e)
-
-                success, err_msg = test_compile(tex_code)
-
-                if not success:
-                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
-                    fixed_content = self.ai_service.ai_fix_latex(content_text, err_msg)
-                    if fixed_content:
-                        # Test again
-                        new_tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{fixed_content}\n\\end{{document}}'''
-                        success2, err_msg2 = test_compile(new_tex_code)
-                        if success2:
-                            q["content"] = fixed_content # accept fix
-                            successful_questions.append((idx, q))
-                        else:
-                            failed_indices.append(idx)
-                    else:
-                        failed_indices.append(idx)
-                else:
-                    successful_questions.append((idx, q))
-
-            # 2. Save successful questions to DB
-            self.after(0, lambda: self.update_status("编译检查完成，正在生成向量并保存..."))
+            successful_count = 0
             try:
                 adapter = LanceDBAdapter()
-                for _, q in successful_questions:
+                for q in self.staging_questions:
                     vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
                     q_id = adapter.execute_insert_question(q["content"], q["logic"], vec, q["diagram"])
                     for t in q["tags"]:
                         if not t: continue
                         t_id = adapter.execute_insert_tag(t)
                         adapter.execute_insert_question_tag(q_id, t_id)
+                    successful_count += 1
             except Exception as e:
                 logger.error(f"DB Insert Error: {e}", exc_info=True)
                 self.after(0, lambda err=e: messagebox.showerror("错误", f"数据库保存失败: {err}"))
                 return
 
-            # 3. Update UI
             def update_ui():
-                import gc
-                if not failed_indices:
-                    for q in self.staging_questions:
-                        q.pop('diagram', None)
-                        q.pop('image_b64', None)
-                        q.pop('page_annotated_b64', None)
-                    self.staging_questions.clear()
-                    self.txt_stg_content.delete("1.0", tk.END)
-                    self.ent_stg_tags.delete(0, tk.END)
-                    self.lbl_stg_diagram.config(image='', text="图样显示区")
-                    if hasattr(self.lbl_stg_diagram, 'image'):
-                        del self.lbl_stg_diagram.image
-                    gc.collect()
-                    self.refresh_staging_tree()
-                    self.update_status("入库成功！您可以前往题库查看。")
-                    logger.info("All staged questions saved to DB successfully.")
-                    messagebox.showinfo("成功", "已全部保存至题库！")
-                else:
-                    # Remove successful ones from staging, keep failed ones
-                    for idx, q in reversed(successful_questions):
-                        q.pop('diagram', None)
-                        q.pop('image_b64', None)
-                        q.pop('page_annotated_b64', None)
-                        self.staging_questions.pop(idx)
-
-                    self.refresh_staging_tree()
-                    self.update_status(f"部分入库完成。保留了 {len(failed_indices)} 道编译失败的题目。")
-                    messagebox.showwarning("部分完成", f"已入库成功 {len(successful_questions)} 题。有 {len(failed_indices)} 题由于 LaTeX 编译错误（AI 修复仍失败）未能入库，请手动检查列表中的剩余项。")
+                self._clear_staging_ui()
+                self.refresh_staging_tree()
+                self.update_status(f"成功直接入库 {successful_count} 题！您可以前往题库查看。")
+                messagebox.showinfo("成功", f"已直接保存 {successful_count} 题至题库！")
 
             self.after(0, update_ui)
 
@@ -1231,6 +1313,14 @@ class SmartQBApp(tk.Tk):
         self.lbl_lib_diagram = ttk.Label(det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
         self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
+        self.lbl_lib_diag_info = ttk.Label(det_frame, text="", anchor=tk.CENTER)
+        self.lbl_lib_diag_info.pack(fill=tk.X)
+
+        lib_btn_frame = ttk.Frame(det_frame)
+        lib_btn_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+
         right_frame = ttk.LabelFrame(main_paned, text="AI 软搜索助手 (MCP)")
         main_paned.add(right_frame, weight=2)
 
@@ -1317,25 +1407,48 @@ class SmartQBApp(tk.Tk):
             self.ent_lib_tags.insert(0, ",".join([r[0] for r in tags_rows]))
 
             if hasattr(self, 'lbl_lib_diagram'):
-                if diagram_base64:
-                    import io, base64
-                    from PIL import Image, ImageTk
-                    try:
-                        img_data = base64.b64decode(diagram_base64.split(",")[-1] if "," in diagram_base64 else diagram_base64)
-                        img = Image.open(io.BytesIO(img_data)).copy()
-                        img.thumbnail((400, 200))
-                        photo = ImageTk.PhotoImage(img)
-                        self.lbl_lib_diagram.config(image=photo, text="")
-                        self.lbl_lib_diagram.image = photo
-                    except Exception as e:
-                        self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
-                else:
-                    self.lbl_lib_diagram.config(image='', text="无图样")
+                self.lib_current_diags = self._parse_diagram_json(diagram_base64)
+                self.lib_img_index = 0
+                self._render_lib_diagram()
 
         except Exception as e:
-            from utils import logger
             logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
+    def _render_lib_diagram(self):
+        if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
+            self.lbl_lib_diagram.config(image='', text="无图样")
+            if hasattr(self.lbl_lib_diagram, 'image'):
+                del self.lbl_lib_diagram.image
+            self.lbl_lib_diag_info.config(text="")
+            return
+
+        display_img_b64 = self.lib_current_diags[self.lib_img_index]
+        if display_img_b64:
+            try:
+                img_data = base64.b64decode(display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64)
+                img = Image.open(io.BytesIO(img_data)).copy()
+                img.thumbnail((400, 200))
+                photo = ImageTk.PhotoImage(img)
+                self.lbl_lib_diagram.config(image=photo, text="")
+                self.lbl_lib_diagram.image = photo
+                info_text = f"图样 {self.lib_img_index + 1} / {len(self.lib_current_diags)}"
+                self.lbl_lib_diag_info.config(text=info_text)
+            except Exception as e:
+                self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
+                self.lbl_lib_diag_info.config(text="")
+        else:
+            self.lbl_lib_diagram.config(image='', text="无图样")
+            self.lbl_lib_diag_info.config(text="")
+
+    def lib_prev_diagram(self):
+        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
+            self.lib_img_index = (self.lib_img_index - 1) % len(self.lib_current_diags)
+            self._render_lib_diagram()
+
+    def lib_next_diagram(self):
+        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
+            self.lib_img_index = (self.lib_img_index + 1) % len(self.lib_current_diags)
+            self._render_lib_diagram()
     def update_lib_tags(self):
         if getattr(self, 'current_lib_q_id', None) is None: return
         new_tags = [t.strip() for t in self.ent_lib_tags.get().split(',') if t.strip()]
@@ -1502,16 +1615,22 @@ class SmartQBApp(tk.Tk):
             tex.append(r"\item " + tex_content)
 
             if q.get("diagram"):
-                img_data = base64.b64decode(q["diagram"])
-                img_filename = f"diagram_{q['id']}.png"
-                img_filepath = os.path.join(img_dir, img_filename)
-                with open(img_filepath, "wb") as f:
-                    f.write(img_data)
+                diags = self._parse_diagram_json(q.get("diagram"))
+                for i, d in enumerate(diags):
+                    try:
+                        d_clean = d.split(",")[-1] if "," in d else d
+                        img_data = base64.b64decode(d_clean)
+                        img_filename = f"diagram_{q['id']}_{i}.png"
+                        img_filepath = os.path.join(img_dir, img_filename)
+                        with open(img_filepath, "wb") as f:
+                            f.write(img_data)
 
-                rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
-                tex.append(r"\begin{center}")
-                tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
-                tex.append(r"\end{center}")
+                        rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
+                        tex.append(r"\begin{center}")
+                        tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
+                        tex.append(r"\end{center}")
+                    except Exception as e:
+                        logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
 
             tex.append(r"\vspace{0.5em}")
 
@@ -1532,13 +1651,12 @@ class SmartQBApp(tk.Tk):
                     ["xelatex", "-interaction=nonstopmode", "--no-shell-escape", f"-output-directory={export_dir}", export_tex_path],
                     cwd=export_dir,
                     capture_output=True,
-                    check=False
+                    check=False,
+                    encoding="utf-8",
+                    errors="replace"
                 )
                 if result.returncode != 0:
-                    try:
-                        out_str = result.stdout.decode('utf-8', errors='replace')
-                    except Exception:
-                        out_str = str(result.stdout)
+                    out_str = result.stdout
                     error_msg = f"LaTeX 编译错误，部分符号未被 AI 成功转义导致中断。\n日志片段: {out_str[-500:]}"
                     raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
                 pdf_success = True
@@ -1598,6 +1716,16 @@ class SmartQBApp(tk.Tk):
             self.settings.prm_batch_size = 3
             self.ent_prm_batch.set(self.settings.prm_batch_size)
             messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
+
+        try:
+            val = int(self.ent_embed_dim.get().strip())
+            if val <= 0:
+                raise ValueError("Embedding dimension must be > 0")
+            self.settings.embedding_dimension = val
+        except ValueError:
+            self.settings.embedding_dimension = 1024
+            self.ent_embed_dim.delete(0, 'end')
+            self.ent_embed_dim.insert(0, '1024')
 
         try:
             self.settings.save()
@@ -1676,6 +1804,11 @@ class SmartQBApp(tk.Tk):
         self.ent_embed_model.insert(0, self.settings.embed_model_id)
         self.ent_embed_model.pack(anchor=tk.W)
 
+        ttk.Label(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_dim = ttk.Entry(container, width=15)
+        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
+        self.ent_embed_dim.pack(anchor=tk.W)
+
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
 
         # --- ENGINE TOGGLES ---
@@ -1683,31 +1816,17 @@ class SmartQBApp(tk.Tk):
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
         ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        surya_found_failed = getattr(self, 'surya_foundation_failed', False)
-        surya_layout_failed = getattr(self, 'surya_layout_failed', False)
-        surya_ocr_failed = getattr(self, 'surya_ocr_failed', False)
-
-        surya_layout_supported = self.hardware_ok and not surya_found_failed and not surya_layout_failed and LayoutPredictor is not None and FoundationPredictor is not None
-        surya_ocr_supported = self.hardware_ok and not surya_found_failed and not surya_ocr_failed and RecognitionPredictor is not None and FoundationPredictor is not None
-
-        layout_vals = ["DocLayout-YOLO", "Surya"] if surya_layout_supported else ["DocLayout-YOLO"]
+        layout_vals = ["DocLayout-YOLO"]
         self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
         current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-        self.cbo_layout_engine.set(current_layout if surya_layout_supported else "DocLayout-YOLO")
+        self.cbo_layout_engine.set("DocLayout-YOLO")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
 
-        if not self.hardware_ok:
-            ttk.Label(engine_frame, text="(硬件不达标，已禁用 Surya)").grid(row=0, column=2, sticky=tk.W)
-        elif surya_found_failed or surya_layout_failed:
-            ttk.Label(engine_frame, text="(Surya 版面加载失败，已禁用)").grid(row=0, column=2, sticky=tk.W)
-        elif not surya_layout_supported:
-            ttk.Label(engine_frame, text="(Surya 依赖缺失，已禁用)").grid(row=0, column=2, sticky=tk.W)
-
         ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ocr_vals = ["Pix2Text", "Surya"] if surya_ocr_supported else ["Pix2Text"]
+        ocr_vals = ["Pix2Text"]
         self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
         current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
-        self.cbo_ocr_engine.set(current_ocr if surya_ocr_supported else "Pix2Text")
+        self.cbo_ocr_engine.set("Pix2Text")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 

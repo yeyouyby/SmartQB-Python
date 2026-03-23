@@ -8,6 +8,7 @@ import zlib
 logger = logging.getLogger(__name__)
 
 import lancedb
+from settings_manager import SettingsManager
 def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
     return lancedb.connect('smartqb_lancedb')
@@ -19,6 +20,13 @@ _sequence = 0
 class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
+
+        self.settings = SettingsManager()
+        embedding_dim_str = getattr(self.settings, 'embedding_dimension', '1024')
+        try:
+            self.embedding_dimension = int(embedding_dim_str)
+        except (ValueError, TypeError):
+            self.embedding_dimension = 1024
 
         if machine_id is None:
             mac_address = str(uuid.getnode())
@@ -54,7 +62,7 @@ class LanceDBAdapter:
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), 1536)),
+                    pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
@@ -112,8 +120,30 @@ class LanceDBAdapter:
         return timestamp
 
     def execute_insert_question(self, content, logic, vec, diagram_b64):
-        if not vec:
-            vec = [0.0] * 1536
+        if vec is None:
+            vec = []
+        vec = list(vec)
+
+        target_dim = self.embedding_dimension
+        try:
+            schema = self.q_table.schema
+            if schema and "vector" in schema.names:
+                vector_type = schema.field("vector").type
+                if pa.types.is_fixed_size_list(vector_type):
+                    target_dim = vector_type.list_size
+        except Exception as e:
+            logger.warning(f"Could not get target vector dimension from schema: {e}", exc_info=True)
+
+        if len(vec) != target_dim:
+            if len(vec) == 0:
+                vec = [0.0] * target_dim
+            elif len(vec) > target_dim:
+                logger.warning(f"Vector dimension mismatch. Truncating vector from {len(vec)} to {target_dim}.")
+                vec = vec[:target_dim]
+            else:
+                logger.warning(f"Vector dimension mismatch. Padding vector from {len(vec)} to {target_dim}.")
+                vec.extend([0.0] * (target_dim - len(vec)))
+
         new_q_id = self.next_id()
         self.q_table.add([{
             "id": new_q_id,

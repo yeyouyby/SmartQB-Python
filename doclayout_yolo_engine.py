@@ -6,6 +6,18 @@ try:
 except ImportError:
     YOLO = None
 
+
+import sys
+
+def get_base_path():
+    """获取程序当前运行的目录，完美兼容 .py 和 .exe 两种情况"""
+    if getattr(sys, 'frozen', False):
+        # 如果是打包后的 .exe 运行，返回 .exe 所在的当前目录
+        return os.path.dirname(sys.executable)
+    else:
+        # 如果是开发环境下的 .py 运行，返回脚本所在目录
+        return os.path.dirname(os.path.abspath(__file__))
+
 class DummyBoundingBox:
     def __init__(self, bbox, label):
         self.bbox = bbox
@@ -20,14 +32,14 @@ class DocLayoutYOLO:
     A wrapper for DocLayout-YOLO (onnx model) that mimics Surya's LayoutPredictor interface
     so it can drop-in replace it in document_service.py.
     """
-    def __init__(self, model_path="models/doclayout_yolo.onnx"):
+    def __init__(self, model_path="model/doclayoutyolo/DocLayout-YOLO-DocStructBench.onnx"):
         if YOLO is None:
             logger.warning("ultralytics library is missing for DocLayout-YOLO.")
             self.model_path = None
             self.model = None
             return
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = get_base_path()
         self.model_path = model_path if os.path.isabs(model_path) else os.path.join(base_dir, model_path)
         self.model = None # Lazy load in __call__
 

@@ -7,7 +7,7 @@ echo ========================================================
 echo        SmartQB Pro V3 (Ultimate) Environment Setup
 echo ========================================================
 echo.
-echo Note 1: Pix2Text and Surya contain deep learning models (PyTorch).
+echo Note 1: Pix2Text and DocLayout-YOLO contain deep learning models (PyTorch/ONNX).
 echo Note 2: We will also install MiKTeX for automatic PDF compilation.
 echo [!] MiKTeX install typically takes 5-10 minutes.
 echo     It will run silently in the background. Please BE PATIENT.
@@ -142,17 +142,52 @@ echo [3/6] Activating virtual environment...
 call venv\Scripts\activate
 python -m pip install --upgrade pip >nul 2>&1
 
+
 :: 4. Direct Install Dependencies
-echo [4/6] Downloading and installing Python dependencies...
-:: Added surya-ocr ultralytics psutil dependency as required by the latest update
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple && (pip install "surya-ocr>=0.3.0" -i https://pypi.tuna.tsinghua.edu.cn/simple || echo [WARNING] surya-ocr installation failed, Surya engine will be disabled.)
+echo [4/6] Detecting GPU and installing Python dependencies...
+
+set "GPU_VENDOR="
+set "ONNX_PKG=onnxruntime"
+
+for /f "tokens=2 delims==" %%I in ('wmic path win32_VideoController get name /value ^| findstr "="') do (
+    set "GPU_NAME=%%I"
+    echo [INFO] Found GPU: !GPU_NAME!
+
+    echo !GPU_NAME! | findstr /i "NVIDIA" >nul
+    if !errorlevel! equ 0 set "GPU_VENDOR=NVIDIA"
+
+    echo !GPU_NAME! | findstr /i "AMD" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=AMD"
+
+    echo !GPU_NAME! | findstr /i "Intel" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=Intel"
+
+    echo !GPU_NAME! | findstr /i "Radeon" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=AMD"
+)
+
+if "!GPU_VENDOR!"=="NVIDIA" (
+    set "ONNX_PKG=onnxruntime-gpu"
+    echo [INFO] NVIDIA GPU detected. Will install !ONNX_PKG!
+) else if "!GPU_VENDOR!"=="AMD" (
+    set "ONNX_PKG=onnxruntime-directml"
+    echo [INFO] AMD GPU detected. Will install !ONNX_PKG!
+) else if "!GPU_VENDOR!"=="Intel" (
+    set "ONNX_PKG=onnxruntime-directml"
+    echo [INFO] Intel GPU detected. Will install !ONNX_PKG!
+) else (
+    set "ONNX_PKG=onnxruntime"
+    echo [INFO] No dedicated GPU vendor recognized. Will install !ONNX_PKG!
+)
+
+:: Removed hardcoded onnxruntime, replaced with %ONNX_PKG% and added pyinstaller
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
-    echo [ERROR] Installation failed. Please check your network and try again.
+    echo [ERROR] Python dependency installation failed.
     set "EXIT_CODE=1"
     pause
     goto end_script
 )
-
 :: 5. Setup AI Models
 echo.
 echo [5/6] Setting up AI Models from local cache...
@@ -167,21 +202,48 @@ if %MODEL_ERR% neq 0 (
 )
 echo.
 
-:: 6. Create the startup script
-echo [6/6] Creating run_smartqb.bat...
-echo @echo off > run_smartqb.bat
-echo echo Starting SmartQB Pro... >> run_smartqb.bat
-echo set "PATH=%%LOCALAPPDATA%%\Programs\MiKTeX\miktex\bin\x64;%%PATH%%" >> run_smartqb.bat
-echo call venv\Scripts\activate >> run_smartqb.bat
-echo python main.py >> run_smartqb.bat
-echo pause >> run_smartqb.bat
 
+:: 6. Download Models and Build PyInstaller
+echo [6/6] Packaging application with PyInstaller...
+
+echo [INFO] Pre-downloading AI models and checking MiKTeX before packaging...
+python main.py --setup-only
+
+if %errorlevel% neq 0 (
+    echo [ERROR] Pre-downloading models or checking MiKTeX failed.
+    set "EXIT_CODE=1"
+    pause
+    goto end_script
+)
+
+echo [INFO] Building .exe with PyInstaller...
+pyinstaller --noconfirm --onedir --windowed --add-data "assets;assets" --hidden-import="pyarrow" main.py
+
+if %errorlevel% neq 0 (
+    echo [ERROR] PyInstaller build failed.
+    set "EXIT_CODE=1"
+    pause
+    goto end_script
+)
+
+echo [INFO] Moving downloaded models to PyInstaller dist folder...
+if exist "model" (
+    xcopy /E /I /Y "model" "dist\main\model\"
+    if !errorlevel! neq 0 (
+        echo [ERROR] Failed to copy model files to dist\main\model\
+        set "EXIT_CODE=1"
+        pause
+        goto end_script
+    )
+)
+
+echo [INFO] Build Complete. You can run dist\main\main.exe
 echo.
 echo ========================================================
 echo [SUCCESS] Environment setup completed successfully!
 echo ========================================================
 echo.
-echo Please double click "run_smartqb.bat" to start.
+echo Please double click "dist\main\main.exe" to start.
 pause
 :end_script
 exit /b %EXIT_CODE%
