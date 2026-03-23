@@ -182,7 +182,12 @@ if "!GPU_VENDOR!"=="NVIDIA" (
 
 :: Removed hardcoded onnxruntime, replaced with %ONNX_PKG% and added pyinstaller
 pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
-
+if %errorlevel% neq 0 (
+    echo [ERROR] Python dependency installation failed.
+    set "EXIT_CODE=1"
+    pause
+    goto end_script
+)
 :: 5. Setup AI Models
 echo.
 echo [5/6] Setting up AI Models from local cache...
