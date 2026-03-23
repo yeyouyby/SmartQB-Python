@@ -167,7 +167,7 @@ for /f "tokens=2 delims==" %%I in ('wmic path win32_VideoController get name /va
 )
 
 if "!GPU_VENDOR!"=="NVIDIA" (
-    set "ONNX_PKG=onnxruntime-gpu onnxruntime-directml"
+    set "ONNX_PKG=onnxruntime-gpu"
     echo [INFO] NVIDIA GPU detected. Will install !ONNX_PKG!
 ) else if "!GPU_VENDOR!"=="AMD" (
     set "ONNX_PKG=onnxruntime-directml"
@@ -202,7 +202,14 @@ echo.
 echo [6/6] Packaging application with PyInstaller...
 
 echo [INFO] Pre-downloading AI models and checking MiKTeX before packaging...
-python -c "import main; main.download_models(); main.check_and_install_miktex()"
+python main.py --setup-only
+
+if %errorlevel% neq 0 (
+    echo [ERROR] Pre-downloading models or checking MiKTeX failed.
+    set "EXIT_CODE=1"
+    pause
+    goto end_script
+)
 
 echo [INFO] Building .exe with PyInstaller...
 pyinstaller --noconfirm --onedir --windowed --add-data "assets;assets" --hidden-import="pyarrow" main.py

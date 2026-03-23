@@ -1,7 +1,6 @@
 import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
-from gui_app import SmartQBApp
 
 from settings_manager import SettingsManager
 
@@ -12,7 +11,7 @@ import subprocess
 import threading
 from tkinter import messagebox
 
-def download_models():
+def download_models(raise_errors=False):
     logger.info("Checking and downloading models...")
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     if getattr(sys, 'frozen', False):
@@ -48,6 +47,8 @@ def download_models():
         logger.info("Pix2Text models downloaded successfully.")
     except Exception as e:
         logger.error(f"Failed to download Pix2Text models: {e}")
+        if raise_errors:
+            raise
 
     try:
         from modelscope.hub.snapshot_download import snapshot_download as ms_download
@@ -56,8 +57,10 @@ def download_models():
         logger.info("DocLayout-YOLO models downloaded successfully.")
     except Exception as e:
         logger.error(f"Failed to download DocLayout-YOLO models: {e}")
+        if raise_errors:
+            raise
 
-def check_and_install_miktex():
+def check_and_install_miktex(raise_errors=False):
     logger.info("Checking MiKTeX/TeX Live environment...")
     try:
         res = subprocess.run(["xelatex", "--version"], capture_output=True, text=True, timeout=5, check=False)
@@ -112,6 +115,8 @@ def check_and_install_miktex():
 
     except Exception as e:
         logger.error(f"Failed to install MiKTeX: {e}")
+        if raise_errors:
+            raise
     finally:
         if os.path.exists(installer_path):
             try:
@@ -137,7 +142,7 @@ def ensure_lancedb_tables():
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), getattr(adapter.settings, 'embedding_dimension', 1024) if hasattr(adapter, 'settings') else 1024)),
+                    pa.field("vector", pa.list_(pa.float32(), getattr(adapter, 'embedding_dimension', 1536))),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
@@ -191,15 +196,16 @@ if __name__ == "__main__":
     os.environ["CNOCR_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
 
     if args.setup_only:
-        download_models()
-        check_and_install_miktex()
+        download_models(raise_errors=True)
+        check_and_install_miktex(raise_errors=True)
         sys.exit(0)
 
     threading.Thread(target=download_models).start()
-    threading.Thread(target=check_and_install_miktex).start()
     # 启动 GUI 主程序
 
     ensure_lancedb_tables()
+
+    from gui_app import SmartQBApp
     logger.info("Starting GUI main loop...")
     app = SmartQBApp()
     app.mainloop()
