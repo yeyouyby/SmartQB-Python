@@ -93,9 +93,7 @@ def check_and_install_miktex():
             if actual_sha256.lower() != expected_sha256.lower():
                 raise RuntimeError("MiKTeX installer checksum mismatch; aborting installation.")
             logger.info("Checksum verified.")
-        import shlex
-        safe_path = shlex.quote(installer_path)
-        subprocess.run([safe_path, "--unattended", "--private"], check=True)  # nosec B603
+        subprocess.run([installer_path, "--unattended", "--private"], check=True)  # nosec B603
         logger.info("MiKTeX installed successfully.")
 
         # Add to PATH for current session if possible

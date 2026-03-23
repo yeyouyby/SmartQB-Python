@@ -598,7 +598,11 @@ class SmartQBApp(tk.Tk):
         questions = ai_res.get("Questions", [])
         pending_fragment = ai_res.get("PendingFragment", "")
 
-        next_index = ai_res.get("NextIndex", current_idx + 1)
+        try:
+            next_index = int(ai_res.get("NextIndex", current_idx + 1))
+        except (TypeError, ValueError):
+            next_index = current_idx + 1
+
         if next_index <= current_idx:
             next_index = current_idx + 1
 
@@ -607,7 +611,17 @@ class SmartQBApp(tk.Tk):
             if status == "NotQuestion":
                 continue
 
-            source_indices = q.get("SourceSliceIndices", [])
+            source_indices_raw = q.get("SourceSliceIndices", [])
+            if not isinstance(source_indices_raw, list):
+                source_indices_raw = []
+
+            source_indices = []
+            for raw_idx in source_indices_raw:
+                try:
+                    source_indices.append(int(raw_idx))
+                except (TypeError, ValueError):
+                    pass
+
             image_b64 = ""
             page_annotated_b64 = ""
             content_text = q.get("Content", "")
@@ -624,7 +638,7 @@ class SmartQBApp(tk.Tk):
             item = {
                 "content": content_text,
                 "logic": q.get("LogicDescriptor", ""),
-                "tags": q.get("Tags", []),
+                "tags": q.get("Tags") if isinstance(q.get("Tags"), list) else [],
                 "diagram": diagram,
                 "image_b64": image_b64,
                 "page_annotated_b64": page_annotated_b64
