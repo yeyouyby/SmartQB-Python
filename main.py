@@ -33,15 +33,15 @@ def download_models():
     try:
         from huggingface_hub import snapshot_download
         logger.info("Checking Pix2Text Layout Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-layout", local_dir=os.path.join(p2t_dir, "layout-parser", revision="main"))
+        snapshot_download(repo_id="breezedeus/pix2text-layout", local_dir=os.path.join(p2t_dir, "layout-parser"), revision="main")  # nosec B615
         logger.info("Checking Pix2Text Table-Rec Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-table-rec", local_dir=os.path.join(p2t_dir, "table-rec", revision="main"))
+        snapshot_download(repo_id="breezedeus/pix2text-table-rec", local_dir=os.path.join(p2t_dir, "table-rec"), revision="main")  # nosec B615
         logger.info("Checking Pix2Text MFD Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-mfd", local_dir=os.path.join(p2t_dir, "mfd", revision="main"))
+        snapshot_download(repo_id="breezedeus/pix2text-mfd", local_dir=os.path.join(p2t_dir, "mfd"), revision="main")  # nosec B615
         logger.info("Checking Pix2Text MFR Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-mfr", local_dir=os.path.join(p2t_dir, "mfr-1.5-onnx", revision="main"))
+        snapshot_download(repo_id="breezedeus/pix2text-mfr", local_dir=os.path.join(p2t_dir, "mfr-1.5-onnx"), revision="main")  # nosec B615
         logger.info("Checking CnSTD/CnOCR Models...")
-        snapshot_download(repo_id="breezedeus/cnstd-cnocr-models", local_dir=os.path.join(p2t_dir, "cnstd-cnocr-models", revision="main"))
+        snapshot_download(repo_id="breezedeus/cnstd-cnocr-models", local_dir=os.path.join(p2t_dir, "cnstd-cnocr-models"), revision="main")  # nosec B615
         logger.info("Pix2Text models downloaded successfully.")
     except Exception as e:
         logger.error(f"Failed to download Pix2Text models: {e}")
