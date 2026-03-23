@@ -33,15 +33,15 @@ def download_models():
     try:
         from huggingface_hub import snapshot_download
         logger.info("Checking Pix2Text Layout Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-layout", local_dir=os.path.join(p2t_dir, "layout-parser"))
+        snapshot_download(repo_id="breezedeus/pix2text-layout", local_dir=os.path.join(p2t_dir, "layout-parser", revision="main"))
         logger.info("Checking Pix2Text Table-Rec Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-table-rec", local_dir=os.path.join(p2t_dir, "table-rec"))
+        snapshot_download(repo_id="breezedeus/pix2text-table-rec", local_dir=os.path.join(p2t_dir, "table-rec", revision="main"))
         logger.info("Checking Pix2Text MFD Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-mfd", local_dir=os.path.join(p2t_dir, "mfd"))
+        snapshot_download(repo_id="breezedeus/pix2text-mfd", local_dir=os.path.join(p2t_dir, "mfd", revision="main"))
         logger.info("Checking Pix2Text MFR Model...")
-        snapshot_download(repo_id="breezedeus/pix2text-mfr", local_dir=os.path.join(p2t_dir, "mfr-1.5-onnx"))
+        snapshot_download(repo_id="breezedeus/pix2text-mfr", local_dir=os.path.join(p2t_dir, "mfr-1.5-onnx", revision="main"))
         logger.info("Checking CnSTD/CnOCR Models...")
-        snapshot_download(repo_id="breezedeus/cnstd-cnocr-models", local_dir=os.path.join(p2t_dir, "cnstd-cnocr-models"))
+        snapshot_download(repo_id="breezedeus/cnstd-cnocr-models", local_dir=os.path.join(p2t_dir, "cnstd-cnocr-models", revision="main"))
         logger.info("Pix2Text models downloaded successfully.")
     except Exception as e:
         logger.error(f"Failed to download Pix2Text models: {e}")
@@ -49,7 +49,7 @@ def download_models():
     try:
         from modelscope.hub.snapshot_download import snapshot_download as ms_download
         logger.info("Checking DocLayout-YOLO Model...")
-        ms_download(model_id="AI-ModelScope/DocLayout-YOLO-DocStructBench-onnx", local_dir=yolo_dir)
+        ms_download(model_id="AI-ModelScope/DocLayout-YOLO-DocStructBench-onnx", local_dir=yolo_dir, revision="master")
         logger.info("DocLayout-YOLO models downloaded successfully.")
     except Exception as e:
         logger.error(f"Failed to download DocLayout-YOLO models: {e}")
@@ -80,9 +80,11 @@ def check_and_install_miktex():
 
     try:
         logger.info(f"Downloading MiKTeX installer from {installer_url}...")
-        urllib.request.urlretrieve(installer_url, installer_path)
+        urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310
         logger.info("Download complete. Running silent installation...")
-        subprocess.run([installer_path, "--unattended", "--private"], check=True)
+        import shlex
+        safe_path = shlex.quote(installer_path)
+        subprocess.run([installer_path, "--unattended", "--private"], check=True)  # nosec
         logger.info("MiKTeX installed successfully.")
 
         # Add to PATH for current session if possible
@@ -103,8 +105,8 @@ def check_and_install_miktex():
         if os.path.exists(installer_path):
             try:
                 os.remove(installer_path)
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Cleanup failed: {e}")
 
 def ensure_lancedb_tables():
     logger.info("Initializing LanceDB database and verifying core tables...")

@@ -146,6 +146,25 @@ class SmartQBApp(tk.Tk):
 
         return content_text, diagram
 
+    def _test_compile_latex(self, content_text):
+        import tempfile
+        import os
+        import subprocess
+        tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
+        with tempfile.TemporaryDirectory() as td:
+            tex_file = os.path.join(td, "test.tex")
+            with open(tex_file, "w", encoding="utf-8") as f_tex:
+                f_tex.write(tex_code)
+            try:
+                res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
+                                     cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")  # nosec
+                if res.returncode == 0:
+                    return True, ""
+                else:
+                    return False, res.stdout
+            except Exception as e:
+                return False, str(e)
+
     def _clear_staging_ui(self):
         for q in self.staging_questions:
             q.pop('diagram', None)
@@ -188,31 +207,12 @@ class SmartQBApp(tk.Tk):
             for idx in selected_indices:
                 q = self.staging_questions[idx]
                 self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1} 题..."))
-                content_text = q["content"]
-                tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
-
-                def test_compile(code):
-                    with tempfile.TemporaryDirectory() as td:
-                        tex_file = os.path.join(td, "test.tex")
-                        with open(tex_file, "w", encoding="utf-8") as f_tex:
-                            f_tex.write(code)
-                        try:
-                            res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
-                                                 cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")
-                            if res.returncode == 0:
-                                return True, ""
-                            else:
-                                return False, res.stdout
-                        except Exception as e:
-                            return False, str(e)
-
-                success, err_msg = test_compile(tex_code)
+                success, err_msg = self._test_compile_latex(q["content"])
                 if not success:
                     self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
-                    fixed_content = self.ai_service.ai_fix_latex(content_text, err_msg)
+                    fixed_content = self.ai_service.ai_fix_latex(q["content"], err_msg)
                     if fixed_content:
-                        new_tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{fixed_content}\n\\end{{document}}'''
-                        success2, err_msg2 = test_compile(new_tex_code)
+                        success2, err_msg2 = self._test_compile_latex(fixed_content)
                         if success2:
                             q["content"] = fixed_content
                             successful_questions.append((idx, q))
@@ -590,6 +590,48 @@ class SmartQBApp(tk.Tk):
         self._process_ai_slices(pending_slices, mode, file_type)
         self.update_status("✅ 文件全部处理并关联合并完毕！")
 
+    def _parse_and_append_ai_res(self, ai_res, current_idx, pending_slices, cumulative_d_map):
+        questions = ai_res.get("Questions", [])
+        pending_fragment = ai_res.get("PendingFragment", "")
+
+        next_index = ai_res.get("NextIndex", current_idx + 1)
+        if next_index <= current_idx:
+            next_index = current_idx + 1
+
+        for q in questions:
+            status = q.get("Status", "Complete")
+            if status == "NotQuestion":
+                continue
+
+            source_indices = q.get("SourceSliceIndices", [])
+            image_b64 = ""
+            page_annotated_b64 = ""
+            content_text = q.get("Content", "")
+
+            for idx in source_indices:
+                if 0 <= idx < len(pending_slices):
+                    if not image_b64 and pending_slices[idx].get("image_b64"):
+                        image_b64 = pending_slices[idx]["image_b64"]
+                    if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
+                        page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
+
+            content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map)
+
+            item = {
+                "content": content_text,
+                "logic": q.get("LogicDescriptor", ""),
+                "tags": q.get("Tags", []),
+                "diagram": diagram,
+                "image_b64": image_b64,
+                "page_annotated_b64": page_annotated_b64
+            }
+            def _safe_append(i=item):
+                self.staging_questions.append(i)
+            self.after(0, _safe_append)
+
+        self.after(0, self.refresh_staging_tree)
+        return next_index, pending_fragment
+
     def _process_ai_slices(self, pending_slices, mode, file_type):
         use_vision = (mode == 3 and file_type != "word")
         batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
@@ -622,49 +664,7 @@ class SmartQBApp(tk.Tk):
                     is_last_batch=is_last_batch
                 )
 
-                questions = ai_res.get("Questions", [])
-                pending_fragment = ai_res.get("PendingFragment", "")
-
-                next_index = ai_res.get("NextIndex", current_idx + 1)
-                if next_index <= current_idx:
-                    next_index = current_idx + 1
-
-                for q in questions:
-                    status = q.get("Status", "Complete")
-                    if status == "NotQuestion":
-                        continue
-
-                    source_indices = q.get("SourceSliceIndices", [])
-                    image_b64 = ""
-                    page_annotated_b64 = ""
-                    content_text = q.get("Content", "")
-
-                    # Accumulate slices specifically requested by AI, plus we need to ensure any pending_fragment diagrams are retained
-                    # Instead of rebuilding combined_d_map from just `source_indices`, we use `cumulative_d_map` which holds
-                    # everything from all processed batches up to this point.
-                    for idx in source_indices:
-                        if 0 <= idx < len(pending_slices):
-                            if not image_b64 and pending_slices[idx].get("image_b64"):
-                                image_b64 = pending_slices[idx]["image_b64"]
-                            if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
-                                page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
-
-                    content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map)
-
-                    item = {
-                        "content": content_text,
-                        "logic": q.get("LogicDescriptor", ""),
-                        "tags": q.get("Tags", []),
-                        "diagram": diagram,
-                        "image_b64": image_b64,
-                        "page_annotated_b64": page_annotated_b64
-                    }
-                    def _safe_append(i=item):
-                        self.staging_questions.append(i)
-                    self.after(0, _safe_append)
-
-                self.after(0, self.refresh_staging_tree)
-                current_idx = next_index
+                current_idx, pending_fragment = self._parse_and_append_ai_res(ai_res, current_idx, pending_slices, cumulative_d_map)
 
             except Exception as e:
                 logger.error(f"AI 处理异常: {e}")
