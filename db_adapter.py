@@ -132,7 +132,7 @@ class LanceDBAdapter:
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
         except Exception as e:
-            logger.warning(f"Could not get target vector dimension from schema: {e}")
+            logger.warning(f"Could not get target vector dimension from schema: {e}", exc_info=True)
 
         if len(vec) != target_dim:
             if len(vec) == 0:

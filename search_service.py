@@ -35,7 +35,7 @@ def vector_search_db(ai_service, query_text, limit=10):
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
         except Exception as e:
-            logger.warning(f"Could not get target vector dimension from schema: {e}")
+            logger.warning(f"Could not get target vector dimension from schema: {e}", exc_info=True)
 
         if len(query_vec) != target_dim:
             if len(query_vec) == 0:

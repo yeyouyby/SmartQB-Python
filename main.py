@@ -86,7 +86,10 @@ def check_and_install_miktex():
         urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310
         logger.info("Download complete. Running silent installation...")
         expected_sha256 = os.environ.get("MIKTEX_INSTALLER_SHA256")
-        if expected_sha256:
+        if not expected_sha256:
+            # We don't have a hardcoded sha256 to allow easy updates, but if security requires it:
+            logger.warning("MIKTEX_INSTALLER_SHA256 is not set. Installing unverified installer.")
+        else:
             import hashlib
             with open(installer_path, "rb") as f_sha:
                 actual_sha256 = hashlib.sha256(f_sha.read()).hexdigest()
@@ -174,8 +177,21 @@ def ensure_lancedb_tables():
 
 
 if __name__ == "__main__":
-    threading.Thread(target=download_models, daemon=True).start()
-    threading.Thread(target=check_and_install_miktex, daemon=True).start()
+    import os
+    import sys
+    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
+    if getattr(sys, 'frozen', False):
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+    model_dir = os.path.join(base_dir, "model")
+    p2t_dir = os.path.join(model_dir, "pix2text")
+    os.environ["PIX2TEXT_HOME"] = p2t_dir
+    os.environ["CNSTD_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
+    os.environ["CNOCR_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
+
+    threading.Thread(target=download_models).start()
+    threading.Thread(target=check_and_install_miktex).start()
     # 启动 GUI 主程序
 
     ensure_lancedb_tables()
