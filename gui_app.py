@@ -508,7 +508,8 @@ class SmartQBApp(tk.Tk):
 
         def handle_slice_ready(s):
             if mode == 1:
-                content_text, diagram = self._resolve_markers_and_extract_diagrams(s["text"], s.get("diagram_map", {}), s.get("diagram_map", {}))
+                combined_map = dict(s.get("diagram_map", {}))
+                content_text, diagram = self._resolve_markers_and_extract_diagrams(s["text"], combined_map)
                 item = {
                     "content": content_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
                 }
