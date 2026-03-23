@@ -107,8 +107,10 @@ def check_and_install_miktex():
         logger.info("Checking and installing LaTeX packages...")
         packages = ["ctex", "amsmath", "amsfonts", "geometry", "graphicx", "xecjk", "cjk", "zhnumber"]
         for pkg in packages:
-            subprocess.run(["mpm", f"--install={pkg}"], capture_output=True)
-        logger.info("LaTeX packages installed.")
+            result = subprocess.run(["mpm", f"--install={pkg}"], capture_output=True, text=True, encoding='utf-8', errors='replace')
+            if result.returncode != 0:
+                logger.warning(f"Failed to install LaTeX package '{pkg}'. stdout: {result.stdout}, stderr: {result.stderr}")
+        logger.info("LaTeX packages installation attempt finished.")
 
     except Exception as e:
         logger.error(f"Failed to install MiKTeX: {e}")

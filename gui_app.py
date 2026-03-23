@@ -99,13 +99,16 @@ class SmartQBApp(tk.Tk):
             return []
         if isinstance(diag_data, list):
             return diag_data
-        if str(diag_data).startswith('['):
+        if isinstance(diag_data, str):
             try:
+                # Attempt to parse the string as a JSON list
                 parsed_list = json.loads(diag_data)
-                if isinstance(parsed_list, list) and parsed_list:
+                if isinstance(parsed_list, list):
                     return parsed_list
-            except json.JSONDecodeError as e:
-                logger.debug(f"Failed to decode diagram JSON: {e}")
+            except json.JSONDecodeError:
+                # If parsing fails, assume it's a single base64 string
+                pass
+        # If it's not a list or a valid JSON list string, wrap it in a list
         return [diag_data]
 
     def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
