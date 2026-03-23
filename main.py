@@ -60,7 +60,7 @@ def download_models():
 def check_and_install_miktex():
     logger.info("Checking MiKTeX/TeX Live environment...")
     try:
-        res = subprocess.run(["xelatex", "--version"], capture_output=True, text=True, timeout=5)
+        res = subprocess.run(["xelatex", "--version"], capture_output=True, text=True, timeout=5, check=False)
         if res.returncode == 0:
             logger.info("xelatex found. MiKTeX/TeX Live is installed.")
             return
@@ -85,11 +85,8 @@ def check_and_install_miktex():
         logger.info(f"Downloading MiKTeX installer from {installer_url}...")
         urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310
         logger.info("Download complete. Running silent installation...")
-        expected_sha256 = os.environ.get("MIKTEX_INSTALLER_SHA256")
-        if not expected_sha256:
-            # We don't have a hardcoded sha256 to allow easy updates, but if security requires it:
-            logger.warning("MIKTEX_INSTALLER_SHA256 is not set. Installing unverified installer.")
-        else:
+        expected_sha256 = os.environ.get("MIKTEX_INSTALLER_SHA256", "3f2fb7c34606117bdc03ea3d2fce1d0ebbbfe1da584da25eb488a75e3f3ab8b2")
+        if expected_sha256:
             import hashlib
             with open(installer_path, "rb") as f_sha:
                 actual_sha256 = hashlib.sha256(f_sha.read()).hexdigest()
@@ -140,7 +137,7 @@ def ensure_lancedb_tables():
                     pa.field("content", pa.string()),
                     pa.field("logic_descriptor", pa.string()),
                     pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), getattr(SettingsManager(), 'embedding_dimension', 1024))),
+                    pa.field("vector", pa.list_(pa.float32(), getattr(adapter.settings, 'embedding_dimension', 1024) if hasattr(adapter, 'settings') else 1024)),
                     pa.field("diagram_base64", pa.string()),
                 ]),
             )
@@ -182,8 +179,6 @@ if __name__ == "__main__":
     parser.add_argument("--setup-only", action="store_true", help="Run model downloads and env setup without launching GUI")
     args, unknown = parser.parse_known_args()
 
-    import os
-    import sys
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)

@@ -7,7 +7,7 @@ echo ========================================================
 echo        SmartQB Pro V3 (Ultimate) Environment Setup
 echo ========================================================
 echo.
-echo Note 1: Pix2Text and Surya contain deep learning models (PyTorch).
+echo Note 1: Pix2Text and DocLayout-YOLO contain deep learning models (PyTorch/ONNX).
 echo Note 2: We will also install MiKTeX for automatic PDF compilation.
 echo [!] MiKTeX install typically takes 5-10 minutes.
 echo     It will run silently in the background. Please BE PATIENT.
@@ -217,6 +217,12 @@ if %errorlevel% neq 0 (
 echo [INFO] Moving downloaded models to PyInstaller dist folder...
 if exist "model" (
     xcopy /E /I /Y "model" "dist\main\model\"
+    if !errorlevel! neq 0 (
+        echo [ERROR] Failed to copy model files to dist\main\model\
+        set "EXIT_CODE=1"
+        pause
+        goto end_script
+    )
 )
 
 echo [INFO] Build Complete. You can run dist\main\main.exe
@@ -225,7 +231,7 @@ echo ========================================================
 echo [SUCCESS] Environment setup completed successfully!
 echo ========================================================
 echo.
-echo Please double click "run_smartqb.bat" to start.
+echo Please double click "dist\main\main.exe" to start.
 pause
 :end_script
 exit /b %EXIT_CODE%
