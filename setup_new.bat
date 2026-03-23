@@ -142,16 +142,46 @@ echo [3/6] Activating virtual environment...
 call venv\Scripts\activate
 python -m pip install --upgrade pip >nul 2>&1
 
+
 :: 4. Direct Install Dependencies
-echo [4/6] Downloading and installing Python dependencies...
-:: Added surya-ocr ultralytics psutil dependency as required by the latest update
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx onnxruntime opencv-python-headless lancedb pyarrow ultralytics psutil -i https://pypi.tuna.tsinghua.edu.cn/simple && (pip install "surya-ocr>=0.3.0" -i https://pypi.tuna.tsinghua.edu.cn/simple || echo [WARNING] surya-ocr installation failed, Surya engine will be disabled.)
-if %errorlevel% neq 0 (
-    echo [ERROR] Installation failed. Please check your network and try again.
-    set "EXIT_CODE=1"
-    pause
-    goto end_script
+echo [4/6] Detecting GPU and installing Python dependencies...
+
+set "GPU_VENDOR="
+set "ONNX_PKG=onnxruntime"
+
+for /f "tokens=2 delims==" %%I in ('wmic path win32_VideoController get name /value ^| findstr "="') do (
+    set "GPU_NAME=%%I"
+    echo [INFO] Found GPU: !GPU_NAME!
+
+    echo !GPU_NAME! | findstr /i "NVIDIA" >nul
+    if !errorlevel! equ 0 set "GPU_VENDOR=NVIDIA"
+
+    echo !GPU_NAME! | findstr /i "AMD" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=AMD"
+
+    echo !GPU_NAME! | findstr /i "Intel" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=Intel"
+
+    echo !GPU_NAME! | findstr /i "Radeon" >nul
+    if !errorlevel! equ 0 if "!GPU_VENDOR!"=="" set "GPU_VENDOR=AMD"
 )
+
+if "!GPU_VENDOR!"=="NVIDIA" (
+    set "ONNX_PKG=onnxruntime-gpu onnxruntime-directml"
+    echo [INFO] NVIDIA GPU detected. Will install !ONNX_PKG!
+) else if "!GPU_VENDOR!"=="AMD" (
+    set "ONNX_PKG=onnxruntime-directml"
+    echo [INFO] AMD GPU detected. Will install !ONNX_PKG!
+) else if "!GPU_VENDOR!"=="Intel" (
+    set "ONNX_PKG=onnxruntime-directml"
+    echo [INFO] Intel GPU detected. Will install !ONNX_PKG!
+) else (
+    set "ONNX_PKG=onnxruntime"
+    echo [INFO] No dedicated GPU vendor recognized. Will install !ONNX_PKG!
+)
+
+:: Removed hardcoded onnxruntime, replaced with %ONNX_PKG% and added pyinstaller
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 :: 5. Setup AI Models
 echo.
@@ -167,15 +197,29 @@ if %MODEL_ERR% neq 0 (
 )
 echo.
 
-:: 6. Create the startup script
-echo [6/6] Creating run_smartqb.bat...
-echo @echo off > run_smartqb.bat
-echo echo Starting SmartQB Pro... >> run_smartqb.bat
-echo set "PATH=%%LOCALAPPDATA%%\Programs\MiKTeX\miktex\bin\x64;%%PATH%%" >> run_smartqb.bat
-echo call venv\Scripts\activate >> run_smartqb.bat
-echo python main.py >> run_smartqb.bat
-echo pause >> run_smartqb.bat
 
+:: 6. Download Models and Build PyInstaller
+echo [6/6] Packaging application with PyInstaller...
+
+echo [INFO] Pre-downloading AI models and checking MiKTeX before packaging...
+python -c "import main; main.download_models(); main.check_and_install_miktex()"
+
+echo [INFO] Building .exe with PyInstaller...
+pyinstaller --noconfirm --onedir --windowed --add-data "assets;assets" --hidden-import="pyarrow" main.py
+
+if %errorlevel% neq 0 (
+    echo [ERROR] PyInstaller build failed.
+    set "EXIT_CODE=1"
+    pause
+    goto end_script
+)
+
+echo [INFO] Moving downloaded models to PyInstaller dist folder...
+if exist "model" (
+    xcopy /E /I /Y "model" "dist\main\model\"
+)
+
+echo [INFO] Build Complete. You can run dist\main\main.exe
 echo.
 echo ========================================================
 echo [SUCCESS] Environment setup completed successfully!

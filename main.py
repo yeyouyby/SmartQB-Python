@@ -177,6 +177,11 @@ def ensure_lancedb_tables():
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--setup-only", action="store_true", help="Run model downloads and env setup without launching GUI")
+    args, unknown = parser.parse_known_args()
+
     import os
     import sys
     os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
@@ -189,6 +194,11 @@ if __name__ == "__main__":
     os.environ["PIX2TEXT_HOME"] = p2t_dir
     os.environ["CNSTD_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
     os.environ["CNOCR_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
+
+    if args.setup_only:
+        download_models()
+        check_and_install_miktex()
+        sys.exit(0)
 
     threading.Thread(target=download_models).start()
     threading.Thread(target=check_and_install_miktex).start()
