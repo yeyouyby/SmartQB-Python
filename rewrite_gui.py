@@ -1,4 +1,5 @@
-import os
+with open("gui_app.py", "w", encoding="utf-8") as f:
+    f.write("""import os
 import warnings
 import json
 import re
@@ -187,7 +188,7 @@ class SmartQBApp(MSFluentWindow):
         return content_text, diagram
 
     def _test_compile_latex(self, content_text):
-        tex_code = f"\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}"
+        tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
         with tempfile.TemporaryDirectory() as td:
             tex_file = os.path.join(td, "test.tex")
             with open(tex_file, "w", encoding="utf-8") as f_tex:
@@ -234,3 +235,4 @@ if __name__ == "__main__":
     window = SmartQBApp()
     window.show()
     sys.exit(app.exec())
+""")
