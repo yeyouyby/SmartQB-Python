@@ -4,22 +4,18 @@ import warnings
 import io
 import json
 import gc
-import threading
 import base64
 import re
 import tempfile
 import subprocess
-import tkinter as tk
 from utils import logger
-from tkinter import ttk, filedialog, messagebox
-from PIL import Image, ImageTk
+from PIL import Image
+
 try:
     from pix2text import Pix2Text
 except Exception as e:
     Pix2Text = None
     print(f"Warning: Failed to import Pix2Text: {e}")
-
-
 
 from config import DB_NAME
 from settings_manager import SettingsManager
@@ -28,21 +24,54 @@ from ai_service import AIService
 from document_service import DocumentService
 from search_service import vector_search_db
 
+import sys
+from PySide6.QtCore import Qt, Signal, QThread, QTimer, QUrl, QSize
+from PySide6.QtGui import QIcon, QPixmap, QImage, QDesktopServices, QColor
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QVBoxLayout,
+                               QWidget, QFileDialog, QSplitter)
+from qfluentwidgets import (MSFluentWindow, NavigationItemPosition, FluentIcon,
+                            SubtitleLabel, setFont, Theme, setTheme, setThemeColor,
+                            MessageBox, PrimaryPushButton, PushButton, TextEdit,
+                            LineEdit, TableWidget, TreeWidget, QTreeWidgetItem,
+                            ImageLabel, BodyLabel, SwitchSettingCard, ComboBox,
+                            InfoBar, InfoBarPosition, SpinBox, TitleLabel)
+from qfluentwidgets import FluentIcon as FIF
+
 # Set up transformers warnings suppression
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 
-# ==========================================
-# 主应用 GUI
-# ==========================================
-class SmartQBApp(tk.Tk):
+class Widget(QFrame):
+    def __init__(self, text: str, parent=None):
+        super().__init__(parent=parent)
+        self.setObjectName(text.replace(' ', '-'))
+        self.vBoxLayout = QVBoxLayout(self)
+        self.vBoxLayout.setContentsMargins(16, 16, 16, 16)
+
+class SmartQBApp(MSFluentWindow):
+    # Signals for thread-safe UI updates
+    update_import_status_signal = Signal(str)
+    slice_ready_signal = Signal(dict)
+    refresh_staging_tree_signal = Signal()
+    api_retry_signal = Signal(str, object)
+
     def __init__(self):
         super().__init__()
-        self.title("SmartQB Pro V3 - 智能题库桌面端 (完整版)")
-        self.geometry("1300x850")
-
         self.settings = SettingsManager()
         self.ai_service = AIService(self.settings)
+
+        # Basic Window Setup
+        self.resize(1300, 850)
+        self.setWindowTitle("SmartQB Pro V3 - 智能题库桌面端 (完整版)")
+        self.setWindowIcon(QIcon("assets/logo.png")) if os.path.exists("assets/logo.png") else None
+
+        # Enable Acrylic background
+        # Note: Acrylic effect works differently on Windows 10 vs 11
+        if hasattr(self, "windowEffect"):
+            self.windowEffect.setMicaEffect(self.winId(), isDarkMode=Theme.DARK == self.settings)
+
+        self.staging_questions = []
+        self.export_bag = []
 
         logger.info("正在加载 Pix2Text 引擎 (首次启动可能需要下载模型，请耐心等待)...")
         try:
@@ -52,12 +81,6 @@ class SmartQBApp(tk.Tk):
             logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
             self.ocr_engine = None
 
-
-
-
-
-
-
         logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
         try:
             self.doclayout_yolo = DocLayoutYOLO()
@@ -65,23 +88,21 @@ class SmartQBApp(tk.Tk):
             logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
             self.doclayout_yolo = None
 
-        self.staging_questions = []
-        self.export_bag = []
+        self.initSubInterfaces()
+        self.initNavigation()
 
-        self.notebook = ttk.Notebook(self)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Connect signals
+        self.update_import_status_signal.connect(self.on_update_import_status)
+        self.slice_ready_signal.connect(self.on_slice_ready)
+        self.refresh_staging_tree_signal.connect(self.refresh_staging_tree)
+        self.api_retry_signal.connect(self.show_api_retry_dialog)
 
-        self.tab_import = ttk.Frame(self.notebook)
-        self.tab_manual = ttk.Frame(self.notebook)
-        self.tab_library = ttk.Frame(self.notebook)
-        self.tab_export = ttk.Frame(self.notebook)
-        self.tab_settings = ttk.Frame(self.notebook)
-
-        self.notebook.add(self.tab_import, text="1. 文件导入与审阅 (Import)")
-        self.notebook.add(self.tab_manual, text="➕ 手动单题录入")
-        self.notebook.add(self.tab_library, text="2. 题库维护 (Library)")
-        self.notebook.add(self.tab_export, text="3. 题目袋组卷 (Export)")
-        self.notebook.add(self.tab_settings, text="设置 (Settings)")
+    def initSubInterfaces(self):
+        self.tab_import = Widget('Import', self)
+        self.tab_manual = Widget('Manual', self)
+        self.tab_library = Widget('Library', self)
+        self.tab_export = Widget('Export', self)
+        self.tab_settings = Widget('Settings', self)
 
         self.build_import_tab()
         self.build_manual_tab()
@@ -89,10 +110,53 @@ class SmartQBApp(tk.Tk):
         self.build_export_tab()
         self.build_settings_tab()
 
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+    def initNavigation(self):
+        self.addSubInterface(self.tab_import, FIF.DOCUMENT, '导入与审阅')
+        self.addSubInterface(self.tab_manual, FIF.ADD, '手动录入')
+        self.addSubInterface(self.tab_library, FIF.LIBRARY, '题库维护')
+        self.addSubInterface(self.tab_export, FIF.PRINT, '题目袋组卷')
+
+        self.addSubInterface(self.tab_settings, FIF.SETTING, '设置', position=NavigationItemPosition.BOTTOM)
+
+        # Custom Toggle Theme button
+        self.navigationInterface.addItem(
+            routeKey='ThemeToggle',
+            icon=FIF.BRUSH,
+            text='切换主题',
+            onClick=self.toggle_theme,
+            selectable=False,
+            position=NavigationItemPosition.BOTTOM,
+        )
+
+        self.navigationInterface.setCurrentItem(self.tab_import.objectName())
+
+    def toggle_theme(self):
+        current = getattr(self.settings, 'theme', 'Light')
+        if current == "Dark":
+            setTheme(Theme.LIGHT)
+            self.settings.theme = "Light"
+        else:
+            setTheme(Theme.DARK)
+            self.settings.theme = "Dark"
+
+        # Save setting if needed or just apply instantly
+        if hasattr(self, "windowEffect"):
+            self.windowEffect.setMicaEffect(self.winId(), isDarkMode=(self.settings.theme == "Dark"))
+
+    def show_message_info(self, title, content):
+        InfoBar.info(title, content, duration=3000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+    def show_message_error(self, title, content):
+        InfoBar.error(title, content, duration=5000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+    def show_message_success(self, title, content):
+        InfoBar.success(title, content, duration=3000, position=InfoBarPosition.TOP_RIGHT, parent=self)
+
+    def show_message_warning(self, title, content):
+        InfoBar.warning(title, content, duration=4000, position=InfoBarPosition.TOP_RIGHT, parent=self)
 
     # ------------------------------------------
-    # API 错误拦截
+    # Helper Methods
     # ------------------------------------------
     def _parse_diagram_json(self, diag_data):
         if not diag_data:
@@ -101,17 +165,17 @@ class SmartQBApp(tk.Tk):
             return diag_data
         if isinstance(diag_data, str):
             try:
-                # Attempt to parse the string as a JSON list
                 parsed_list = json.loads(diag_data)
                 if isinstance(parsed_list, list):
                     return parsed_list
             except json.JSONDecodeError:
-                # If parsing fails, assume it's a single base64 string
                 pass
-        # If it's not a list or a valid JSON list string, wrap it in a list
         return [diag_data]
 
-    def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
+    def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map, per_question_d_map=None):
+        if per_question_d_map is None:
+            per_question_d_map = {}
+
         marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
         matches = marker_pattern.findall(content_text)
         diagrams_list = []
@@ -120,21 +184,25 @@ class SmartQBApp(tk.Tk):
             for marker_idx in unique_matches:
                 if marker_idx in combined_d_map:
                     diagrams_list.append(combined_d_map[marker_idx])
+                elif marker_idx in per_question_d_map:
+                    diagrams_list.append(per_question_d_map[marker_idx])
 
             resolved_markers = []
             for m in unique_matches:
-                if m in combined_d_map:
+                if m in combined_d_map or m in per_question_d_map:
                     resolved_markers.append(m)
             if resolved_markers:
                 for m in resolved_markers:
                     content_text = content_text.replace(f"[[{{ima_dont_del_{m}}}]]", "")
                 content_text = content_text.strip()
         else:
-            # Fallback for legacy items without markers
-            if "diagram" in combined_d_map and combined_d_map["diagram"]:
+            if "diagram" in per_question_d_map and per_question_d_map["diagram"]:
+                diagrams_list.append(per_question_d_map["diagram"])
+            elif len(per_question_d_map) == 1:
+                diagrams_list.append(next(iter(per_question_d_map.values())))
+            elif "diagram" in combined_d_map and combined_d_map["diagram"]:
                 diagrams_list.append(combined_d_map["diagram"])
             elif len(combined_d_map) == 1:
-                # If there's exactly one diagram in the map but no marker, use it
                 diagrams_list.append(next(iter(combined_d_map.values())))
 
         diagram = None
@@ -167,1728 +235,697 @@ class SmartQBApp(tk.Tk):
             q.pop('image_b64', None)
             q.pop('page_annotated_b64', None)
         self.staging_questions.clear()
-        self.txt_stg_content.delete("1.0", tk.END)
-        self.ent_stg_tags.delete(0, tk.END)
-        if hasattr(self, 'lbl_vector_info'):
-            self.lbl_vector_info.config(text="未生成向量")
-        self.lbl_stg_diagram.config(image='', text="无图样")
-        if hasattr(self.lbl_stg_diagram, 'image'):
-            del self.lbl_stg_diagram.image
+        self.txt_stg_content.clear()
+        self.ent_stg_tags.clear()
+        self.lbl_vector_info.setText("未生成向量")
+        self.lbl_stg_diagram.clear()
+        self.lbl_stg_diagram.setText("无图样")
         gc.collect()
 
-    def check_and_fix_latex(self):
-        sel = self.tree_staging.selection()
-        if not sel:
-            messagebox.showinfo("提示", "请选择需要检查 LaTeX 的题目。")
-            return
-
-        selected_indices = [int(s) for s in sel]
-        for idx in selected_indices:
-            q = self.staging_questions[idx]
-            if q.get("logic") == "等待 AI 处理...":
-                messagebox.showwarning("无法检查", "选中的部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再检查！")
-                return
-
-        self.update_status("正在检查选中题目的 LaTeX 编译...")
-        logger.info("Starting LaTeX check for selected staged questions...")
-
-        selected_indices = [int(s) for s in sel]
-
-        def task():
-
-            failed_indices = []
-            successful_questions = []
-
-            total_questions = len(selected_indices)
-            for idx in selected_indices:
-                q = self.staging_questions[idx]
-                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1} 题..."))
-                success, err_msg = self._test_compile_latex(q["content"])
-                if not success:
-                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
-                    fixed_content = self.ai_service.ai_fix_latex(q["content"], err_msg)
-                    if fixed_content:
-                        success2, err_msg2 = self._test_compile_latex(fixed_content)
-                        if success2:
-                            q["content"] = fixed_content
-                            successful_questions.append((idx, q))
-                        else:
-                            failed_indices.append(idx)
-                    else:
-                        failed_indices.append(idx)
-                else:
-                    successful_questions.append((idx, q))
-
-            def update_ui():
-                self.refresh_staging_tree()
-                # Restore selection
-                for idx in selected_indices:
-                    try:
-                        self.tree_staging.selection_add(str(idx))
-                    except tk.TclError:
-                        pass
-                if len(selected_indices) > 0:
-                    self.on_staging_select(None)
-                self.update_status(f"LaTeX 检查完成。选中 {total_questions} 题，成功修复 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。")
-                messagebox.showinfo("检查完成", f"成功检查修复 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。")
-
-            self.after(0, update_ui)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def ask_api_retry_sync(self, error_msg):
-        result = [False]
-        event = threading.Event()
-        def show_dialog():
-            dialog = tk.Toplevel(self)
-            dialog.title("⚠️ API 请求失败")
-            dialog.geometry("450x300")
-            dialog.grab_set()
-
-            ttk.Label(dialog, text=f"发生错误:\n{error_msg}", foreground="red", wraplength=430).pack(pady=10)
-
-            form_frame = ttk.Frame(dialog)
-            form_frame.pack(fill=tk.X, padx=20, pady=5)
-
-            ttk.Label(form_frame, text="API Key:").grid(row=0, column=0, sticky=tk.W, pady=5)
-            ent_api = ttk.Entry(form_frame, width=35)
-            ent_api.insert(0, self.settings.api_key)
-            ent_api.grid(row=0, column=1, pady=5)
-
-            ttk.Label(form_frame, text="Base URL:").grid(row=1, column=0, sticky=tk.W, pady=5)
-            ent_base = ttk.Entry(form_frame, width=35)
-            ent_base.insert(0, self.settings.base_url)
-            ent_base.grid(row=1, column=1, pady=5)
-
-            def on_save():
-                self.settings.api_key = ent_api.get().strip()
-                self.settings.base_url = ent_base.get().strip()
-                self.settings.save()
-                self.ai_service.settings = self.settings
-                result[0] = True
-                dialog.destroy()
-                event.set()
-
-            def on_cancel():
-                result[0] = False
-                dialog.destroy()
-                event.set()
-
-            btn_frame = ttk.Frame(dialog)
-            btn_frame.pack(pady=10)
-            ttk.Button(btn_frame, text="💾 保存并继续重试", command=on_save).pack(side=tk.LEFT, padx=10)
-            ttk.Button(btn_frame, text="⏭️ 取消并降级跳过", command=on_cancel).pack(side=tk.LEFT, padx=10)
-            dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-
-        self.after(0, show_dialog)
-        event.wait()
-        return result[0]
-
-    # ------------------------------------------
-    # Import View
-    # ------------------------------------------
-    def build_import_tab(self):
-        top_frame = ttk.Frame(self.tab_import)
-        top_frame.pack(fill=tk.X, pady=5, padx=5)
-
-        ttk.Button(top_frame, text="📄 导入 PDF", command=lambda: self.on_import_file("pdf")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="📝 导入 Word", command=lambda: self.on_import_file("word")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="🖼️ 导入单张图片", command=lambda: self.on_import_file("image")).pack(side=tk.LEFT, padx=2)
-
-        self.lbl_import_status = ttk.Label(top_frame, text="等待导入...", foreground="blue")
-        self.lbl_import_status.pack(side=tk.LEFT, padx=10)
-
-        paned = ttk.PanedWindow(self.tab_import, orient=tk.HORIZONTAL)
-        paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        left_frame = ttk.Frame(paned)
-        paned.add(left_frame, weight=1)
-
-        self.tree_staging = ttk.Treeview(left_frame, columns=("id", "content", "tags"), show="headings", selectmode="extended")
-        self.tree_staging.heading("id", text="序号")
-        self.tree_staging.column("id", width=40)
-        self.tree_staging.heading("content", text="识别内容预览")
-        self.tree_staging.heading("tags", text="标签")
-        self.tree_staging.column("tags", width=100)
-        self.tree_staging.pack(fill=tk.BOTH, expand=True)
-        self.tree_staging.bind('<<TreeviewSelect>>', self.on_staging_select)
-
-        ttk.Button(left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item).pack(fill=tk.X, pady=2)
-
-        # New AI Actions
-        ai_frame = ttk.LabelFrame(left_frame, text="AI 题目整理 (二次处理)")
-        ai_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(ai_frame, text="🔗 合并选中项", command=self.merge_staging_items).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item).pack(fill=tk.X, pady=2)
-
-        right_frame = ttk.Frame(paned)
-        paned.add(right_frame, weight=2)
-
-        ttk.Label(right_frame, text="AI 优化后文字内容 (可在此纠错):").pack(anchor=tk.W)
-        self.txt_stg_content = tk.Text(right_frame, height=8, font=("Consolas", 10))
-        self.txt_stg_content.pack(fill=tk.X, pady=2)
-
-        ttk.Label(right_frame, text="AI 打标 (逗号分隔):").pack(anchor=tk.W)
-        self.ent_stg_tags = ttk.Entry(right_frame)
-        self.ent_stg_tags.pack(fill=tk.X, pady=2)
-        ttk.Button(right_frame, text="💾 更新当前题目", command=self.update_stg_item).pack(anchor=tk.E, pady=5)
-
-        vec_frame = ttk.Frame(right_frame)
-        vec_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(vec_frame, text="向量化预览:").pack(side=tk.LEFT)
-        self.lbl_vector_info = ttk.Label(vec_frame, text="未生成向量")
-        self.lbl_vector_info.pack(side=tk.LEFT, padx=5)
-        ttk.Button(vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector).pack(side=tk.RIGHT)
-
-
-        self.lbl_stg_diagram = ttk.Label(right_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
-        self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
-
-        self.lbl_stg_diag_info = ttk.Label(right_frame, text="", anchor=tk.CENTER)
-        self.lbl_stg_diag_info.pack(fill=tk.X)
-
-        diag_btn_frame = ttk.Frame(right_frame)
-        diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-
-        move_btn_frame = ttk.Frame(right_frame)
-        move_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(move_btn_frame, text="⬇️ 将当前图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-
-        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
-
-        bottom_frame = ttk.Frame(self.tab_import)
-        bottom_frame.pack(fill=tk.X, pady=5, padx=5)
-
-        ttk.Label(bottom_frame, text="为整个试卷批量追加标签:").pack(side=tk.LEFT)
-        self.ent_batch_tag = ttk.Entry(bottom_frame, width=20)
-        self.ent_batch_tag.pack(side=tk.LEFT, padx=5)
-        ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
-
-        ttk.Button(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
-
-
-    def move_diagram_up(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        idx = int(sel[0])
-        if idx == 0:
-            messagebox.showinfo("提示", "已经是第一题，无法上移。")
-            return
-
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
-            messagebox.showinfo("提示", "当前题目没有图样。")
-            return
-
-        current_q = self.staging_questions[idx]
-        prev_q = self.staging_questions[idx - 1]
-
-        diag_to_move = self.stg_current_diags.pop(self.current_img_index)
-
-        # update current
-        if not self.stg_current_diags:
-            current_q["diagram"] = None
-        elif len(self.stg_current_diags) == 1:
-            current_q["diagram"] = self.stg_current_diags[0]
-        else:
-            current_q["diagram"] = json.dumps(self.stg_current_diags)
-
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
-
-        # update prev
-        prev_diags = self._parse_diagram_json(prev_q.get("diagram"))
-        prev_diags.append(diag_to_move)
-        if len(prev_diags) == 1:
-            prev_q["diagram"] = prev_diags[0]
-        else:
-            prev_q["diagram"] = json.dumps(prev_diags)
-
-        self.refresh_staging_tree()
-        self.tree_staging.selection_set(str(idx - 1))
-        self.on_staging_select(None)
-        self.update_status(f"图样已移至第 {idx} 题")
-
-    def move_diagram_down(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        idx = int(sel[0])
-        if idx == len(self.staging_questions) - 1:
-            messagebox.showinfo("提示", "已经是最后一题，无法下移。")
-            return
-
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
-            messagebox.showinfo("提示", "当前题目没有图样。")
-            return
-
-        current_q = self.staging_questions[idx]
-        next_q = self.staging_questions[idx + 1]
-
-        diag_to_move = self.stg_current_diags.pop(self.current_img_index)
-
-        # update current
-        if not self.stg_current_diags:
-            current_q["diagram"] = None
-        elif len(self.stg_current_diags) == 1:
-            current_q["diagram"] = self.stg_current_diags[0]
-        else:
-            current_q["diagram"] = json.dumps(self.stg_current_diags)
-
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
-
-        # update next
-        next_diags = self._parse_diagram_json(next_q.get("diagram"))
-        next_diags.append(diag_to_move)
-        if len(next_diags) == 1:
-            next_q["diagram"] = next_diags[0]
-        else:
-            next_q["diagram"] = json.dumps(next_diags)
-
-        self.refresh_staging_tree()
-        self.tree_staging.selection_set(str(idx + 1))
-        self.on_staging_select(None)
-        self.update_status(f"图样已移至第 {idx + 2} 题")
-
-    def show_page_layout_view(self):
-        sel = self.tree_staging.selection()
-        if not sel:
-            messagebox.showinfo("提示", "请先在左侧选择一道题目。")
-            return
-
-        q = self.staging_questions[int(sel[0])]
-        page_b64 = q.get("page_annotated_b64")
-
-        if not page_b64:
-            messagebox.showinfo("提示", "当前题目没有对应的完整版面分析图。")
-            return
-
-        try:
-            img = Image.open(io.BytesIO(base64.b64decode(page_b64)))
-
-            top = tk.Toplevel(self)
-            top.title("完整版面分析预览")
-            top.geometry("800x900")
-
-            canvas = tk.Canvas(top, bg="gray")
-            scroll_y = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
-            scroll_x = ttk.Scrollbar(top, orient="horizontal", command=canvas.xview)
-
-            canvas.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
-
-            scroll_y.pack(side="right", fill="y")
-            scroll_x.pack(side="bottom", fill="x")
-            canvas.pack(side="left", fill="both", expand=True)
-
-            photo = ImageTk.PhotoImage(img)
-            canvas.create_image(0, 0, image=photo, anchor="nw")
-            canvas.config(scrollregion=canvas.bbox("all"))
-
-            # Keep reference
-            top.photo = photo
-
-        except Exception as e:
-            messagebox.showerror("错误", f"无法加载版面图: {e}")
-
-    def on_import_file(self, file_type):
-        exts = {"pdf": [("PDF", "*.pdf")], "word": [("Word", "*.docx")], "image": [("Image", "*.png;*.jpg;*.jpeg")]}
-        file_path = filedialog.askopenfilename(filetypes=exts[file_type])
-        if not file_path: return
-        self.staging_questions.clear()
-        self.refresh_staging_tree()
-        threading.Thread(target=self.run_ingestion_pipeline, args=(file_path, file_type), daemon=True).start()
-
-    def run_ingestion_pipeline(self, file_path, file_type):
-        self.update_status("正在提取文档切片...")
-        pending_slices = []
-        mode = self.settings.recognition_mode
-
-        def handle_slice_ready(s):
-            if mode == 1:
-                combined_map = dict(s.get("diagram_map", {}))
-                content_text, diagram = self._resolve_markers_and_extract_diagrams(s["text"], combined_map)
-                item = {
-                    "content": content_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
-                }
-            else:
-                item = {
-                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
-                }
-            def _append_and_refresh():
-                self.staging_questions.append(item)
-                self.refresh_staging_tree()
-            self.after(0, _append_and_refresh)
-
-        try:
-            if file_type in ["pdf", "image"]:
-                # 在提取前清空 staging
-                def _clear_stg():
-                    self.staging_questions.clear()
-                    self.refresh_staging_tree()
-                self.after(0, _clear_stg)
-
-
-
-
-                # Lazy load DocLayout-YOLO if selected but not loaded
-                if self.doclayout_yolo is None:
-                    self.update_status("正在首次加载 DocLayout-YOLO 引擎，请稍候...")
-                    try:
-                        self.doclayout_yolo = DocLayoutYOLO()
-                    except Exception as e:
-                        logger.error(f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True)
-                        self.after(0, lambda err=e: messagebox.showerror("Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"))
-                        return
-
-                if self.doclayout_yolo is None:
-                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
-                if self.ocr_engine is None:
-                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
-
-                pending_slices = DocumentService.process_doc_with_layout(
-                    file_path, file_type,
-                    self.doclayout_yolo,
-                    self.ocr_engine,
-                    "Pix2Text",
-                    self.update_status, handle_slice_ready,
-                    det_predictor=None
-                )
-            elif file_type == "word":
-                def _clear_word():
-                    self.staging_questions.clear()
-                    self.refresh_staging_tree()
-                self.after(0, _clear_word)
-                pending_slices = DocumentService.extract_from_word(file_path)
-                for s in pending_slices:
-                    handle_slice_ready(s)
-
-            if mode == 1:
-                self.update_status("✅ 本地提取完毕！(未调用 AI)")
-                return
-
-        except Exception as e:
-            self.update_status(f"提取文件失败: {e}")
-            return
-
-        if not pending_slices:
-            self.update_status("✅ 处理完毕！没有提取到文字。")
-            return
-
-        # 模式 2 & 3 的核心处理循环
-        # 注意: 前面已经将 pending_slices 放入 staging_questions (作为草稿)，AI 处理后我们将清空它们并放入 AI 结果
-        def _clear_pre_ai():
-            self.staging_questions.clear()
-            self.refresh_staging_tree()
-        self.after(0, _clear_pre_ai)
-
-        self._process_ai_slices(pending_slices, mode, file_type)
-        self.update_status("✅ 文件全部处理并关联合并完毕！")
-
-    def _parse_and_append_ai_res(self, ai_res, current_idx, pending_slices, cumulative_d_map):
-        questions = ai_res.get("Questions", [])
-        pending_fragment = ai_res.get("PendingFragment", "")
-
-        try:
-            next_index = int(ai_res.get("NextIndex", current_idx + 1))
-        except (TypeError, ValueError):
-            next_index = current_idx + 1
-
-        if next_index <= current_idx:
-            next_index = current_idx + 1
-
-        for q in questions:
-            status = q.get("Status", "Complete")
-            if status == "NotQuestion":
-                continue
-
-            source_indices_raw = q.get("SourceSliceIndices", [])
-            if not isinstance(source_indices_raw, list):
-                source_indices_raw = []
-
-            source_indices = []
-            for raw_idx in source_indices_raw:
-                try:
-                    source_indices.append(int(raw_idx))
-                except (TypeError, ValueError):
-                    pass
-
-            image_b64 = ""
-            page_annotated_b64 = ""
-            content_text = q.get("Content", "")
-
-            per_question_d_map = {}
-            for idx in source_indices:
-                if 0 <= idx < len(pending_slices):
-                    if not image_b64 and pending_slices[idx].get("image_b64"):
-                        image_b64 = pending_slices[idx]["image_b64"]
-                    if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
-                        page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
-                    per_question_d_map.update(pending_slices[idx].get("diagram_map", {}))
-
-            content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map, per_question_d_map)
-
-            item = {
-                "content": content_text,
-                "logic": q.get("LogicDescriptor", ""),
-                "tags": q.get("Tags") if isinstance(q.get("Tags"), list) else [],
-                "diagram": diagram,
-                "image_b64": image_b64,
-                "page_annotated_b64": page_annotated_b64
-            }
-            def _safe_append(i=item):
-                self.staging_questions.append(i)
-            self.after(0, _safe_append)
-
-        self.after(0, self.refresh_staging_tree)
-        return next_index, pending_fragment
-
-    def _process_ai_slices(self, pending_slices, mode, file_type):
-        use_vision = (mode == 3 and file_type != "word")
-        batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
-
-        current_idx = 0
-        pending_fragment = ""
-        cumulative_d_map = {}
-
-        while current_idx < len(pending_slices):
-            end_idx = min(current_idx + batch_size + 1, len(pending_slices))
-            is_last_batch = (end_idx == len(pending_slices))
-
-            slices_to_send = []
-            for i in range(current_idx, end_idx):
-                slices_to_send.append({
-                    "index": i,
-                    "text": pending_slices[i]["text"],
-                    "image_b64": pending_slices[i].get("image_b64", "")
-                })
-                cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
-
-            desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
-            self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
-
-            try:
-                ai_res = self.ai_service.process_slices_with_context(
-                    slices_to_send,
-                    use_vision=use_vision,
-                    pending_fragment=pending_fragment,
-                    is_last_batch=is_last_batch
-                )
-
-                current_idx, pending_fragment = self._parse_and_append_ai_res(ai_res, current_idx, pending_slices, cumulative_d_map)
-
-            except Exception as e:
-                logger.error(f"AI 处理异常: {e}", exc_info=True)
-                if self.ask_api_retry_sync(str(e)):
-                    continue
-                else:
-                    # 降级：放弃批次，保存源数据
-                    fallback_end = min(current_idx + batch_size, len(pending_slices))
-                    if fallback_end == current_idx: fallback_end += 1
-                    for i in range(current_idx, fallback_end):
-                        raw_text = pending_slices[i]["text"]
-                        clean_text, fallback_diagram = self._resolve_markers_and_extract_diagrams(raw_text, cumulative_d_map, pending_slices[i].get("diagram_map", {}))
-
-                        item = {
-                            "content": clean_text,
-                            "logic": "API 失败，未解析",
-                            "tags": ["API错误", "需人工校对"],
-                            "diagram": fallback_diagram,
-                            "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
-                        }
-                        def _safe_append_f(itm=item):
-                            self.staging_questions.append(itm)
-                        self.after(0, _safe_append_f)
-                    self.after(0, self.refresh_staging_tree)
-                    current_idx = fallback_end
-
-        # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
-        if pending_fragment and pending_fragment.strip():
-            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, cumulative_d_map)
-            item = {
-                "content": clean_frag,
-                "logic": "跨页未完结残段 (合并结束仍遗留)",
-                "tags": ["需人工校对"],
-                "diagram": diag_frag,
-                "image_b64": ""
-            }
-            def _safe_append_rem(itm=item):
-                self.staging_questions.append(itm)
-            self.after(0, _safe_append_rem)
-            self.after(0, self.refresh_staging_tree)
-
     def update_status(self, text):
-        self.after(0, lambda: self.lbl_import_status.config(text=text))
+        self.update_import_status_signal.emit(text)
 
-    def refresh_staging_tree(self):
-        for i in self.tree_staging.get_children(): self.tree_staging.delete(i)
-        for idx, q in enumerate(self.staging_questions):
-            preview = q["content"][:40].replace('\n', ' ')
-            self.tree_staging.insert("", tk.END, iid=str(idx), values=(idx+1, preview, ",".join(q["tags"])))
+    def on_update_import_status(self, text):
+        self.lbl_import_status.setText(text)
 
-    def on_staging_select(self, event):
-        sel = self.tree_staging.selection()
-        if not sel: return
+    # UI Builds
+    def build_import_tab(self):
+        # Top toolbar
+        top_frame = QFrame(self.tab_import)
+        h_layout = QHBoxLayout(top_frame)
+        h_layout.setContentsMargins(0, 0, 0, 0)
 
-        # We only want to handle the first selected item for preview if multiple are selected
-        q = self.staging_questions[int(sel[0])]
-        self.txt_stg_content.delete("1.0", tk.END)
-        self.txt_stg_content.insert(tk.END, q["content"])
-        self.ent_stg_tags.delete(0, tk.END)
-        self.ent_stg_tags.insert(0, ",".join(q.get("tags", [])))
+        btn_import_pdf = PushButton("📄 导入 PDF")
+        btn_import_word = PushButton("📝 导入 Word")
+        btn_import_image = PushButton("🖼️ 导入单张图片")
 
-        # Determine what to display (diagram if present)
-        display_img_b64 = q.get("diagram")
-        self.stg_current_diags = self._parse_diagram_json(display_img_b64)
-        self.current_img_index = 0
-        self._render_stg_diagram()
+        h_layout.addWidget(btn_import_pdf)
+        h_layout.addWidget(btn_import_word)
+        h_layout.addWidget(btn_import_image)
 
-        vec = q.get("embedding", [])
-        if vec:
-            preview = str([round(v, 3) for v in vec[:3]]) + "..."
-            self.lbl_vector_info.config(text=f"已生成 (维度: {len(vec)}) {preview}")
-        else:
-            self.lbl_vector_info.config(text="未生成向量")
+        self.lbl_import_status = SubtitleLabel("等待导入...")
+        self.lbl_import_status.setStyleSheet("color: #0078D7;")
+        h_layout.addWidget(self.lbl_import_status)
+        h_layout.addStretch(1)
 
-    def _render_stg_diagram(self):
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_stg_diagram, 'image'):
-                del self.lbl_stg_diagram.image
-            self.lbl_stg_diag_info.config(text="")
-            return
+        self.tab_import.vBoxLayout.addWidget(top_frame)
 
-        display_img_b64 = self.stg_current_diags[self.current_img_index]
-        if display_img_b64:
-            try:
-                display_img_clean = display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64
-                img = Image.open(io.BytesIO(base64.b64decode(display_img_clean))).copy()
-                img.thumbnail((400, 300))
-                photo = ImageTk.PhotoImage(img)
-                self.lbl_stg_diagram.config(image=photo, text="")
-                self.lbl_stg_diagram.image = photo
+        # Paned Window (Splitter)
+        paned = QSplitter(Qt.Horizontal, self.tab_import)
+        self.tab_import.vBoxLayout.addWidget(paned, 1)
 
-                info_text = f"图样 {self.current_img_index + 1} / {len(self.stg_current_diags)}"
-                self.lbl_stg_diag_info.config(text=info_text)
-            except Exception as e:
-                self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
-                self.lbl_stg_diag_info.config(text="")
-        else:
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            self.lbl_stg_diag_info.config(text="")
+        # Left Frame
+        left_frame = QFrame(paned)
+        v_layout_left = QVBoxLayout(left_frame)
 
-    def stg_prev_diagram(self):
-        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
-            self.current_img_index = (self.current_img_index - 1) % len(self.stg_current_diags)
-            self._render_stg_diagram()
+        self.tree_staging = TableWidget()
+        self.tree_staging.setColumnCount(3)
+        self.tree_staging.setHorizontalHeaderLabels(["序号", "识别内容预览", "标签"])
+        self.tree_staging.setSelectionBehavior(TableWidget.SelectRows)
+        self.tree_staging.itemSelectionChanged.connect(self.on_staging_select)
+        v_layout_left.addWidget(self.tree_staging, 1)
 
-    def stg_next_diagram(self):
-        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
-            self.current_img_index = (self.current_img_index + 1) % len(self.stg_current_diags)
-            self._render_stg_diagram()
+        btn_delete_item = PushButton("❌ 彻底删除选中题目")
+        btn_delete_item.clicked.connect(self.delete_staging_item)
+        v_layout_left.addWidget(btn_delete_item)
 
-    def stg_delete_diagram(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        idx = int(sel[0])
+        ai_frame = QFrame(left_frame)
+        ai_layout = QVBoxLayout(ai_frame)
+        ai_layout.setContentsMargins(0,0,0,0)
 
-        if not (hasattr(self, 'stg_current_diags') and self.stg_current_diags):
-            return
+        ai_label = SubtitleLabel("AI 题目整理 (二次处理)")
+        ai_layout.addWidget(ai_label)
 
-        del self.stg_current_diags[self.current_img_index]
+        btn_merge = PushButton("🔗 合并选中项")
+        btn_split = PushButton("✂️ 拆分当前项")
+        btn_format = PushButton("✨ 重新排版(修正格式)")
+        btn_merge.clicked.connect(self.merge_staging_items)
+        btn_split.clicked.connect(self.split_staging_item)
+        btn_format.clicked.connect(self.format_staging_item)
+        ai_layout.addWidget(btn_merge)
+        ai_layout.addWidget(btn_split)
+        ai_layout.addWidget(btn_format)
 
-        q = self.staging_questions[idx]
-        if not self.stg_current_diags:
-            q["diagram"] = None
-        elif len(self.stg_current_diags) == 1:
-            q["diagram"] = self.stg_current_diags[0]
-        else:
-            q["diagram"] = json.dumps(self.stg_current_diags)
+        v_layout_left.addWidget(ai_frame)
 
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
-        self._render_stg_diagram()
+        # Right Frame
+        right_frame = QFrame(paned)
+        v_layout_right = QVBoxLayout(right_frame)
 
-    def update_staging_vector(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        self.lbl_vector_info.config(text=f"正在为 {len(sel)} 题生成向量...")
-        self.update()
+        v_layout_right.addWidget(BodyLabel("AI 优化后文字内容 (可在此纠错):"))
+        self.txt_stg_content = TextEdit()
+        v_layout_right.addWidget(self.txt_stg_content, 1)
 
-        def task():
-            success_count = 0
-            fail_count = 0
-            last_vec = None
+        v_layout_right.addWidget(BodyLabel("AI 打标 (逗号分隔):"))
+        self.ent_stg_tags = LineEdit()
+        v_layout_right.addWidget(self.ent_stg_tags)
 
-            for s in sel:
-                idx = int(s)
-                q = self.staging_questions[idx]
-                text_to_embed = q.get("logic", "") or q.get("content", "")
-                if not text_to_embed:
-                    fail_count += 1
-                    continue
+        btn_update_stg = PushButton("💾 更新当前题目")
+        btn_update_stg.clicked.connect(self.update_stg_item)
+        v_layout_right.addWidget(btn_update_stg, alignment=Qt.AlignRight)
 
-                vec = self.ai_service.get_embedding(text_to_embed)
-                if vec:
-                    q["embedding"] = vec
-                    success_count += 1
-                    if idx == int(sel[0]):  # Keep preview of the first selected item
-                        last_vec = vec
-                else:
-                    fail_count += 1
+        vec_frame = QFrame()
+        vec_layout = QHBoxLayout(vec_frame)
+        vec_layout.addWidget(BodyLabel("向量化预览:"))
+        self.lbl_vector_info = BodyLabel("未生成向量")
+        vec_layout.addWidget(self.lbl_vector_info)
+        vec_layout.addStretch(1)
+        btn_vector = PushButton("🔄 生成/更新向量")
+        btn_vector.clicked.connect(self.update_staging_vector)
+        vec_layout.addWidget(btn_vector)
+        v_layout_right.addWidget(vec_frame)
 
-            def update_ui():
-                if success_count > 0:
-                    preview = str([round(v, 3) for v in last_vec[:3]]) + "..." if last_vec else ""
-                    self.lbl_vector_info.config(text=f"成功: {success_count}, 失败: {fail_count}. {preview}")
-                else:
-                    self.lbl_vector_info.config(text="生成失败")
+        self.lbl_stg_diagram = ImageLabel(self)
+        self.lbl_stg_diagram.setFixedSize(400, 300)
+        self.lbl_stg_diagram.setStyleSheet("background-color: #e0e0e0;")
+        self.lbl_stg_diagram.setAlignment(Qt.AlignCenter)
+        v_layout_right.addWidget(self.lbl_stg_diagram, alignment=Qt.AlignCenter)
 
-            self.after(0, update_ui)
+        self.lbl_stg_diag_info = BodyLabel("")
+        self.lbl_stg_diag_info.setAlignment(Qt.AlignCenter)
+        v_layout_right.addWidget(self.lbl_stg_diag_info)
 
-        threading.Thread(target=task, daemon=True).start()
+        diag_btn_frame = QFrame()
+        diag_layout = QHBoxLayout(diag_btn_frame)
+        btn_prev_diag = PushButton("⬅️ 上一图")
+        btn_del_diag = PushButton("❌ 删除当前图")
+        btn_next_diag = PushButton("下一图 ➡️")
+        btn_prev_diag.clicked.connect(self.stg_prev_diagram)
+        btn_del_diag.clicked.connect(self.stg_delete_diagram)
+        btn_next_diag.clicked.connect(self.stg_next_diagram)
+        diag_layout.addWidget(btn_prev_diag)
+        diag_layout.addWidget(btn_del_diag)
+        diag_layout.addWidget(btn_next_diag)
+        v_layout_right.addWidget(diag_btn_frame)
 
+        move_btn_frame = QFrame()
+        move_layout = QHBoxLayout(move_btn_frame)
+        btn_move_up = PushButton("⬆️ 将当前图样移至上一题")
+        btn_move_down = PushButton("⬇️ 将当前图样移至下一题")
+        btn_move_up.clicked.connect(self.move_diagram_up)
+        btn_move_down.clicked.connect(self.move_diagram_down)
+        move_layout.addWidget(btn_move_up)
+        move_layout.addWidget(btn_move_down)
+        v_layout_right.addWidget(move_btn_frame)
 
-    def merge_staging_items(self):
-        sel = self.tree_staging.selection()
-        if len(sel) < 2:
-            messagebox.showinfo("提示", "请按住 Ctrl/Cmd 选择至少两道相邻的题目进行合并。")
-            return
+        btn_show_layout = PushButton("👁️ 查看完整版面分析图 (Pix2Text/Surya)")
+        btn_show_layout.clicked.connect(self.show_page_layout_view)
+        v_layout_right.addWidget(btn_show_layout, alignment=Qt.AlignRight)
 
-        indices = sorted([int(s) for s in sel])
-        texts_to_merge = [self.staging_questions[idx]["content"] for idx in indices]
+        paned.addWidget(left_frame)
+        paned.addWidget(right_frame)
+        paned.setStretchFactor(0, 1)
+        paned.setStretchFactor(1, 2)
 
-        self.update_status(f"🚀 AI 正在合并 {len(indices)} 道题目...")
+        # Bottom Frame
+        bottom_frame = QFrame(self.tab_import)
+        h_layout_bottom = QHBoxLayout(bottom_frame)
+        h_layout_bottom.setContentsMargins(0,0,0,0)
 
-        def task():
-            merged = self.ai_service.ai_merge_questions(texts_to_merge)
-            if not merged:
-                self.after(0, lambda: messagebox.showerror("错误", "合并失败，AI 未返回有效内容。"))
-                self.after(0, lambda: self.update_status("合并失败"))
-                return
+        h_layout_bottom.addWidget(BodyLabel("为整个试卷批量追加标签:"))
+        self.ent_batch_tag = LineEdit()
+        h_layout_bottom.addWidget(self.ent_batch_tag)
+        btn_batch_tag = PushButton("应用批量标签")
+        btn_batch_tag.clicked.connect(self.apply_batch_tags)
+        h_layout_bottom.addWidget(btn_batch_tag)
 
-            def update_ui():
-                first_idx = indices[0]
-                self.staging_questions[first_idx]["content"] = merged
-                # Merge tags as well
-                merged_tags = set(self.staging_questions[first_idx].get("tags", []))
-                for idx in indices[1:]:
-                    merged_tags.update(self.staging_questions[idx].get("tags", []))
-                self.staging_questions[first_idx]["tags"] = list(merged_tags)
+        h_layout_bottom.addStretch(1)
 
-                for idx in reversed(indices[1:]):
-                    self.staging_questions.pop(idx)
+        btn_save_db = PrimaryPushButton("💾 全部直接入库 (跳过编译检查)")
+        btn_fix_latex = PushButton("🛠️ 检查并修复选中题目的 LaTeX")
+        btn_save_db.clicked.connect(self.save_staging_to_db)
+        btn_fix_latex.clicked.connect(self.check_and_fix_latex)
 
-                self.refresh_staging_tree()
-                self.update_status("✅ AI 合并完成")
-                # Attempt to select the merged item safely
-                try:
-                    self.tree_staging.selection_set(str(first_idx))
-                    self.on_staging_select(None)
-                except Exception:
-                    pass
+        h_layout_bottom.addWidget(btn_fix_latex)
+        h_layout_bottom.addWidget(btn_save_db)
 
-            self.after(0, update_ui)
+        self.tab_import.vBoxLayout.addWidget(bottom_frame)
 
-        def run_merge_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_merge_inflight", False))
-
-        if getattr(self, "_merge_inflight", False):
-            messagebox.showinfo("提示", "AI 合并正在进行，请稍候。")
-            return
-        self._merge_inflight = True
-        threading.Thread(target=run_merge_task, daemon=True).start()
-
-    def split_staging_item(self):
-        sel = self.tree_staging.selection()
-        if len(sel) != 1:
-            messagebox.showinfo("提示", "请选择且仅选择一道需要拆分的复杂题目。")
-            return
-
-        idx = int(sel[0])
-        q = self.staging_questions[idx]
-        text_to_split = q["content"]
-
-        self.update_status("🚀 AI 正在尝试拆分题目...")
-
-        def task():
-            splits = self.ai_service.ai_split_question(text_to_split)
-            if not splits or len(splits) <= 1:
-                self.after(0, lambda: messagebox.showerror("提示", "拆分失败或未发现可拆分的子题。"))
-                self.after(0, lambda: self.update_status("拆分无效"))
-                return
-
-            def update_ui():
-                self.staging_questions[idx]["content"] = splits[0]
-
-                for i, split_text in enumerate(splits[1:]):
-                    new_q = self.staging_questions[idx].copy() # Ensure deepcopy or dict copy
-                    new_q["content"] = split_text
-                    # Avoid sharing the exact same list of tags in memory
-                    new_q["tags"] = list(new_q.get("tags", []))
-                    self.staging_questions.insert(idx + 1 + i, new_q)
-
-                self.refresh_staging_tree()
-                self.update_status(f"✅ AI 成功拆分出 {len(splits)} 道题")
-
-            self.after(0, update_ui)
-
-        def run_split_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_split_inflight", False))
-
-        if getattr(self, "_split_inflight", False):
-            messagebox.showinfo("提示", "AI 拆分正在进行，请稍候。")
-            return
-        self._split_inflight = True
-        threading.Thread(target=run_split_task, daemon=True).start()
-
-    def format_staging_item(self):
-        sel = self.tree_staging.selection()
-        if not sel:
-            messagebox.showinfo("提示", "请选择需要重新排版的题目。")
-            return
-
-        idx = int(sel[0])
-        q = self.staging_questions[idx]
-        text_to_format = self.txt_stg_content.get("1.0", tk.END).strip()
-        if not text_to_format: return
-
-        self.update_status("🚀 AI 正在重新排版格式化题目...")
-
-        def task():
-            formatted = self.ai_service.ai_format_question(text_to_format)
-            if not formatted:
-                self.after(0, lambda: messagebox.showerror("错误", "格式化失败。"))
-                self.after(0, lambda: self.update_status("格式化失败"))
-                return
-
-            def update_ui():
-                self.staging_questions[idx]["content"] = formatted
-                self.txt_stg_content.delete("1.0", tk.END)
-                self.txt_stg_content.insert("1.0", formatted)
-                self.refresh_staging_tree()
-                self.update_status("✅ 重新排版完成")
-
-            self.after(0, update_ui)
-
-        def run_format_task():
-            try:
-                task()
-            finally:
-                self.after(0, lambda: setattr(self, "_format_inflight", False))
-
-        if getattr(self, "_format_inflight", False):
-            messagebox.showinfo("提示", "AI 格式化正在进行，请稍候。")
-            return
-        self._format_inflight = True
-        threading.Thread(target=run_format_task, daemon=True).start()
-
-    def update_stg_item(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        idx = int(sel[0])
-        self.staging_questions[idx]["content"] = self.txt_stg_content.get("1.0", tk.END).strip()
-        self.staging_questions[idx]["tags"] = [t.strip() for t in self.ent_stg_tags.get().split(",") if t.strip()]
-        self.refresh_staging_tree()
-
-    def delete_staging_item(self):
-        sel = self.tree_staging.selection()
-        if not sel: return
-        if messagebox.askyesno("警告", f"确定要彻底删除选中的 {len(sel)} 道题目吗？"):
-            # Delete in reverse order to keep indices valid
-            indices = sorted([int(s) for s in sel], reverse=True)
-            for idx in indices:
-                item = self.staging_questions.pop(idx)
-                # Cleanup heavy images
-                item.pop('diagram', None)
-                item.pop('image_b64', None)
-                item.pop('page_annotated_b64', None)
-            self.refresh_staging_tree()
-            self.txt_stg_content.delete("1.0", tk.END)
-            self.ent_stg_tags.delete(0, tk.END)
-            if hasattr(self, 'lbl_vector_info'):
-                self.lbl_vector_info.config(text="未生成向量")
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_stg_diagram, 'image'):
-                del self.lbl_stg_diagram.image
-            if hasattr(self, 'lbl_stg_diag_info'):
-                self.lbl_stg_diag_info.config(text="")
-            gc.collect()
-
-    def apply_batch_tags(self):
-        batch_tag = self.ent_batch_tag.get().strip()
-        if not batch_tag: return
-        for q in self.staging_questions:
-            if batch_tag not in q["tags"]:
-                q["tags"].append(batch_tag)
-        self.refresh_staging_tree()
-
-    def save_staging_to_db(self):
-        if not self.staging_questions: return
-
-        # Check if any items are still being processed by AI
-        for q in self.staging_questions:
-            if q.get("logic") == "等待 AI 处理...":
-                messagebox.showwarning("无法入库", "部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再入库！")
-                return
-
-        self.update_status("正在保存入库...")
-        logger.info("Saving staged questions directly to DB without compile check...")
-
-        def task():
-            from db_adapter import LanceDBAdapter
-
-            successful_count = 0
-            try:
-                adapter = LanceDBAdapter()
-                for q in self.staging_questions:
-                    vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
-                    q_id = adapter.execute_insert_question(q["content"], q["logic"], vec, q["diagram"])
-                    for t in q["tags"]:
-                        if not t: continue
-                        t_id = adapter.execute_insert_tag(t)
-                        adapter.execute_insert_question_tag(q_id, t_id)
-                    successful_count += 1
-            except Exception as e:
-                logger.error(f"DB Insert Error: {e}", exc_info=True)
-                self.after(0, lambda err=e: messagebox.showerror("错误", f"数据库保存失败: {err}"))
-                return
-
-            def update_ui():
-                self._clear_staging_ui()
-                self.refresh_staging_tree()
-                self.update_status(f"成功直接入库 {successful_count} 题！您可以前往题库查看。")
-                messagebox.showinfo("成功", f"已直接保存 {successful_count} 题至题库！")
-
-            self.after(0, update_ui)
-
-        threading.Thread(target=task, daemon=True).start()
-
-    # ------------------------------------------
-    # Manual Input View
-    # ------------------------------------------
     def build_manual_tab(self):
-        frame = ttk.Frame(self.tab_manual, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
+        container = QFrame(self.tab_manual)
+        v_layout = QVBoxLayout(container)
+        v_layout.setContentsMargins(20, 20, 20, 20)
+        self.tab_manual.vBoxLayout.addWidget(container)
 
-        ttk.Label(frame, text="题干文字内容 (支持直接粘贴纯文本):").pack(anchor=tk.W)
-        self.txt_manual = tk.Text(frame, height=10, font=("Consolas", 11))
-        self.txt_manual.pack(fill=tk.X, pady=5)
+        v_layout.addWidget(SubtitleLabel("题干文字内容 (支持直接粘贴纯文本):"))
+        self.txt_manual = TextEdit(container)
+        self.txt_manual.setMinimumHeight(150)
+        v_layout.addWidget(self.txt_manual)
 
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="✨ 呼叫 AI 自动排版纠错并生成标签", command=self.on_manual_ai).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector).pack(side=tk.LEFT, padx=5)
+        btn_frame = QFrame(container)
+        btn_layout = QHBoxLayout(btn_frame)
+        btn_layout.setContentsMargins(0,0,0,0)
 
-        self.lbl_manual_status = ttk.Label(btn_frame, text="", foreground="blue")
-        self.lbl_manual_status.pack(side=tk.LEFT, padx=10)
+        btn_ai_reformat = PrimaryPushButton("✨ 呼叫 AI 自动排版纠错并生成标签")
+        btn_ai_reformat.clicked.connect(self.on_manual_ai)
+        btn_reformat = PushButton("✨ 重新排版(修正格式)")
+        btn_reformat.clicked.connect(self.on_manual_reformat)
+        btn_retag = PushButton("🏷️ 重新生成标签")
+        btn_retag.clicked.connect(self.on_manual_retag)
+        btn_preview_vec = PushButton("🔄 预览向量化")
+        btn_preview_vec.clicked.connect(self.on_manual_preview_vector)
 
-        # Vectorization preview during AI generation
-        self.lbl_manual_vector_status = ttk.Label(btn_frame, text="未生成向量", foreground="gray")
-        self.lbl_manual_vector_status.pack(side=tk.RIGHT, padx=10)
+        btn_layout.addWidget(btn_ai_reformat)
+        btn_layout.addWidget(btn_reformat)
+        btn_layout.addWidget(btn_retag)
+        btn_layout.addWidget(btn_preview_vec)
 
-        ttk.Label(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10,0))
-        self.ent_manual_tags = ttk.Entry(frame)
-        self.ent_manual_tags.pack(fill=tk.X, pady=5)
+        self.lbl_manual_status = BodyLabel("")
+        self.lbl_manual_status.setStyleSheet("color: #0078D7;")
+        btn_layout.addWidget(self.lbl_manual_status)
+
+        btn_layout.addStretch(1)
+
+        self.lbl_manual_vector_status = BodyLabel("未生成向量")
+        self.lbl_manual_vector_status.setStyleSheet("color: gray;")
+        btn_layout.addWidget(self.lbl_manual_vector_status)
+
+        v_layout.addWidget(btn_frame)
+
+        v_layout.addWidget(SubtitleLabel("知识点标签 (逗号分隔):"))
+        self.ent_manual_tags = LineEdit(container)
+        v_layout.addWidget(self.ent_manual_tags)
 
         # Companion Diagram Selection
-        diagram_frame = ttk.Frame(frame)
-        diagram_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram).pack(side=tk.LEFT)
-        self.lbl_manual_diagram_status = ttk.Label(diagram_frame, text="未选择图片", foreground="gray")
-        self.lbl_manual_diagram_status.pack(side=tk.LEFT, padx=10)
+        diagram_frame = QFrame(container)
+        diag_layout = QHBoxLayout(diagram_frame)
+        diag_layout.setContentsMargins(0,0,0,0)
+
+        btn_select_diag = PushButton("🖼️ 选择配套图样")
+        btn_select_diag.clicked.connect(self.on_select_manual_diagram)
+        diag_layout.addWidget(btn_select_diag)
+
+        self.lbl_manual_diagram_status = BodyLabel("未选择图片")
+        self.lbl_manual_diagram_status.setStyleSheet("color: gray;")
+        diag_layout.addWidget(self.lbl_manual_diagram_status)
+        diag_layout.addStretch(1)
+
+        v_layout.addWidget(diagram_frame)
 
         self.manual_diagram_b64 = None
         self.manual_vector = None
 
-        ttk.Button(frame, text="💾 保存并直接入库", command=self.save_manual).pack(anchor=tk.E, pady=20)
+        btn_save_manual = PrimaryPushButton("💾 保存并直接入库")
+        btn_save_manual.clicked.connect(self.save_manual)
 
-    def on_select_manual_diagram(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")])
-        if not file_path:
-            return
+        # Bottom align the save button
+        save_layout = QHBoxLayout()
+        save_layout.addStretch(1)
+        save_layout.addWidget(btn_save_manual)
+        v_layout.addLayout(save_layout)
+        v_layout.addStretch(1)
 
-        try:
-            # Normalize to PNG
-            img = Image.open(file_path)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            self.manual_diagram_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-            filename = os.path.basename(file_path)
-            self.lbl_manual_diagram_status.config(text=f"已选择: {filename}", foreground="green")
-        except Exception as e:
-            self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
-            self.manual_diagram_b64 = None
-
-
-    def on_manual_reformat(self):
-        text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
-        self.lbl_manual_status.config(text="正在重新排版...")
-        def task():
-            formatted = self.ai_service.ai_format_question(text)
-            if formatted:
-                self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
-                self.after(0, lambda: self.txt_manual.insert(tk.END, formatted))
-                self.after(0, lambda: self.lbl_manual_status.config(text="重新排版完成"))
-            else:
-                self.after(0, lambda: self.lbl_manual_status.config(text="排版失败", foreground="red"))
-        threading.Thread(target=task, daemon=True).start()
-
-    def on_manual_retag(self):
-        text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
-        self.lbl_manual_status.config(text="正在生成标签...")
-        def task():
-            try:
-                res = self.ai_service.process_text_with_correction(text)
-                tags = res.get("Tags", [])
-                if tags:
-                    self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
-                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
-                else:
-                    self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
-            except Exception as e:
-                logger.error(f"Manual Retag Error: {e}", exc_info=True)
-                self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
-        threading.Thread(target=task, daemon=True).start()
-
-    def on_manual_preview_vector(self):
-        text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
-        self.lbl_manual_vector_status.config(text="正在生成...", foreground="blue")
-        def task():
-            vec = self.ai_service.get_embedding(text)
-            if vec:
-                self.manual_vector = vec
-                self.manual_vector_text_hash = hash(text)
-                preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
-            else:
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
-        threading.Thread(target=task, daemon=True).start()
-
-    def on_manual_ai(self):
-        text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
-        self.lbl_manual_status.config(text="AI 分析与向量化中...")
-        def task():
-            while True:
-                try:
-                    res = self.ai_service.process_text_with_correction(text)
-                    self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
-
-                    content_result = res.get("Content", "")
-                    self.after(0, lambda: self.txt_manual.insert(tk.END, content_result))
-                    self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
-                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(res.get("Tags", []))))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="AI 处理完成！请核对后保存。"))
-
-                    # Generate embedding in the background immediately
-                    vector_text = content_result
-                    if vector_text:
-                        vec = self.ai_service.get_embedding(vector_text)
-                        if vec:
-                            self.manual_vector = vec
-                            self.manual_vector_text_hash = hash(vector_text)
-                            preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
-                        else:
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
-
-                    break
-                except Exception as e:
-                    if self.ask_api_retry_sync(str(e)):
-                        continue
-                    else:
-                        self.after(0, lambda: self.lbl_manual_status.config(text=f"AI 处理已取消。"))
-                        break
-        threading.Thread(target=task, daemon=True).start()
-
-    def save_manual(self):
-        content = self.txt_manual.get("1.0", tk.END).strip()
-        if not content: return
-        tags = [t.strip() for t in self.ent_manual_tags.get().split(",") if t.strip()]
-
-        def bg_save():
-            conn = None
-            try:
-                from db_adapter import LanceDBAdapter
-                db = LanceDBAdapter()
-                # Invalidate cached vector if user edited the content after AI generation
-                vec = self.manual_vector
-                if hasattr(self, 'manual_vector_text_hash') and self.manual_vector_text_hash != hash(content):
-                    vec = None
-
-                if not vec:
-                    vec = self.ai_service.get_embedding(content)
-
-                q_id = db.execute_insert_question(content, "", vec if vec else None, self.manual_diagram_b64)
-
-                for t in tags:
-                    t_id = db.execute_insert_tag(t)
-                    db.execute_insert_question_tag(q_id, t_id)
-
-                def on_saved():
-                    self.txt_manual.delete("1.0", tk.END)
-                    self.ent_manual_tags.delete(0, tk.END)
-                    self.manual_diagram_b64 = None
-                    self.manual_vector = None
-                    if hasattr(self, 'manual_vector_text_hash'):
-                        delattr(self, 'manual_vector_text_hash')
-                    self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
-                    self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
-                    self.lbl_manual_status.config(text="")
-                    logger.info("Manual question saved to DB successfully.")
-                    messagebox.showinfo("成功", "手工录入成功，已存入题库！")
-
-                self.after(0, on_saved)
-            except Exception as e:
-                err_msg = str(e)
-                def on_error():
-                    self.lbl_manual_status.config(text=f"保存失败: {err_msg}", foreground="red")
-                    messagebox.showerror("错误", f"保存入库时发生异常:\n{err_msg}")
-                self.after(0, on_error)
-            finally:
-                self.after(0, lambda: setattr(self, "_manual_save_inflight", False))
-
-        if getattr(self, "_manual_save_inflight", False):
-            messagebox.showinfo("提示", "正在入库，请勿重复提交。")
-            return
-        self._manual_save_inflight = True
-        self.lbl_manual_status.config(text="正在入库...", foreground="blue")
-        threading.Thread(target=bg_save, daemon=True).start()
-
-    # ------------------------------------------
-    # Library View
-    # ------------------------------------------
     def build_library_tab(self):
-        top_frame = ttk.Frame(self.tab_library)
-        top_frame.pack(fill=tk.X, pady=5, padx=5)
-        self.ent_lib_search = ttk.Entry(top_frame, width=30)
-        self.ent_lib_search.pack(side=tk.LEFT, padx=5)
-        ttk.Button(top_frame, text="🔍 搜索题库 (硬匹配)", command=self.on_hard_search).pack(side=tk.LEFT)
+        # Top toolbar
+        top_frame = QFrame(self.tab_library)
+        h_layout = QHBoxLayout(top_frame)
+        h_layout.setContentsMargins(0, 0, 0, 0)
 
-        main_paned = ttk.PanedWindow(self.tab_library, orient=tk.HORIZONTAL)
-        main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.ent_lib_search = LineEdit()
+        self.ent_lib_search.setPlaceholderText("请输入题干关键词...")
+        self.ent_lib_search.setFixedWidth(300)
+        btn_search = PrimaryPushButton("🔍 搜索题库 (硬匹配)")
+        btn_search.clicked.connect(self.on_hard_search)
 
-        left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=3)
+        h_layout.addWidget(self.ent_lib_search)
+        h_layout.addWidget(btn_search)
+        h_layout.addStretch(1)
 
-        self.tree_lib = ttk.Treeview(left_frame, columns=("id", "content"), show="headings", height=8, selectmode="extended")
-        self.tree_lib.heading("id", text="ID"); self.tree_lib.column("id", width=40)
-        self.tree_lib.heading("content", text="题目内容")
-        self.tree_lib.pack(fill=tk.BOTH, expand=True)
-        self.tree_lib.bind('<<TreeviewSelect>>', self.on_lib_select)
+        self.tab_library.vBoxLayout.addWidget(top_frame)
 
-        det_frame = ttk.LabelFrame(left_frame, text="题目详情与修改")
-        det_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        # Paned Window (Splitter)
+        paned = QSplitter(Qt.Horizontal, self.tab_library)
+        self.tab_library.vBoxLayout.addWidget(paned, 1)
 
-        self.txt_lib_det = tk.Text(det_frame, height=5, font=("Consolas", 10))
-        self.txt_lib_det.pack(fill=tk.BOTH, expand=True, pady=2)
+        # Left Frame
+        left_frame = QFrame(paned)
+        v_layout_left = QVBoxLayout(left_frame)
 
-        action_frame = ttk.Frame(det_frame)
-        action_frame.pack(fill=tk.X, pady=2)
+        self.tree_lib = TableWidget()
+        self.tree_lib.setColumnCount(2)
+        self.tree_lib.setHorizontalHeaderLabels(["ID", "题目内容"])
+        self.tree_lib.setSelectionBehavior(TableWidget.SelectRows)
+        self.tree_lib.itemSelectionChanged.connect(self.on_lib_select)
+        v_layout_left.addWidget(self.tree_lib, 1)
 
-        ttk.Label(action_frame, text="当前标签:").pack(side=tk.LEFT)
-        self.ent_lib_tags = ttk.Entry(action_frame, width=30)
-        self.ent_lib_tags.pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="更新标签", command=self.update_lib_tags).pack(side=tk.LEFT)
+        det_frame = QFrame(left_frame)
+        det_layout = QVBoxLayout(det_frame)
+        det_layout.setContentsMargins(0,0,0,0)
+        det_layout.addWidget(SubtitleLabel("题目详情与修改"))
 
-        ttk.Button(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(side=tk.LEFT, padx=10)
-        ttk.Button(action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question).pack(side=tk.RIGHT)
+        self.txt_lib_det = TextEdit()
+        self.txt_lib_det.setMinimumHeight(120)
+        det_layout.addWidget(self.txt_lib_det, 1)
 
-        # New diagram UI missing from previous
-        self.lbl_lib_diagram = ttk.Label(det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
-        self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
+        action_frame = QFrame(det_frame)
+        action_layout = QHBoxLayout(action_frame)
+        action_layout.setContentsMargins(0,0,0,0)
 
-        self.lbl_lib_diag_info = ttk.Label(det_frame, text="", anchor=tk.CENTER)
-        self.lbl_lib_diag_info.pack(fill=tk.X)
+        action_layout.addWidget(BodyLabel("当前标签:"))
+        self.ent_lib_tags = LineEdit()
+        self.ent_lib_tags.setFixedWidth(200)
+        btn_update_tags = PushButton("更新标签")
+        btn_update_tags.clicked.connect(self.update_lib_tags)
 
-        lib_btn_frame = ttk.Frame(det_frame)
-        lib_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        action_layout.addWidget(self.ent_lib_tags)
+        action_layout.addWidget(btn_update_tags)
 
-        right_frame = ttk.LabelFrame(main_paned, text="AI 软搜索助手 (MCP)")
-        main_paned.add(right_frame, weight=2)
+        btn_add_to_bag = PrimaryPushButton("🛍️ 加入题目袋")
+        btn_add_to_bag.clicked.connect(self.add_to_bag)
+        btn_delete_lib = PushButton("🗑️ 彻底删除")
+        btn_delete_lib.clicked.connect(self.delete_lib_question)
 
-        self.txt_chat = tk.Text(right_frame, wrap=tk.WORD, font=("微软雅黑", 10), state=tk.DISABLED)
-        self.txt_chat.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        action_layout.addWidget(btn_add_to_bag)
+        action_layout.addStretch(1)
+        action_layout.addWidget(btn_delete_lib)
 
-        chat_bot_frame = ttk.Frame(right_frame)
-        chat_bot_frame.pack(fill=tk.X, pady=2)
+        det_layout.addWidget(action_frame)
 
-        self.ent_chat = ttk.Entry(chat_bot_frame)
-        self.ent_chat.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.ent_chat.bind("<Return>", lambda e: self.on_ai_chat())
-        ttk.Button(chat_bot_frame, text="发送", command=self.on_ai_chat).pack(side=tk.RIGHT)
+        # Diagram UI
+        self.lbl_lib_diagram = ImageLabel(det_frame)
+        self.lbl_lib_diagram.setFixedSize(400, 200)
+        self.lbl_lib_diagram.setStyleSheet("background-color: #e0e0e0;")
+        self.lbl_lib_diagram.setAlignment(Qt.AlignCenter)
+        det_layout.addWidget(self.lbl_lib_diagram, alignment=Qt.AlignCenter)
+
+        self.lbl_lib_diag_info = BodyLabel("")
+        self.lbl_lib_diag_info.setAlignment(Qt.AlignCenter)
+        det_layout.addWidget(self.lbl_lib_diag_info)
+
+        lib_btn_frame = QFrame(det_frame)
+        lib_layout = QHBoxLayout(lib_btn_frame)
+        btn_prev_diag = PushButton("⬅️ 上一图")
+        btn_next_diag = PushButton("下一图 ➡️")
+        btn_prev_diag.clicked.connect(self.lib_prev_diagram)
+        btn_next_diag.clicked.connect(self.lib_next_diagram)
+        lib_layout.addWidget(btn_prev_diag)
+        lib_layout.addWidget(btn_next_diag)
+        det_layout.addWidget(lib_btn_frame)
+
+        v_layout_left.addWidget(det_frame)
+
+        # Right Frame (MCP AI Chat)
+        right_frame = QFrame(paned)
+        v_layout_right = QVBoxLayout(right_frame)
+
+        v_layout_right.addWidget(SubtitleLabel("AI 软搜索助手 (MCP)"))
+
+        self.txt_chat = TextEdit()
+        self.txt_chat.setReadOnly(True)
+        v_layout_right.addWidget(self.txt_chat, 1)
+
+        chat_bot_frame = QFrame(right_frame)
+        chat_layout = QHBoxLayout(chat_bot_frame)
+        chat_layout.setContentsMargins(0,0,0,0)
+
+        self.ent_chat = LineEdit()
+        self.ent_chat.returnPressed.connect(self.on_ai_chat)
+        btn_send = PrimaryPushButton("发送")
+        btn_send.clicked.connect(self.on_ai_chat)
+
+        chat_layout.addWidget(self.ent_chat, 1)
+        chat_layout.addWidget(btn_send)
+        v_layout_right.addWidget(chat_bot_frame)
+
+        paned.addWidget(left_frame)
+        paned.addWidget(right_frame)
+        paned.setStretchFactor(0, 3)
+        paned.setStretchFactor(1, 2)
 
         self.chat_history = [
             {"role": "system", "content": "你是 SmartQB 的寻题助手。你可以理解用户的寻题需求，调用 search_database 工具查询题库向量。如果用户要求将某些题加入题目袋/试卷，请调用 add_to_bag 工具。"}
         ]
         self.append_chat("🤖 助手", "您好！想找什么样的题目？(例如：帮我找两道关于导数极值的题，并加入题目袋)")
 
-    def append_chat(self, sender, text):
-        self.txt_chat.config(state=tk.NORMAL)
-        self.txt_chat.insert(tk.END, f"{sender}: {text}\n\n")
-        self.txt_chat.see(tk.END)
-        self.txt_chat.config(state=tk.DISABLED)
-
-    def on_ai_chat(self):
-        user_text = self.ent_chat.get().strip()
-        if not user_text: return
-
-        if getattr(self, "_chat_inflight", False):
-            messagebox.showinfo("提示", "助手正在处理中，请稍候再发送下一条消息。")
-            return
-
-        self._chat_inflight = True
-        self.ent_chat.delete(0, tk.END)
-        self.append_chat("🧑 你", user_text)
-
-        self.chat_history.append({"role": "user", "content": user_text})
-
-        def task():
-            try:
-                callbacks = {
-                    "search_database": lambda query: vector_search_db(self.ai_service, query),
-                    "add_to_bag": self.ai_add_to_bag
-                }
-                res_text, updated_history = self.ai_service.chat_with_tools(
-                    self.chat_history,
-                    callbacks=callbacks
-                )
-                self.chat_history = updated_history
-                self.chat_history.append({"role": "assistant", "content": res_text})
-                self.after(0, lambda: self.append_chat("🤖 助手", res_text))
-            except Exception as e:
-                err_msg = str(e)
-                self.after(0, lambda e_msg=err_msg: self.append_chat("⚠️ 系统", f"请求出错: {e_msg}"))
-            finally:
-                self.after(0, lambda: setattr(self, "_chat_inflight", False))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def on_hard_search(self):
-        kw = self.ent_lib_search.get().strip()
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        rows = adapter.search_questions(kw)
-        for item in self.tree_lib.get_children():
-            self.tree_lib.delete(item)
-        for r in rows:
-            short_c = r[1][:30].replace('\n', ' ')
-            self.tree_lib.insert('', 'end', values=(r[0], short_c))
-    def on_lib_select(self, event):
-        sel = self.tree_lib.selection()
-        if not sel: return
-        self.current_lib_q_id = self.tree_lib.item(sel[0])["values"][0]
-        try:
-            from db_adapter import LanceDBAdapter
-            adapter = LanceDBAdapter()
-            content_text, diagram_base64 = adapter.get_question(self.current_lib_q_id)
-            self.txt_lib_det.delete("1.0", tk.END)
-            self.txt_lib_det.insert(tk.END, content_text if content_text else "")
-
-            tags_rows = adapter.get_question_tags(self.current_lib_q_id)
-            self.ent_lib_tags.delete(0, tk.END)
-            self.ent_lib_tags.insert(0, ",".join([r[0] for r in tags_rows]))
-
-            if hasattr(self, 'lbl_lib_diagram'):
-                self.lib_current_diags = self._parse_diagram_json(diagram_base64)
-                self.lib_img_index = 0
-                self._render_lib_diagram()
-
-        except Exception as e:
-            logger.error(f"DB Load Question Error: {e}", exc_info=True)
-
-    def _render_lib_diagram(self):
-        if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
-            self.lbl_lib_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_lib_diagram, 'image'):
-                del self.lbl_lib_diagram.image
-            self.lbl_lib_diag_info.config(text="")
-            return
-
-        display_img_b64 = self.lib_current_diags[self.lib_img_index]
-        if display_img_b64:
-            try:
-                img_data = base64.b64decode(display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64)
-                img = Image.open(io.BytesIO(img_data)).copy()
-                img.thumbnail((400, 200))
-                photo = ImageTk.PhotoImage(img)
-                self.lbl_lib_diagram.config(image=photo, text="")
-                self.lbl_lib_diagram.image = photo
-                info_text = f"图样 {self.lib_img_index + 1} / {len(self.lib_current_diags)}"
-                self.lbl_lib_diag_info.config(text=info_text)
-            except Exception as e:
-                self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
-                self.lbl_lib_diag_info.config(text="")
-        else:
-            self.lbl_lib_diagram.config(image='', text="无图样")
-            self.lbl_lib_diag_info.config(text="")
-
-    def lib_prev_diagram(self):
-        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
-            self.lib_img_index = (self.lib_img_index - 1) % len(self.lib_current_diags)
-            self._render_lib_diagram()
-
-    def lib_next_diagram(self):
-        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
-            self.lib_img_index = (self.lib_img_index + 1) % len(self.lib_current_diags)
-            self._render_lib_diagram()
-    def update_lib_tags(self):
-        if getattr(self, 'current_lib_q_id', None) is None: return
-        new_tags = [t.strip() for t in self.ent_lib_tags.get().split(',') if t.strip()]
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        adapter.clear_question_tags(self.current_lib_q_id)
-        for tn in new_tags:
-            tid = adapter.execute_insert_tag(tn)
-            adapter.execute_insert_question_tag(self.current_lib_q_id, tid)
-        messagebox.showinfo('提示', '标签更新成功！')
-
-
-    def delete_lib_question(self):
-        sel = self.tree_lib.selection()
-        if not sel: return
-        selected_ids = [self.tree_lib.item(item)["values"][0] for item in sel]
-        if messagebox.askyesno("危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"):
-            from db_adapter import LanceDBAdapter
-            adapter = LanceDBAdapter()
-            adapter.delete_questions(selected_ids)
-
-            selected_id_set = set(selected_ids)
-            self.export_bag = [q for q in self.export_bag if q["id"] not in selected_id_set]
-
-            self.on_hard_search()
-            self.txt_lib_det.delete("1.0", tk.END)
-            self.ent_lib_tags.delete(0, tk.END)
-
-            if getattr(self, 'current_lib_q_id', None) in selected_id_set:
-                self.current_lib_q_id = None
-
-            messagebox.showinfo("成功", "选中题目已彻底删除！")
-
-    def add_to_bag(self):
-        if not hasattr(self, 'current_lib_q_id'): return
-        if any(item['id'] == self.current_lib_q_id for item in self.export_bag):
-            messagebox.showinfo("提示", "该题已在题目袋中。")
-            return
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        content, diagram = adapter.get_question(self.current_lib_q_id)
-        if content:
-            self.export_bag.append({"id": self.current_lib_q_id, "content": content, "diagram": diagram})
-            messagebox.showinfo("成功", "已加入题目袋！")
-
-    def ai_add_to_bag(self, question_ids):
-        added = 0
-        from db_adapter import LanceDBAdapter
-        adapter = LanceDBAdapter()
-        for q_id in question_ids:
-            if any(item['id'] == q_id for item in self.export_bag): continue
-            content, diagram = adapter.get_question(q_id)
-            if content:
-                self.export_bag.append({"id": q_id, "content": content, "diagram": diagram})
-                added += 1
-        self.after(0, self.refresh_bag_ui)
-        return {"status": "success", "message": f"成功加入了 {added} 道题目到题目袋"}
-
-    # ------------------------------------------
-    # Export View
-    # ------------------------------------------
     def build_export_tab(self):
-        top_frame = ttk.Frame(self.tab_export)
-        top_frame.pack(fill=tk.X, pady=5, padx=10)
-        ttk.Label(top_frame, text="组卷题目袋 (选中题目可上下移动排序):", font=("", 12, "bold")).pack(side=tk.LEFT)
+        container = QFrame(self.tab_export)
+        v_layout = QVBoxLayout(container)
+        v_layout.setContentsMargins(20, 20, 20, 20)
+        self.tab_export.vBoxLayout.addWidget(container)
 
-        middle_frame = ttk.Frame(self.tab_export)
-        middle_frame.pack(fill=tk.BOTH, expand=True, padx=10)
+        v_layout.addWidget(SubtitleLabel("组卷题目袋 (选中题目可上下移动排序):"))
 
-        self.listbox_bag = tk.Listbox(middle_frame, font=("微软雅黑", 10))
-        self.listbox_bag.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        middle_frame = QFrame(container)
+        h_layout = QHBoxLayout(middle_frame)
+        h_layout.setContentsMargins(0, 0, 0, 0)
 
-        btn_frame = ttk.Frame(middle_frame)
-        btn_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
+        from PySide6.QtWidgets import QListWidget
+        self.listbox_bag = QListWidget(middle_frame)
+        self.listbox_bag.setStyleSheet("font-family: 微软雅黑; font-size: 14px;")
+        h_layout.addWidget(self.listbox_bag, 1)
 
-        ttk.Button(btn_frame, text="⬆️ 上移", command=self.bag_move_up).pack(pady=5)
-        ttk.Button(btn_frame, text="⬇️ 下移", command=self.bag_move_down).pack(pady=5)
-        ttk.Button(btn_frame, text="❌ 移除", command=self.bag_remove).pack(pady=20)
+        btn_frame = QFrame(middle_frame)
+        btn_layout = QVBoxLayout(btn_frame)
+        btn_layout.setContentsMargins(10, 0, 0, 0)
 
-        bottom_frame = ttk.Frame(self.tab_export)
-        bottom_frame.pack(fill=tk.X, pady=10, padx=10)
+        btn_move_up = PushButton("⬆️ 上移")
+        btn_move_down = PushButton("⬇️ 下移")
+        btn_remove = PushButton("❌ 移除")
 
-        self.lbl_export_status = ttk.Label(bottom_frame, text="", foreground="green")
-        self.lbl_export_status.pack(side=tk.LEFT, padx=10)
-        ttk.Button(bottom_frame, text="🖨️ 导出试卷并自动编译 PDF", command=self.export_paper).pack(side=tk.RIGHT)
+        btn_move_up.clicked.connect(self.bag_move_up)
+        btn_move_down.clicked.connect(self.bag_move_down)
+        btn_remove.clicked.connect(self.bag_remove)
+
+        btn_layout.addWidget(btn_move_up)
+        btn_layout.addWidget(btn_move_down)
+        btn_layout.addStretch(1)
+        btn_layout.addWidget(btn_remove)
+
+        h_layout.addWidget(btn_frame)
+        v_layout.addWidget(middle_frame, 1)
+
+        bottom_frame = QFrame(container)
+        bottom_layout = QHBoxLayout(bottom_frame)
+        bottom_layout.setContentsMargins(0, 10, 0, 0)
+
+        self.lbl_export_status = BodyLabel("")
+        self.lbl_export_status.setStyleSheet("color: green;")
+        bottom_layout.addWidget(self.lbl_export_status)
+
+        bottom_layout.addStretch(1)
+
+        btn_export = PrimaryPushButton("🖨️ 导出试卷并自动编译 PDF")
+        btn_export.clicked.connect(self.export_paper)
+        bottom_layout.addWidget(btn_export)
+
+        v_layout.addWidget(bottom_frame)
+
+    def build_settings_tab(self):
+        from PySide6.QtWidgets import QScrollArea
+        scroll_area = QScrollArea(self.tab_settings)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setStyleSheet("QScrollArea {border: none; background: transparent;}")
+
+        container = QFrame()
+        v_layout = QVBoxLayout(container)
+        v_layout.setContentsMargins(20, 20, 20, 20)
+
+        v_layout.addWidget(TitleLabel("应用设置"))
+
+        # Provider Config
+        provider_frame = QFrame()
+        h_layout_prov = QHBoxLayout(provider_frame)
+        h_layout_prov.setContentsMargins(0, 10, 0, 10)
+        h_layout_prov.addWidget(BodyLabel("快捷服务商配置:"))
+
+        self.cbo_provider = ComboBox()
+        self.cbo_provider.addItems(["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"])
+        self.cbo_provider.setCurrentIndex(0)
+        self.cbo_provider.currentIndexChanged.connect(self.on_provider_changed)
+        h_layout_prov.addWidget(self.cbo_provider)
+        h_layout_prov.addStretch(1)
+        v_layout.addWidget(provider_frame)
+
+        # Basic Model Setup
+        v_layout.addWidget(BodyLabel("API Key (将通过系统凭证管理器自动加密):"))
+        self.ent_api = LineEdit()
+        self.ent_api.setEchoMode(LineEdit.Password)
+        self.ent_api.setText(self.settings.api_key)
+        v_layout.addWidget(self.ent_api)
+
+        v_layout.addWidget(BodyLabel("Base URL:"))
+        self.ent_base = LineEdit()
+        self.ent_base.setText(self.settings.base_url)
+        v_layout.addWidget(self.ent_base)
+
+        v_layout.addWidget(BodyLabel("Model ID:"))
+        self.ent_model = LineEdit()
+        self.ent_model.setText(self.settings.model_id)
+        v_layout.addWidget(self.ent_model)
+
+        # Advanced Model Settings
+        v_layout.addWidget(SubtitleLabel("高级模型参数"))
+        adv_frame = QFrame()
+        adv_layout = QHBoxLayout(adv_frame)
+        adv_layout.setContentsMargins(0,0,0,0)
+
+        adv_layout.addWidget(BodyLabel("Temperature (0-2):"))
+        self.ent_temp = LineEdit()
+        self.ent_temp.setText(str(getattr(self.settings, 'temperature', 1.0)))
+        adv_layout.addWidget(self.ent_temp)
+
+        adv_layout.addWidget(BodyLabel("Top P (0-1):"))
+        self.ent_top_p = LineEdit()
+        self.ent_top_p.setText(str(getattr(self.settings, 'top_p', 1.0)))
+        adv_layout.addWidget(self.ent_top_p)
+
+        adv_layout.addWidget(BodyLabel("Max Tokens:"))
+        self.ent_max_tokens = LineEdit()
+        self.ent_max_tokens.setText(str(getattr(self.settings, 'max_tokens', 4096)))
+        adv_layout.addWidget(self.ent_max_tokens)
+
+        adv_layout.addWidget(BodyLabel("思考强度(Reasoning Effort):"))
+        self.cbo_reasoning = ComboBox()
+        self.cbo_reasoning.addItems(["low", "medium", "high", "none"])
+        self.cbo_reasoning.setCurrentText(getattr(self.settings, 'reasoning_effort', 'medium'))
+        adv_layout.addWidget(self.cbo_reasoning)
+
+        v_layout.addWidget(adv_frame)
+
+        # Embeddings Config
+        v_layout.addWidget(SubtitleLabel("嵌入向量配置"))
+
+        v_layout.addWidget(BodyLabel("Embedding API Key:"))
+        self.ent_embed_api = LineEdit()
+        self.ent_embed_api.setEchoMode(LineEdit.Password)
+        self.ent_embed_api.setText(self.settings.embed_api_key)
+        v_layout.addWidget(self.ent_embed_api)
+
+        v_layout.addWidget(BodyLabel("Embedding Base URL:"))
+        self.ent_embed_base = LineEdit()
+        self.ent_embed_base.setText(self.settings.embed_base_url)
+        v_layout.addWidget(self.ent_embed_base)
+
+        v_layout.addWidget(BodyLabel("Embedding Model ID:"))
+        self.ent_embed_model = LineEdit()
+        self.ent_embed_model.setText(self.settings.embed_model_id)
+        v_layout.addWidget(self.ent_embed_model)
+
+        v_layout.addWidget(BodyLabel("Embedding 向量维度 (与模型输出一致，否则报错):"))
+        self.ent_embed_dim = LineEdit()
+        self.ent_embed_dim.setText(str(getattr(self.settings, 'embedding_dimension', 1024)))
+        v_layout.addWidget(self.ent_embed_dim)
+
+        # Engine Settings
+        v_layout.addWidget(SubtitleLabel("📝 核心图像与文字识别模式"))
+
+        engine_frame = QFrame()
+        engine_layout = QHBoxLayout(engine_frame)
+        engine_layout.setContentsMargins(0,0,0,0)
+
+        engine_layout.addWidget(BodyLabel("版面分析引擎:"))
+        self.cbo_layout_engine = ComboBox()
+        self.cbo_layout_engine.addItem("DocLayout-YOLO")
+        engine_layout.addWidget(self.cbo_layout_engine)
+
+        engine_layout.addWidget(BodyLabel("OCR 识别引擎:"))
+        self.cbo_ocr_engine = ComboBox()
+        self.cbo_ocr_engine.addItem("Pix2Text")
+        engine_layout.addWidget(self.cbo_ocr_engine)
+        engine_layout.addStretch(1)
+
+        v_layout.addWidget(engine_frame)
+
+        from PySide6.QtWidgets import QButtonGroup, QRadioButton
+        self.mode_group = QButtonGroup(self)
+
+        mode1 = QRadioButton("1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)")
+        mode2 = QRadioButton("2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)")
+        mode3 = QRadioButton("3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)")
+
+        self.mode_group.addButton(mode1, 1)
+        self.mode_group.addButton(mode2, 2)
+        self.mode_group.addButton(mode3, 3)
+
+        mode_val = self.settings.recognition_mode
+        if mode_val == 1: mode1.setChecked(True)
+        elif mode_val == 2: mode2.setChecked(True)
+        else: mode3.setChecked(True)
+
+        v_layout.addWidget(mode1)
+        v_layout.addWidget(mode2)
+        v_layout.addWidget(mode3)
+
+        v_layout.addWidget(SubtitleLabel("🚀 高级选项:"))
+
+        self.card_prm = SwitchSettingCard(
+            icon=FIF.LIGHTBULB,
+            title="启用多切片并发",
+            content="大于1即启用 PRM 优化",
+            configItem=None
+        )
+        self.card_prm.setChecked(self.settings.use_prm_optimization)
+        v_layout.addWidget(self.card_prm)
+
+        batch_frame = QFrame()
+        batch_layout = QHBoxLayout(batch_frame)
+        batch_layout.setContentsMargins(0,0,0,0)
+        batch_layout.addWidget(BodyLabel("单次并发主切片数:"))
+        self.ent_prm_batch = SpinBox()
+        self.ent_prm_batch.setRange(2, 15)
+        self.ent_prm_batch.setValue(self.settings.prm_batch_size)
+        batch_layout.addWidget(self.ent_prm_batch)
+        batch_layout.addStretch(1)
+        v_layout.addWidget(batch_frame)
+
+        btn_save = PrimaryPushButton("💾 保存所有设置")
+        btn_save.clicked.connect(self.save_settings)
+
+        save_layout = QHBoxLayout()
+        save_layout.addWidget(btn_save)
+        save_layout.addStretch(1)
+        v_layout.addLayout(save_layout)
+
+        v_layout.addStretch(1)
+
+        scroll_area.setWidget(container)
+        self.tab_settings.vBoxLayout.addWidget(scroll_area)
+
+
+    # Stubs
+    def on_staging_select(self): pass
+    def delete_staging_item(self): pass
+    def merge_staging_items(self): pass
+    def split_staging_item(self): pass
+    def format_staging_item(self): pass
+    def update_stg_item(self): pass
+    def update_staging_vector(self): pass
+    def stg_prev_diagram(self): pass
+    def stg_delete_diagram(self): pass
+    def stg_next_diagram(self): pass
+    def move_diagram_up(self): pass
+    def move_diagram_down(self): pass
+    def show_page_layout_view(self): pass
+    def apply_batch_tags(self): pass
+    def save_staging_to_db(self): pass
+    def check_and_fix_latex(self): pass
+    def on_slice_ready(self, s): pass
+    def refresh_staging_tree(self): pass
+    def show_api_retry_dialog(self, text, obj): pass
+
+    def on_manual_ai(self): pass
+    def on_manual_reformat(self): pass
+    def on_manual_retag(self): pass
+    def on_manual_preview_vector(self): pass
+    def on_select_manual_diagram(self): pass
+    def save_manual(self): pass
+
+    def append_chat(self, sender, text):
+        self.txt_chat.append(f"{sender}: {text}\n")
+
+    def on_hard_search(self): pass
+    def on_lib_select(self): pass
+    def update_lib_tags(self): pass
+    def delete_lib_question(self): pass
+    def add_to_bag(self): pass
+    def ai_add_to_bag(self): pass
+    def lib_prev_diagram(self): pass
+    def lib_next_diagram(self): pass
+    def on_ai_chat(self): pass
 
     def refresh_bag_ui(self):
         if hasattr(self, 'listbox_bag'):
-            self.listbox_bag.delete(0, tk.END)
+            self.listbox_bag.clear()
             for idx, item in enumerate(self.export_bag):
                 preview = item["content"][:40].replace('\n', '')
                 has_img = "[含图]" if item["diagram"] else ""
-                self.listbox_bag.insert(tk.END, f"{idx+1}. {has_img} {preview}...")
+                self.listbox_bag.addItem(f"{idx+1}. {has_img} {preview}...")
 
-    def bag_move_up(self):
-        sel = self.listbox_bag.curselection()
-        if not sel: return
-        idx = sel[0]
-        if idx > 0:
-            self.export_bag.insert(idx - 1, self.export_bag.pop(idx))
-            self.refresh_bag_ui()
-            self.listbox_bag.select_set(idx - 1)
+    def bag_move_up(self): pass
+    def bag_move_down(self): pass
+    def bag_remove(self): pass
+    def export_paper(self): pass
 
-    def bag_move_down(self):
-        sel = self.listbox_bag.curselection()
-        if not sel: return
-        idx = sel[0]
-        if idx < len(self.export_bag) - 1:
-            self.export_bag.insert(idx + 1, self.export_bag.pop(idx))
-            self.refresh_bag_ui()
-            self.listbox_bag.select_set(idx + 1)
+    def on_provider_changed(self, idx): pass
+    def save_settings(self): pass
 
-    def bag_remove(self):
-        sel = self.listbox_bag.curselection()
-        if not sel: return
-        idx = sel[0]
-        self.export_bag.pop(idx)
-        self.refresh_bag_ui()
+class WorkerThread(QThread):
+    finished_signal = Signal(object)
+    error_signal = Signal(str)
+    progress_signal = Signal(str)
 
-    def export_paper(self):
-        if not self.export_bag:
-            messagebox.showwarning("提示", "题目袋为空！")
-            return
+    def __init__(self, task_func, *args, **kwargs):
+        super().__init__()
+        self.task_func = task_func
+        self.args = args
+        self.kwargs = kwargs
 
-        file_path = filedialog.asksaveasfilename(
-            title="选择试卷保存位置",
-            initialfile="SmartQB_Paper",
-            filetypes=[("PDF 输出目标", "*.*")]
-        )
-        if not file_path:
-            return
-
-        base_path, _ = os.path.splitext(file_path)
-        export_dir = os.path.dirname(base_path)
-        base_name = os.path.basename(base_path)
-
-        export_tex_path = base_path + ".tex"
-        img_dir_name = base_name + "_Images"
-        img_dir = os.path.join(export_dir, img_dir_name)
-        os.makedirs(img_dir, exist_ok=True)
-
-        tex = [
-            r"\documentclass[11pt, a4paper]{ctexart}",
-            r"\usepackage{amsmath, amssymb, amsfonts}",
-            r"\usepackage{graphicx}",
-            r"\usepackage{geometry}",
-            r"\usepackage{listings}",
-            r"\geometry{left=2cm, right=2cm, top=2.5cm, bottom=2.5cm}",
-            r"\begin{document}",
-            r"\begin{center}",
-            r"\Large\textbf{SmartQB 导出试卷}",
-            r"\end{center}",
-            r"\vspace{1em}",
-            r"\begin{enumerate}"
-        ]
-
-        for q in self.export_bag:
-            # Clean up dangerous newlines in latex around environments
-            tex_content = q["content"].replace("\n", " \\newline ")
-            tex_content = re.sub(r"\\newline\s*\\begin\{center\}", r"\\begin{center}", tex_content)
-            tex_content = re.sub(r"\\newline\s*\\end\{center\}", r"\\end{center}", tex_content)
-            tex_content = re.sub(r"\\end\{center\}\s*\\newline", r"\\end{center}", tex_content)
-            tex_content = re.sub(r"\\newline\s*\\includegraphics", r"\\includegraphics", tex_content)
-            tex.append(r"\item " + tex_content)
-
-            if q.get("diagram"):
-                diags = self._parse_diagram_json(q.get("diagram"))
-                for i, d in enumerate(diags):
-                    try:
-                        d_clean = d.split(",")[-1] if "," in d else d
-                        img_data = base64.b64decode(d_clean)
-                        img_filename = f"diagram_{q['id']}_{i}.png"
-                        img_filepath = os.path.join(img_dir, img_filename)
-                        with open(img_filepath, "wb") as f:
-                            f.write(img_data)
-
-                        rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
-                        tex.append(r"\begin{center}")
-                        tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
-                        tex.append(r"\end{center}")
-                    except Exception as e:
-                        logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
-
-            tex.append(r"\vspace{0.5em}")
-
-        tex.append(r"\end{enumerate}")
-        tex.append(r"\end{document}")
-
-        with open(export_tex_path, "w", encoding="utf-8") as f:
-            f.write("\n".join(tex))
-
-        self.lbl_export_status.config(text="⏳ 正在后台调用 xelatex 编译 PDF，请稍候...", foreground="blue")
-        self.update()
-
-        def compile_pdf():
-            pdf_success = False
-            error_msg = ""
-            try:
-                result = subprocess.run(
-                    ["xelatex", "-interaction=nonstopmode", "--no-shell-escape", f"-output-directory={export_dir}", export_tex_path],
-                    cwd=export_dir,
-                    capture_output=True,
-                    check=False,
-                    encoding="utf-8",
-                    errors="replace"
-                )
-                if result.returncode != 0:
-                    out_str = result.stdout
-                    error_msg = f"LaTeX 编译错误，部分符号未被 AI 成功转义导致中断。\n日志片段: {out_str[-500:]}"
-                    raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
-                pdf_success = True
-            except FileNotFoundError:
-                error_msg = "未检测到本地 LaTeX 编译器 (未安装 TeX Live / MiKTeX)。"
-            except subprocess.CalledProcessError as e:
-                pass # Handled above
-            except Exception as e:
-                error_msg = str(e)
-
-            def on_finish():
-                self.lbl_export_status.config(text="")
-                if pdf_success:
-                    messagebox.showinfo("✅ 自动编译成功", f"文件已保存: {base_path}.pdf")
-                else:
-                    messagebox.showwarning("⚠️ PDF 编译未成功", f"后台转 PDF 失败了。\n\n【失败原因】\n{error_msg}\n\n您可以手动去检查并编译 .tex 文件。")
-            self.after(0, on_finish)
-
-        threading.Thread(target=compile_pdf, daemon=True).start()
-
-    # ------------------------------------------
-    # Settings View
-    # ------------------------------------------
-    def save_settings(self):
-        self.settings.api_key = self.ent_api.get().strip()
-        self.settings.base_url = self.ent_base.get().strip()
-        self.settings.model_id = self.ent_model.get().strip()
-
+    def run(self):
         try:
-            self.settings.temperature = float(self.ent_temp.get())
-        except ValueError:
-            self.settings.temperature = 1.0
-        try:
-            self.settings.top_p = float(self.ent_top_p.get())
-        except ValueError:
-            self.settings.top_p = 1.0
-        try:
-            self.settings.max_tokens = int(self.ent_max_tokens.get())
-        except ValueError:
-            self.settings.max_tokens = 4096
-
-        self.settings.reasoning_effort = self.cbo_reasoning.get()
-
-        self.settings.embed_api_key = self.ent_embed_api.get().strip()
-        self.settings.embed_base_url = self.ent_embed_base.get().strip()
-        self.settings.embed_model_id = self.ent_embed_model.get().strip()
-
-        self.settings.recognition_mode = self.var_rec_mode.get()
-        self.settings.use_prm_optimization = self.var_use_prm.get()
-        if hasattr(self, 'cbo_ocr_engine'):
-            self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
-        if hasattr(self, 'cbo_layout_engine'):
-            self.settings.layout_engine_type = self.cbo_layout_engine.get()
-        try:
-            self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
-        except ValueError:
-            self.settings.prm_batch_size = 3
-            self.ent_prm_batch.set(self.settings.prm_batch_size)
-            messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
-
-        try:
-            val = int(self.ent_embed_dim.get().strip())
-            if val <= 0:
-                raise ValueError("Embedding dimension must be > 0")
-            self.settings.embedding_dimension = val
-        except ValueError:
-            self.settings.embedding_dimension = 1024
-            self.ent_embed_dim.delete(0, 'end')
-            self.ent_embed_dim.insert(0, '1024')
-
-        try:
-            self.settings.save()
-            # Also update AI Service instance settings
-            self.ai_service.settings = self.settings
-            messagebox.showinfo("成功", "设置保存成功！")
+            result = self.task_func(*self.args, **self.kwargs)
+            self.finished_signal.emit(result)
         except Exception as e:
-            print(f"Save settings failed: {e}")
-            messagebox.showerror("错误", f"保存设置时发生异常:\n{e}")
-
-    def build_settings_tab(self):
-        container = ttk.Frame(self.tab_settings)
-        container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
-
-        provider_frame = ttk.Frame(container)
-        provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
-        ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
-        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
-        self.cbo_provider.current(0)
-        self.cbo_provider.pack(side=tk.LEFT, padx=10)
-        self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
-
-        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
-        self.ent_api = ttk.Entry(container, width=50, show="*")
-        self.ent_api.insert(0, self.settings.api_key)
-        self.ent_api.pack(anchor=tk.W)
-
-        ttk.Label(container, text="Base URL:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_base = ttk.Entry(container, width=50)
-        self.ent_base.insert(0, self.settings.base_url)
-        self.ent_base.pack(anchor=tk.W)
-
-        ttk.Label(container, text="Model ID:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_model = ttk.Entry(container, width=50)
-        self.ent_model.insert(0, self.settings.model_id)
-        self.ent_model.pack(anchor=tk.W)
-
-        # ====== New Advanced API Params ======
-        adv_api_frame = ttk.LabelFrame(container, text="高级模型参数")
-        adv_api_frame.pack(anchor=tk.W, fill=tk.X, pady=(10, 5), padx=20)
-
-        ttk.Label(adv_api_frame, text="Temperature (0-2):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
-        self.ent_temp = ttk.Entry(adv_api_frame, width=10)
-        self.ent_temp.insert(0, str(getattr(self.settings, 'temperature', 1.0)))
-        self.ent_temp.grid(row=0, column=1, pady=2)
-
-        ttk.Label(adv_api_frame, text="Top P (0-1):").grid(row=0, column=2, sticky=tk.W, padx=(20, 5), pady=2)
-        self.ent_top_p = ttk.Entry(adv_api_frame, width=10)
-        self.ent_top_p.insert(0, str(getattr(self.settings, 'top_p', 1.0)))
-        self.ent_top_p.grid(row=0, column=3, pady=2)
-
-        ttk.Label(adv_api_frame, text="Max Tokens:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
-        self.ent_max_tokens = ttk.Entry(adv_api_frame, width=10)
-        self.ent_max_tokens.insert(0, str(getattr(self.settings, 'max_tokens', 4096)))
-        self.ent_max_tokens.grid(row=1, column=1, pady=2)
-
-        ttk.Label(adv_api_frame, text="思考强度(Reasoning Effort):").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2)
-        self.cbo_reasoning = ttk.Combobox(adv_api_frame, values=["low", "medium", "high", "none"], width=8, state="readonly")
-        current_reason = getattr(self.settings, 'reasoning_effort', 'medium')
-        self.cbo_reasoning.set(current_reason)
-        self.cbo_reasoning.grid(row=1, column=3, pady=2)
-        # ======================================
-
-        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_api = ttk.Entry(container, width=50, show="*")
-        self.ent_embed_api.insert(0, self.settings.embed_api_key)
-        self.ent_embed_api.pack(anchor=tk.W)
-
-        ttk.Label(container, text="Embedding Base URL:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_base = ttk.Entry(container, width=50)
-        self.ent_embed_base.insert(0, self.settings.embed_base_url)
-        self.ent_embed_base.pack(anchor=tk.W)
-
-        ttk.Label(container, text="Embedding Model ID:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_model = ttk.Entry(container, width=50)
-        self.ent_embed_model.insert(0, self.settings.embed_model_id)
-        self.ent_embed_model.pack(anchor=tk.W)
-
-        ttk.Label(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_dim = ttk.Entry(container, width=15)
-        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
-        self.ent_embed_dim.pack(anchor=tk.W)
-
-        ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
-
-        # --- ENGINE TOGGLES ---
-        engine_frame = ttk.Frame(container)
-        engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
-
-        ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        layout_vals = ["DocLayout-YOLO"]
-        self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
-        current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-        self.cbo_layout_engine.set("DocLayout-YOLO")
-        self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
-
-        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ocr_vals = ["Pix2Text"]
-        self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
-        current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
-        self.cbo_ocr_engine.set("Pix2Text")
-        self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
-        # ----------------------
-
-        self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)
-        ttk.Radiobutton(container, text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)", variable=self.var_rec_mode, value=1).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)", variable=self.var_rec_mode, value=2).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)", variable=self.var_rec_mode, value=3).pack(anchor=tk.W, padx=20, pady=2)
-
-        ttk.Label(container, text="🚀 高级选项:").pack(anchor=tk.W, pady=(20, 5))
-        prm_frame = ttk.Frame(container)
-        prm_frame.pack(anchor=tk.W, padx=20, fill=tk.X)
-        self.var_use_prm = tk.BooleanVar(value=self.settings.use_prm_optimization)
-        ttk.Checkbutton(prm_frame, text="启用多切片并发", variable=self.var_use_prm).pack(side=tk.LEFT)
-
-        ttk.Label(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(side=tk.LEFT, padx=(30, 5))
-        self.ent_prm_batch = ttk.Spinbox(prm_frame, from_=2, to=15, width=5)
-        self.ent_prm_batch.set(self.settings.prm_batch_size)
-        self.ent_prm_batch.pack(side=tk.LEFT)
-
-        ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
-    def on_provider_changed(self, event):
-        provider_presets = {
-            "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
-            "Kimi": {"base": "https://api.moonshot.cn/v1", "model": "kimi-k2.5", "embed_base": "", "embed_model": ""},
-            "GLM (智谱)": {
-                "base": "https://open.bigmodel.cn/api/paas/v4/",
-                "model": "glm-4-plus-0326",
-                "embed_base": "https://open.bigmodel.cn/api/paas/v4/",
-                "embed_model": "embedding-3",
-            },
-            "SiliconFlow (硅基)": {
-                "base": "https://api.siliconflow.cn/v1",
-                "model": "deepseek-ai/DeepSeek-V3.2",
-                "embed_base": "https://api.siliconflow.cn/v1",
-                "embed_model": "BAAI/bge-m3",
-            },
-        }
-        provider = self.cbo_provider.get()
-        config = provider_presets.get(provider)
-
-        if not config:
-            return
-
-        def update_entry(widget, value):
-            if value is not None:
-                widget.delete(0, tk.END)
-                widget.insert(0, value)
-
-        update_entry(self.ent_base, config.get("base"))
-        update_entry(self.ent_model, config.get("model"))
-
-        # We only update embed details if they are explicitly mapped.
-        # This clears DeepSeek/Kimi embedding fields, indicating no default embedding model.
-        update_entry(self.ent_embed_base, config.get("embed_base"))
-        update_entry(self.ent_embed_model, config.get("embed_model"))
-    def on_tab_changed(self, event):
-        current_tab = self.notebook.tab(self.notebook.select(), "text")
-        if "Library" in current_tab:
-            self.on_hard_search()
-        elif "Export" in current_tab:
-            self.refresh_bag_ui()
+            logger.error(f"WorkerThread Error: {e}", exc_info=True)
+            self.error_signal.emit(str(e))
 
 if __name__ == "__main__":
-    app = SmartQBApp()
-    app.mainloop()
+    app = QApplication(sys.argv)
+    window = SmartQBApp()
+    window.show()
+    sys.exit(app.exec())
+
+class APIRetryDialog(MessageBoxBase):
+    def __init__(self, error_msg, current_api, current_base, parent=None):
+        super().__init__(parent)
+        self.titleLabel = SubtitleLabel("⚠️ API 请求失败")
+        self.errorLabel = BodyLabel(f"发生错误:\n{error_msg}")
+        self.errorLabel.setStyleSheet("color: red;")
+        self.errorLabel.setWordWrap(True)
+
+        self.ent_api = LineEdit()
+        self.ent_api.setPlaceholderText("API Key")
+        self.ent_api.setText(current_api)
+
+        self.ent_base = LineEdit()
+        self.ent_base.setPlaceholderText("Base URL")
+        self.ent_base.setText(current_base)
+
+        self.viewLayout.addWidget(self.titleLabel)
+        self.viewLayout.addWidget(self.errorLabel)
+        self.viewLayout.addWidget(self.ent_api)
+        self.viewLayout.addWidget(self.ent_base)
+
+        self.yesButton.setText("💾 保存并继续重试")
+        self.cancelButton.setText("⏭️ 取消并降级跳过")
+
+        self.widget.setMinimumWidth(400)
