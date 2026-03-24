@@ -10,9 +10,9 @@ import subprocess
 import gc
 import re
 
-from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSize, Slot, QTimer
+from PySide6.QtCore import Qt, QThread, Signal, QUrl, QSize, Slot, QTimer, QMetaObject, Q_ARG
 from PySide6.QtGui import QIcon, QImage, QPixmap
-from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget, QFileDialog, QHeaderView, QSplitter, QTableWidgetItem, QListWidgetItem
 
 from qfluentwidgets import (FluentWindow, NavigationItemPosition, MessageBox, FluentIcon as FIF,
                             NavigationAvatarWidget, InfoBar, InfoBarPosition, ProgressBar, ProgressRing)

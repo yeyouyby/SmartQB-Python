@@ -1,5 +1,5 @@
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout
+from PySide6.QtCore import Qt, QUrl, Signal, QThread, QObject, Slot, QMetaObject, Q_ARG
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QSplitter, QTableWidgetItem, QListWidgetItem, QApplication, QStackedWidget
 
 from qfluentwidgets import (ScrollArea, SettingCardGroup, PrimaryPushButton,
                             ComboBoxSettingCard, LineEditSettingCard, SwitchSettingCard, SpinBoxSettingCard,

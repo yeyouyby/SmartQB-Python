@@ -2,9 +2,9 @@ import json
 import base64
 import io
 import threading
-from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot
+from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot, QMetaObject, Q_ARG
 from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QSplitter, QTableWidgetItem, QListWidgetItem, QApplication, QStackedWidget
 
 from qfluentwidgets import (PrimaryPushButton, PushButton, TextEdit, LineEdit,
                             BodyLabel, ImageLabel, MessageBox, InfoBar, InfoBarPosition)
@@ -199,7 +199,6 @@ class ManualInterface(QWidget):
 
         def _run():
             res = task()
-            from PySide6.QtCore import QMetaObject, Q_ARG
             QMetaObject.invokeMethod(self, "on_save_result", Qt.QueuedConnection, Q_ARG(object, res))
 
         threading.Thread(target=_run, daemon=True).start()

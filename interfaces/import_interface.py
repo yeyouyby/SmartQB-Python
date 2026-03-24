@@ -6,9 +6,9 @@ import threading
 import tempfile
 import subprocess
 import gc
-from PySide6.QtCore import Qt, Signal, QThread, QObject
+from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot, QMetaObject, Q_ARG
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QSplitter)
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QSplitter, QTableWidgetItem, QListWidgetItem, QApplication, QStackedWidget
 
 from qfluentwidgets import (PrimaryPushButton, PushButton, TableWidget, TextEdit, LineEdit,
                             SubtitleLabel, BodyLabel, ImageLabel, ProgressBar, MessageBox, InfoBar, InfoBarPosition)
@@ -433,7 +433,6 @@ class ImportInterface(QWidget):
             self.table.setItem(idx, 2, self._create_item(",".join(q.get("tags", []))))
 
     def _create_item(self, text):
-        from PySide6.QtWidgets import QTableWidgetItem
         item = QTableWidgetItem(text)
         # item.setTextAlignment(Qt.AlignCenter)
         return item
@@ -572,7 +571,6 @@ class ImportInterface(QWidget):
         import threading
         def _run():
             res = task()
-            from PySide6.QtCore import QMetaObject, Q_ARG
             QMetaObject.invokeMethod(self, "on_save_db_result", Qt.QueuedConnection, Q_ARG(object, res))
 
         threading.Thread(target=_run, daemon=True).start()
@@ -606,7 +604,6 @@ class ImportInterface(QWidget):
 
         def _run():
             res = task()
-            from PySide6.QtCore import QMetaObject, Q_ARG
             QMetaObject.invokeMethod(self, "on_merge_result", Qt.QueuedConnection, Q_ARG(object, {"res": res, "rows": rows}))
 
         import threading
@@ -665,7 +662,6 @@ class ImportInterface(QWidget):
 
         def _run():
             s, f, v = task()
-            from PySide6.QtCore import QMetaObject, Q_ARG
             QMetaObject.invokeMethod(self, "on_generate_vectors_result", Qt.QueuedConnection, Q_ARG(int, s), Q_ARG(int, f), Q_ARG(object, v))
 
         import threading

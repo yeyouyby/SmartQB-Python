@@ -4,8 +4,8 @@ import json
 import base64
 import threading
 import subprocess
-from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog
+from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot, QMetaObject, Q_ARG
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFileDialog, QHeaderView, QSplitter, QTableWidgetItem, QListWidgetItem, QApplication, QStackedWidget
 
 from qfluentwidgets import (PrimaryPushButton, PushButton, ListWidget,
                             BodyLabel, SubtitleLabel, MessageBox, InfoBar, InfoBarPosition)
@@ -161,7 +161,6 @@ class ExportInterface(QWidget):
     def refresh_ui(self):
         self.listbox.clear()
         for idx, item in enumerate(self.app_logic.export_bag):
-            from PySide6.QtWidgets import QListWidgetItem
             preview = item["content"][:40].replace('\n', '')
             has_img = "[含图]" if item["diagram"] else ""
             self.listbox.addItem(QListWidgetItem(f"{idx+1}. {has_img} {preview}..."))

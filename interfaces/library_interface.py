@@ -2,9 +2,9 @@ import json
 import base64
 import io
 import threading
-from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot
+from PySide6.QtCore import Qt, Signal, QThread, QObject, Slot, QMetaObject, Q_ARG
 from PySide6.QtGui import QImage, QPixmap
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QHeaderView, QSplitter
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QHeaderView, QSplitter, QFileDialog, QTableWidgetItem, QListWidgetItem, QApplication, QStackedWidget
 
 from qfluentwidgets import (PrimaryPushButton, PushButton, TableWidget, TextEdit, LineEdit,
                             BodyLabel, SubtitleLabel, ImageLabel, SearchLineEdit, MessageBox, InfoBar, InfoBarPosition)
@@ -191,7 +191,6 @@ class LibraryInterface(QWidget):
 
         def _run():
             res = task()
-            from PySide6.QtCore import QMetaObject, Q_ARG
             QMetaObject.invokeMethod(self, "on_search_result", Qt.QueuedConnection, Q_ARG(list, res))
 
         threading.Thread(target=_run, daemon=True).start()
@@ -200,7 +199,6 @@ class LibraryInterface(QWidget):
     def on_search_result(self, rows):
         self.table.setRowCount(len(rows))
         for idx, r in enumerate(rows):
-            from PySide6.QtWidgets import QTableWidgetItem
             short_c = r[1][:30].replace('\n', ' ')
             self.table.setItem(idx, 0, QTableWidgetItem(str(r[0])))
             self.table.setItem(idx, 1, QTableWidgetItem(short_c))
