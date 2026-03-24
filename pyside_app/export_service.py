@@ -1,6 +1,5 @@
 from docx import Document
 from docx.shared import Pt
-import jinja2
 import os
 
 class ExportService:
@@ -10,10 +9,15 @@ class ExportService:
     def render_markdown_to_docx(self, md_content: str, output_path: str):
         """
         Takes raw markdown, parses it (via python-docx), and injects it into a
-        Jinja2 styled word template.
-        For simplicity, this generates a basic docx.
+        Word template.
+        For simplicity in this demonstration, this generates a basic docx,
+        using the template if it exists, otherwise a blank document.
         """
-        doc = Document()
+        # Load template if it exists
+        if os.path.exists(self.template_path):
+            doc = Document(self.template_path)
+        else:
+            doc = Document()
 
         # In a full implementation, we'd use docx-mailmerge or similar to parse
         # {{ content }} placeholders in self.template_path.

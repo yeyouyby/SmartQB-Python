@@ -1,44 +1,48 @@
 from typing import List, Dict
 import os
 import multiprocessing as mp
+import logging
+import queue
 from .base import BaseParser
+
+logger = logging.getLogger(__name__)
 
 # This process runs isolated to avoid GIL block
 def pp_structure_worker(file_path: str, result_queue: mp.Queue):
     try:
-        # Import Paddle inside the worker to avoid polluting main process
-        # and to make sure it loads correctly in a separate process space
         from paddleocr import PPStructure
 
         # Initialize engine (takes time)
-        # Using MKLDNN for CPU optimization if available
-        engine = PPStructure(show_log=True, image_dir=file_path)
+        # Using MKLDNN for CPU optimization if available. Do not pass file_path to image_dir.
+        engine = PPStructure(show_log=True)
 
-        # In a real scenario, handle PDF vs Image. For now, assume single image for brevity.
-        # result = engine(file_path)
-        #
-        # Simulated parsing for structure map:
-        simulated_res = [{
-            "markdown_content": f"Mock parsed content from {os.basename(file_path)}",
+        # Execute OCR/layout analysis
+        result = engine(file_path)
+
+        # Process real results into standard format. For brevity in this mock, we map the output.
+        # In a real full implementation, `result` from PPStructure needs detailed markdown construction.
+        # Here we just dump the repr of the result for the user's content and keep the structure.
+        markdown_content = f"Parsed content from {os.path.basename(file_path)}:\n\n{repr(result)}"
+
+        res_data = [{
+            "markdown_content": markdown_content,
             "images": {},
             "page_num": 1
         }]
 
-        result_queue.put({"status": "success", "data": simulated_res})
+        result_queue.put({"status": "success", "data": res_data})
     except Exception as e:
+        # Catch all here to ensure worker doesn't silently die without notifying the queue
         result_queue.put({"status": "error", "message": str(e)})
 
 class PPStructureParser(BaseParser):
     def __init__(self):
-        # We don't initialize paddle here to avoid slow startup.
-        # It's done inside the worker.
         pass
 
     def parse(self, file_path: str) -> List[Dict]:
         """
         Parses a file synchronously for API simplicity, but uses multiprocessing
         internally to bypass GIL and prevent blocking.
-        If async/non-blocking is needed for GUI, this should be called inside a QThread.
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -47,11 +51,19 @@ class PPStructureParser(BaseParser):
         p = mp.Process(target=pp_structure_worker, args=(file_path, result_queue))
         p.start()
 
-        # This will block until the worker finishes.
-        # In the actual GUI, we will wrap this `parse` call in a QThread
-        # so this block doesn't freeze the main event loop.
-        res = result_queue.get()
-        p.join()
+        try:
+            # Add reasonable timeout to avoid infinite blocking if worker dies
+            res = result_queue.get(timeout=300)
+        except queue.Empty:
+            if p.is_alive():
+                p.terminate()
+            p.join()
+            raise TimeoutError("PaddleOCR worker process timed out.")
+
+        p.join(timeout=5)
+        if p.is_alive():
+            p.terminate()
+            p.join()
 
         if res["status"] == "success":
             return res["data"]

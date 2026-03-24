@@ -418,4 +418,3 @@ FodyWeavers.xsd
 *.msp
 smartqb_lancedb/
 *.db
-smartqb.db

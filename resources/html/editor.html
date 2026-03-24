@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <title>Cherry Markdown Editor</title>
     <!-- Use local files for offline availability -->
-    <!-- Assuming we have minified files downloaded into cherry_markdown directory -->
     <link rel="stylesheet" href="cherry_markdown/cherry-markdown.min.css">
 </head>
 <body style="margin: 0; padding: 0;">
@@ -25,11 +24,15 @@
             }
         });
 
+        // Initialize dummy functions so early calls don't raise undefined errors
+        window.getMarkdown = function() { return cherryEditor.getMarkdown(); };
+        window.setMarkdown = function(content) { cherryEditor.setMarkdown(content); };
+
         // Setup QWebChannel for Python <-> JS communication
         new QWebChannel(qt.webChannelTransport, function(channel) {
             window.backend = channel.objects.backend;
 
-            // Expose a method for Python to get markdown content
+            // Expose a method for Python to get markdown content, now bound with backend
             window.getMarkdown = function() {
                 var content = cherryEditor.getMarkdown();
                 backend.receive_markdown(content);

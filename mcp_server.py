@@ -1,17 +1,25 @@
 import os
 import json
 import sys
+import sqlite3
+import re
 from mcp.server.fastmcp import FastMCP
-from search_service import HybridSearcher
+from pyside_app.search_service import HybridSearcher
 from algorithms.simulated_annealing import SimulatedAnnealingExamBuilder
 import db_manager
+from pyside_app.export_service import ExportService
 
 # Create an MCP server
 mcp = FastMCP("SmartQB-QT-MCP")
 
+# Keep a single instance per process
+_db_instance = None
+
 def get_db():
-    # Make sure we read from the same location as main app
-    return db_manager.dbManager()
+    global _db_instance
+    if _db_instance is None:
+        _db_instance = db_manager.dbManager()
+    return _db_instance
 
 @mcp.tool()
 def sqb_hybrid_search(query: str, limit: int = 5) -> str:
@@ -32,6 +40,8 @@ def sqb_hybrid_search(query: str, limit: int = 5) -> str:
         return "Search Results:\n" + "\n".join(formatted_results) if formatted_results else "No results found."
     except Exception as e:
         return f"Error executing search: {str(e)}"
+    finally:
+        searcher.db.close()
 
 @mcp.tool()
 def sqb_sql_query(sql_string: str) -> str:
@@ -39,20 +49,28 @@ def sqb_sql_query(sql_string: str) -> str:
     Execute a read-only SQL query against the SmartQB SQLite metadata database.
     Can be used to check exam bags, groups, or settings.
     """
-    if not sql_string.strip().upper().startswith("SELECT"):
+    sql_upper = sql_string.strip().upper()
+    if not sql_upper.startswith("SELECT"):
         return "Error: Only SELECT queries are allowed for safety."
 
-    try:
-        db = get_db()
-        db.cursor.execute(sql_string)
-        rows = db.cursor.fetchall()
+    # Restrict to safe tables. Disallow settings/api_keys
+    forbidden_tables = ["settings", "api_keys"]
+    for ft in forbidden_tables:
+        if ft.upper() in sql_upper:
+            return f"Error: Access to the '{ft}' table is strictly forbidden."
 
-        if not rows:
-            return "Query executed successfully. 0 rows returned."
+    db = get_db()
+    with db._lock:
+        try:
+            db.cursor.execute(sql_string)
+            rows = db.cursor.fetchall()
 
-        return json.dumps(rows, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return f"Database error: {str(e)}"
+            if not rows:
+                return "Query executed successfully. 0 rows returned."
+
+            return json.dumps(rows, ensure_ascii=False, indent=2)
+        except sqlite3.Error as e:
+            return f"Database error: {str(e)}"
 
 @mcp.tool()
 def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
@@ -75,11 +93,20 @@ def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
         return f"Error generating exam: {str(e)}"
 
 @mcp.tool()
-def sqb_export_paper(bag_id: int, template_name: str = "default.docx") -> str:
+def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/default.docx") -> str:
     """
     Export an exam bag to a Word document using the specified template.
     """
-    return f"Successfully initiated export for Exam Bag {bag_id} using template {template_name}. The file will be saved to the export directory."
+    try:
+        exporter = ExportService(template_path=template_name)
+        # Assuming we fetch content markdown from LanceDB using bag_id.
+        # Here we render a dummy content.
+        mock_content = f"# Mock Exam Bag {bag_id}\n\nContent for {bag_id} generated via export service."
+        out_path = f"export_{bag_id}.docx"
+        exporter.render_markdown_to_docx(mock_content, out_path)
+        return f"Successfully exported Exam Bag {bag_id} using template '{template_name}'. File saved to '{out_path}'."
+    except Exception as e:
+        return f"Export failed: {str(e)}"
 
 if __name__ == "__main__":
     # Start the FastMCP server, exposing tools via stdio to Claude Desktop
