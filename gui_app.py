@@ -13,6 +13,7 @@ import tkinter as tk
 from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
+import customtkinter as ctk
 try:
     from pix2text import Pix2Text
 except Exception as e:
@@ -35,9 +36,11 @@ warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
 # ==========================================
 # 主应用 GUI
 # ==========================================
-class SmartQBApp(tk.Tk):
+class SmartQBApp(ctk.CTk):
     def __init__(self):
         super().__init__()
+        ctk.set_appearance_mode("System")
+        ctk.set_default_color_theme("blue")
         self.title("SmartQB Pro V3 - 智能题库桌面端 (完整版)")
         self.geometry("1300x850")
 
@@ -68,20 +71,21 @@ class SmartQBApp(tk.Tk):
         self.staging_questions = []
         self.export_bag = []
 
-        self.notebook = ttk.Notebook(self)
+        # Apply a simple theme for Treeview so it blends somewhat with CTk
+        style = ttk.Style(self)
+        style.theme_use('default')
+        style.configure("Treeview", background="#2b2b2b", foreground="white", rowheight=25, fieldbackground="#2b2b2b")
+        style.configure("Treeview.Heading", background="#565b5e", foreground="white", relief="flat")
+        style.map('Treeview', background=[('selected', '#1f538d')])
+
+        self.notebook = ctk.CTkTabview(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.tab_import = ttk.Frame(self.notebook)
-        self.tab_manual = ttk.Frame(self.notebook)
-        self.tab_library = ttk.Frame(self.notebook)
-        self.tab_export = ttk.Frame(self.notebook)
-        self.tab_settings = ttk.Frame(self.notebook)
-
-        self.notebook.add(self.tab_import, text="1. 文件导入与审阅 (Import)")
-        self.notebook.add(self.tab_manual, text="➕ 手动单题录入")
-        self.notebook.add(self.tab_library, text="2. 题库维护 (Library)")
-        self.notebook.add(self.tab_export, text="3. 题目袋组卷 (Export)")
-        self.notebook.add(self.tab_settings, text="设置 (Settings)")
+        self.tab_import = self.notebook.add("1. 文件导入与审阅 (Import)")
+        self.tab_manual = self.notebook.add("➕ 手动单题录入")
+        self.tab_library = self.notebook.add("2. 题库维护 (Library)")
+        self.tab_export = self.notebook.add("3. 题目袋组卷 (Export)")
+        self.tab_settings = self.notebook.add("设置 (Settings)")
 
         self.build_import_tab()
         self.build_manual_tab()
@@ -89,7 +93,7 @@ class SmartQBApp(tk.Tk):
         self.build_export_tab()
         self.build_settings_tab()
 
-        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.notebook.configure(command=self.on_tab_changed)
 
     # ------------------------------------------
     # API 错误拦截
@@ -170,8 +174,8 @@ class SmartQBApp(tk.Tk):
         self.txt_stg_content.delete("1.0", tk.END)
         self.ent_stg_tags.delete(0, tk.END)
         if hasattr(self, 'lbl_vector_info'):
-            self.lbl_vector_info.config(text="未生成向量")
-        self.lbl_stg_diagram.config(image='', text="无图样")
+            self.lbl_vector_info.configure(text="未生成向量")
+        self.lbl_stg_diagram.configure(image='', text="无图样")
         if hasattr(self.lbl_stg_diagram, 'image'):
             del self.lbl_stg_diagram.image
         gc.collect()
@@ -240,7 +244,7 @@ class SmartQBApp(tk.Tk):
         result = [False]
         event = threading.Event()
         def show_dialog():
-            dialog = tk.Toplevel(self)
+            dialog = ctk.CTkToplevel(self)
             dialog.title("⚠️ API 请求失败")
             dialog.geometry("450x300")
             dialog.grab_set()
@@ -288,21 +292,21 @@ class SmartQBApp(tk.Tk):
     # Import View
     # ------------------------------------------
     def build_import_tab(self):
-        top_frame = ttk.Frame(self.tab_import)
+        top_frame = ctk.CTkFrame(self.tab_import)
         top_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        ttk.Button(top_frame, text="📄 导入 PDF", command=lambda: self.on_import_file("pdf")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="📝 导入 Word", command=lambda: self.on_import_file("word")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="🖼️ 导入单张图片", command=lambda: self.on_import_file("image")).pack(side=tk.LEFT, padx=2)
+        ctk.CTkButton(top_frame, text="📄 导入 PDF", command=lambda: self.on_import_file("pdf")).pack(side=tk.LEFT, padx=2)
+        ctk.CTkButton(top_frame, text="📝 导入 Word", command=lambda: self.on_import_file("word")).pack(side=tk.LEFT, padx=2)
+        ctk.CTkButton(top_frame, text="🖼️ 导入单张图片", command=lambda: self.on_import_file("image")).pack(side=tk.LEFT, padx=2)
 
-        self.lbl_import_status = ttk.Label(top_frame, text="等待导入...", foreground="blue")
+        self.lbl_import_status = ctk.CTkLabel(top_frame, text="等待导入...", text_color="#3B8ED0")
         self.lbl_import_status.pack(side=tk.LEFT, padx=10)
 
-        paned = ttk.PanedWindow(self.tab_import, orient=tk.HORIZONTAL)
+        paned = tk.PanedWindow(self.tab_import, orient=tk.HORIZONTAL, sashwidth=4, bg="#565b5e")
         paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        left_frame = ttk.Frame(paned)
-        paned.add(left_frame, weight=1)
+        left_frame = ctk.CTkFrame(paned)
+        paned.add(left_frame, width=400)
 
         self.tree_staging = ttk.Treeview(left_frame, columns=("id", "content", "tags"), show="headings", selectmode="extended")
         self.tree_staging.heading("id", text="序号")
@@ -310,67 +314,68 @@ class SmartQBApp(tk.Tk):
         self.tree_staging.heading("content", text="识别内容预览")
         self.tree_staging.heading("tags", text="标签")
         self.tree_staging.column("tags", width=100)
-        self.tree_staging.pack(fill=tk.BOTH, expand=True)
+        self.tree_staging.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.tree_staging.bind('<<TreeviewSelect>>', self.on_staging_select)
 
-        ttk.Button(left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item).pack(fill=tk.X, pady=2)
+        ctk.CTkButton(left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item, fg_color="#C0392B", hover_color="#E74C3C").pack(fill=tk.X, pady=2, padx=5)
 
         # New AI Actions
-        ai_frame = ttk.LabelFrame(left_frame, text="AI 题目整理 (二次处理)")
-        ai_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(ai_frame, text="🔗 合并选中项", command=self.merge_staging_items).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item).pack(fill=tk.X, pady=2)
+        ai_frame = ctk.CTkFrame(left_frame)
+        ai_frame.pack(fill=tk.X, pady=5, padx=5)
+        ctk.CTkLabel(ai_frame, text="AI 题目整理 (二次处理)", font=ctk.CTkFont(weight="bold")).pack(pady=2)
+        ctk.CTkButton(ai_frame, text="🔗 合并选中项", command=self.merge_staging_items).pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item).pack(fill=tk.X, pady=2, padx=5)
 
-        right_frame = ttk.Frame(paned)
-        paned.add(right_frame, weight=2)
+        right_frame = ctk.CTkFrame(paned)
+        paned.add(right_frame)
 
-        ttk.Label(right_frame, text="AI 优化后文字内容 (可在此纠错):").pack(anchor=tk.W)
-        self.txt_stg_content = tk.Text(right_frame, height=8, font=("Consolas", 10))
-        self.txt_stg_content.pack(fill=tk.X, pady=2)
+        ctk.CTkLabel(right_frame, text="AI 优化后文字内容 (可在此纠错):").pack(anchor=tk.W, padx=5)
+        self.txt_stg_content = ctk.CTkTextbox(right_frame, height=150, font=ctk.CTkFont(family="Consolas", size=12))
+        self.txt_stg_content.pack(fill=tk.X, pady=2, padx=5)
 
-        ttk.Label(right_frame, text="AI 打标 (逗号分隔):").pack(anchor=tk.W)
-        self.ent_stg_tags = ttk.Entry(right_frame)
-        self.ent_stg_tags.pack(fill=tk.X, pady=2)
-        ttk.Button(right_frame, text="💾 更新当前题目", command=self.update_stg_item).pack(anchor=tk.E, pady=5)
+        ctk.CTkLabel(right_frame, text="AI 打标 (逗号分隔):").pack(anchor=tk.W, padx=5)
+        self.ent_stg_tags = ctk.CTkEntry(right_frame)
+        self.ent_stg_tags.pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(right_frame, text="💾 更新当前题目", command=self.update_stg_item).pack(anchor=tk.E, pady=5, padx=5)
 
-        vec_frame = ttk.Frame(right_frame)
-        vec_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(vec_frame, text="向量化预览:").pack(side=tk.LEFT)
-        self.lbl_vector_info = ttk.Label(vec_frame, text="未生成向量")
+        vec_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        vec_frame.pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkLabel(vec_frame, text="向量化预览:").pack(side=tk.LEFT)
+        self.lbl_vector_info = ctk.CTkLabel(vec_frame, text="未生成向量")
         self.lbl_vector_info.pack(side=tk.LEFT, padx=5)
-        ttk.Button(vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector).pack(side=tk.RIGHT)
+        ctk.CTkButton(vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector).pack(side=tk.RIGHT)
 
 
-        self.lbl_stg_diagram = ttk.Label(right_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
-        self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.lbl_stg_diagram = ctk.CTkLabel(right_frame, text="无图样", fg_color="transparent")
+        self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
 
-        self.lbl_stg_diag_info = ttk.Label(right_frame, text="", anchor=tk.CENTER)
-        self.lbl_stg_diag_info.pack(fill=tk.X)
+        self.lbl_stg_diag_info = ctk.CTkLabel(right_frame, text="")
+        self.lbl_stg_diag_info.pack(fill=tk.X, padx=5)
 
-        diag_btn_frame = ttk.Frame(right_frame)
-        diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        diag_btn_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        diag_btn_frame.pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ctk.CTkButton(diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram, fg_color="#C0392B", hover_color="#E74C3C").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ctk.CTkButton(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        move_btn_frame = ttk.Frame(right_frame)
-        move_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(move_btn_frame, text="⬇️ 将当前图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        move_btn_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        move_btn_frame.pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ctk.CTkButton(move_btn_frame, text="⬇️ 将当前图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
+        ctk.CTkButton(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2, padx=5)
 
-        bottom_frame = ttk.Frame(self.tab_import)
+        bottom_frame = ctk.CTkFrame(self.tab_import)
         bottom_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        ttk.Label(bottom_frame, text="为整个试卷批量追加标签:").pack(side=tk.LEFT)
-        self.ent_batch_tag = ttk.Entry(bottom_frame, width=20)
+        ctk.CTkLabel(bottom_frame, text="为整个试卷批量追加标签:").pack(side=tk.LEFT, padx=5)
+        self.ent_batch_tag = ctk.CTkEntry(bottom_frame, width=150)
         self.ent_batch_tag.pack(side=tk.LEFT, padx=5)
-        ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
+        ctk.CTkButton(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT, padx=5)
 
-        ttk.Button(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
+        ctk.CTkButton(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
+        ctk.CTkButton(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
 
 
     def move_diagram_up(self):
@@ -469,7 +474,7 @@ class SmartQBApp(tk.Tk):
         try:
             img = Image.open(io.BytesIO(base64.b64decode(page_b64)))
 
-            top = tk.Toplevel(self)
+            top = ctk.CTkToplevel(self)
             top.title("完整版面分析预览")
             top.geometry("800x900")
 
@@ -720,7 +725,7 @@ class SmartQBApp(tk.Tk):
             self.after(0, self.refresh_staging_tree)
 
     def update_status(self, text):
-        self.after(0, lambda: self.lbl_import_status.config(text=text))
+        self.after(0, lambda: self.lbl_import_status.configure(text=text))
 
     def refresh_staging_tree(self):
         for i in self.tree_staging.get_children(): self.tree_staging.delete(i)
@@ -748,16 +753,16 @@ class SmartQBApp(tk.Tk):
         vec = q.get("embedding", [])
         if vec:
             preview = str([round(v, 3) for v in vec[:3]]) + "..."
-            self.lbl_vector_info.config(text=f"已生成 (维度: {len(vec)}) {preview}")
+            self.lbl_vector_info.configure(text=f"已生成 (维度: {len(vec)}) {preview}")
         else:
-            self.lbl_vector_info.config(text="未生成向量")
+            self.lbl_vector_info.configure(text="未生成向量")
 
     def _render_stg_diagram(self):
         if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
-            self.lbl_stg_diagram.config(image='', text="无图样")
+            self.lbl_stg_diagram.configure(image='', text="无图样")
             if hasattr(self.lbl_stg_diagram, 'image'):
                 del self.lbl_stg_diagram.image
-            self.lbl_stg_diag_info.config(text="")
+            self.lbl_stg_diag_info.configure(text="")
             return
 
         display_img_b64 = self.stg_current_diags[self.current_img_index]
@@ -767,17 +772,17 @@ class SmartQBApp(tk.Tk):
                 img = Image.open(io.BytesIO(base64.b64decode(display_img_clean))).copy()
                 img.thumbnail((400, 300))
                 photo = ImageTk.PhotoImage(img)
-                self.lbl_stg_diagram.config(image=photo, text="")
+                self.lbl_stg_diagram.configure(image=photo, text="")
                 self.lbl_stg_diagram.image = photo
 
                 info_text = f"图样 {self.current_img_index + 1} / {len(self.stg_current_diags)}"
-                self.lbl_stg_diag_info.config(text=info_text)
+                self.lbl_stg_diag_info.configure(text=info_text)
             except Exception as e:
-                self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
-                self.lbl_stg_diag_info.config(text="")
+                self.lbl_stg_diagram.configure(image='', text=f"图片加载失败: {e}")
+                self.lbl_stg_diag_info.configure(text="")
         else:
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            self.lbl_stg_diag_info.config(text="")
+            self.lbl_stg_diagram.configure(image='', text="无图样")
+            self.lbl_stg_diag_info.configure(text="")
 
     def stg_prev_diagram(self):
         if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
@@ -813,7 +818,7 @@ class SmartQBApp(tk.Tk):
     def update_staging_vector(self):
         sel = self.tree_staging.selection()
         if not sel: return
-        self.lbl_vector_info.config(text=f"正在为 {len(sel)} 题生成向量...")
+        self.lbl_vector_info.configure(text=f"正在为 {len(sel)} 题生成向量...")
         self.update()
 
         def task():
@@ -841,9 +846,9 @@ class SmartQBApp(tk.Tk):
             def update_ui():
                 if success_count > 0:
                     preview = str([round(v, 3) for v in last_vec[:3]]) + "..." if last_vec else ""
-                    self.lbl_vector_info.config(text=f"成功: {success_count}, 失败: {fail_count}. {preview}")
+                    self.lbl_vector_info.configure(text=f"成功: {success_count}, 失败: {fail_count}. {preview}")
                 else:
-                    self.lbl_vector_info.config(text="生成失败")
+                    self.lbl_vector_info.configure(text="生成失败")
 
             self.after(0, update_ui)
 
@@ -1014,12 +1019,12 @@ class SmartQBApp(tk.Tk):
             self.txt_stg_content.delete("1.0", tk.END)
             self.ent_stg_tags.delete(0, tk.END)
             if hasattr(self, 'lbl_vector_info'):
-                self.lbl_vector_info.config(text="未生成向量")
-            self.lbl_stg_diagram.config(image='', text="无图样")
+                self.lbl_vector_info.configure(text="未生成向量")
+            self.lbl_stg_diagram.configure(image='', text="无图样")
             if hasattr(self.lbl_stg_diagram, 'image'):
                 del self.lbl_stg_diagram.image
             if hasattr(self, 'lbl_stg_diag_info'):
-                self.lbl_stg_diag_info.config(text="")
+                self.lbl_stg_diag_info.configure(text="")
             gc.collect()
 
     def apply_batch_tags(self):
@@ -1075,42 +1080,42 @@ class SmartQBApp(tk.Tk):
     # Manual Input View
     # ------------------------------------------
     def build_manual_tab(self):
-        frame = ttk.Frame(self.tab_manual, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
+        frame = ctk.CTkFrame(self.tab_manual)
+        frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
 
-        ttk.Label(frame, text="题干文字内容 (支持直接粘贴纯文本):").pack(anchor=tk.W)
-        self.txt_manual = tk.Text(frame, height=10, font=("Consolas", 11))
-        self.txt_manual.pack(fill=tk.X, pady=5)
+        ctk.CTkLabel(frame, text="题干文字内容 (支持直接粘贴纯文本):").pack(anchor=tk.W, padx=5)
+        self.txt_manual = ctk.CTkTextbox(frame, height=200, font=ctk.CTkFont(family="Consolas", size=13))
+        self.txt_manual.pack(fill=tk.X, pady=5, padx=5)
 
-        btn_frame = ttk.Frame(frame)
-        btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="✨ 呼叫 AI 自动排版纠错并生成标签", command=self.on_manual_ai).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector).pack(side=tk.LEFT, padx=5)
+        btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        btn_frame.pack(fill=tk.X, pady=5, padx=5)
+        ctk.CTkButton(btn_frame, text="✨ 呼叫 AI 自动排版纠错并生成标签", command=self.on_manual_ai).pack(side=tk.LEFT)
+        ctk.CTkButton(btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat).pack(side=tk.LEFT, padx=5)
+        ctk.CTkButton(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(side=tk.LEFT, padx=5)
+        ctk.CTkButton(btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector).pack(side=tk.LEFT, padx=5)
 
-        self.lbl_manual_status = ttk.Label(btn_frame, text="", foreground="blue")
+        self.lbl_manual_status = ctk.CTkLabel(btn_frame, text="", text_color="#3B8ED0")
         self.lbl_manual_status.pack(side=tk.LEFT, padx=10)
 
         # Vectorization preview during AI generation
-        self.lbl_manual_vector_status = ttk.Label(btn_frame, text="未生成向量", foreground="gray")
+        self.lbl_manual_vector_status = ctk.CTkLabel(btn_frame, text="未生成向量", text_color="gray")
         self.lbl_manual_vector_status.pack(side=tk.RIGHT, padx=10)
 
-        ttk.Label(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10,0))
-        self.ent_manual_tags = ttk.Entry(frame)
-        self.ent_manual_tags.pack(fill=tk.X, pady=5)
+        ctk.CTkLabel(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10,0), padx=5)
+        self.ent_manual_tags = ctk.CTkEntry(frame)
+        self.ent_manual_tags.pack(fill=tk.X, pady=5, padx=5)
 
         # Companion Diagram Selection
-        diagram_frame = ttk.Frame(frame)
-        diagram_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram).pack(side=tk.LEFT)
-        self.lbl_manual_diagram_status = ttk.Label(diagram_frame, text="未选择图片", foreground="gray")
+        diagram_frame = ctk.CTkFrame(frame, fg_color="transparent")
+        diagram_frame.pack(fill=tk.X, pady=5, padx=5)
+        ctk.CTkButton(diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram).pack(side=tk.LEFT)
+        self.lbl_manual_diagram_status = ctk.CTkLabel(diagram_frame, text="未选择图片", text_color="gray")
         self.lbl_manual_diagram_status.pack(side=tk.LEFT, padx=10)
 
         self.manual_diagram_b64 = None
         self.manual_vector = None
 
-        ttk.Button(frame, text="💾 保存并直接入库", command=self.save_manual).pack(anchor=tk.E, pady=20)
+        ctk.CTkButton(frame, text="💾 保存并直接入库", command=self.save_manual).pack(anchor=tk.E, pady=20, padx=5)
 
     def on_select_manual_diagram(self):
         file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")])
@@ -1125,30 +1130,30 @@ class SmartQBApp(tk.Tk):
             self.manual_diagram_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
 
             filename = os.path.basename(file_path)
-            self.lbl_manual_diagram_status.config(text=f"已选择: {filename}", foreground="green")
+            self.lbl_manual_diagram_status.configure(text=f"已选择: {filename}", text_color="#27AE60")
         except Exception as e:
-            self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
+            self.lbl_manual_diagram_status.configure(text=f"图片读取失败: {e}", text_color="#E74C3C")
             self.manual_diagram_b64 = None
 
 
     def on_manual_reformat(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
         if not text: return
-        self.lbl_manual_status.config(text="正在重新排版...")
+        self.lbl_manual_status.configure(text="正在重新排版...")
         def task():
             formatted = self.ai_service.ai_format_question(text)
             if formatted:
                 self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
                 self.after(0, lambda: self.txt_manual.insert(tk.END, formatted))
-                self.after(0, lambda: self.lbl_manual_status.config(text="重新排版完成"))
+                self.after(0, lambda: self.lbl_manual_status.configure(text="重新排版完成"))
             else:
-                self.after(0, lambda: self.lbl_manual_status.config(text="排版失败", foreground="red"))
+                self.after(0, lambda: self.lbl_manual_status.configure(text="排版失败", text_color="#E74C3C"))
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_retag(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
         if not text: return
-        self.lbl_manual_status.config(text="正在生成标签...")
+        self.lbl_manual_status.configure(text="正在生成标签...")
         def task():
             try:
                 res = self.ai_service.process_text_with_correction(text)
@@ -1156,33 +1161,33 @@ class SmartQBApp(tk.Tk):
                 if tags:
                     self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
                     self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
+                    self.after(0, lambda: self.lbl_manual_status.configure(text="标签生成完成"))
                 else:
-                    self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
+                    self.after(0, lambda: self.lbl_manual_status.configure(text="生成标签失败", text_color="#E74C3C"))
             except Exception as e:
                 logger.error(f"Manual Retag Error: {e}", exc_info=True)
-                self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
+                self.after(0, lambda: self.lbl_manual_status.configure(text=f"生成标签失败: {e}", text_color="#E74C3C"))
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_preview_vector(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
         if not text: return
-        self.lbl_manual_vector_status.config(text="正在生成...", foreground="blue")
+        self.lbl_manual_vector_status.configure(text="正在生成...", text_color="#3B8ED0")
         def task():
             vec = self.ai_service.get_embedding(text)
             if vec:
                 self.manual_vector = vec
                 self.manual_vector_text_hash = hash(text)
                 preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+                self.after(0, lambda: self.lbl_manual_vector_status.configure(text=f"已生成向量 (维度: {len(vec)}) {preview}", text_color="#27AE60"))
             else:
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+                self.after(0, lambda: self.lbl_manual_vector_status.configure(text="向量生成失败", text_color="#E74C3C"))
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_ai(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
         if not text: return
-        self.lbl_manual_status.config(text="AI 分析与向量化中...")
+        self.lbl_manual_status.configure(text="AI 分析与向量化中...")
         def task():
             while True:
                 try:
@@ -1193,7 +1198,7 @@ class SmartQBApp(tk.Tk):
                     self.after(0, lambda: self.txt_manual.insert(tk.END, content_result))
                     self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
                     self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(res.get("Tags", []))))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="AI 处理完成！请核对后保存。"))
+                    self.after(0, lambda: self.lbl_manual_status.configure(text="AI 处理完成！请核对后保存。"))
 
                     # Generate embedding in the background immediately
                     vector_text = content_result
@@ -1203,16 +1208,16 @@ class SmartQBApp(tk.Tk):
                             self.manual_vector = vec
                             self.manual_vector_text_hash = hash(vector_text)
                             preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+                            self.after(0, lambda: self.lbl_manual_vector_status.configure(text=f"已生成向量 (维度: {len(vec)}) {preview}", text_color="#27AE60"))
                         else:
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+                            self.after(0, lambda: self.lbl_manual_vector_status.configure(text="向量生成失败", text_color="#E74C3C"))
 
                     break
                 except Exception as e:
                     if self.ask_api_retry_sync(str(e)):
                         continue
                     else:
-                        self.after(0, lambda: self.lbl_manual_status.config(text=f"AI 处理已取消。"))
+                        self.after(0, lambda: self.lbl_manual_status.configure(text=f"AI 处理已取消。"))
                         break
         threading.Thread(target=task, daemon=True).start()
 
@@ -1247,9 +1252,9 @@ class SmartQBApp(tk.Tk):
                     self.manual_vector = None
                     if hasattr(self, 'manual_vector_text_hash'):
                         delattr(self, 'manual_vector_text_hash')
-                    self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
-                    self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
-                    self.lbl_manual_status.config(text="")
+                    self.lbl_manual_diagram_status.configure(text="未选择图片", text_color="gray")
+                    self.lbl_manual_vector_status.configure(text="未生成向量", text_color="gray")
+                    self.lbl_manual_status.configure(text="")
                     logger.info("Manual question saved to DB successfully.")
                     messagebox.showinfo("成功", "手工录入成功，已存入题库！")
 
@@ -1257,7 +1262,7 @@ class SmartQBApp(tk.Tk):
             except Exception as e:
                 err_msg = str(e)
                 def on_error():
-                    self.lbl_manual_status.config(text=f"保存失败: {err_msg}", foreground="red")
+                    self.lbl_manual_status.configure(text=f"保存失败: {err_msg}", text_color="#E74C3C")
                     messagebox.showerror("错误", f"保存入库时发生异常:\n{err_msg}")
                 self.after(0, on_error)
             finally:
@@ -1267,73 +1272,76 @@ class SmartQBApp(tk.Tk):
             messagebox.showinfo("提示", "正在入库，请勿重复提交。")
             return
         self._manual_save_inflight = True
-        self.lbl_manual_status.config(text="正在入库...", foreground="blue")
+        self.lbl_manual_status.configure(text="正在入库...", text_color="#3B8ED0")
         threading.Thread(target=bg_save, daemon=True).start()
 
     # ------------------------------------------
     # Library View
     # ------------------------------------------
     def build_library_tab(self):
-        top_frame = ttk.Frame(self.tab_library)
+        top_frame = ctk.CTkFrame(self.tab_library)
         top_frame.pack(fill=tk.X, pady=5, padx=5)
-        self.ent_lib_search = ttk.Entry(top_frame, width=30)
+        self.ent_lib_search = ctk.CTkEntry(top_frame, width=300)
         self.ent_lib_search.pack(side=tk.LEFT, padx=5)
-        ttk.Button(top_frame, text="🔍 搜索题库 (硬匹配)", command=self.on_hard_search).pack(side=tk.LEFT)
+        ctk.CTkButton(top_frame, text="🔍 搜索题库 (硬匹配)", command=self.on_hard_search).pack(side=tk.LEFT, padx=5)
 
-        main_paned = ttk.PanedWindow(self.tab_library, orient=tk.HORIZONTAL)
+        main_paned = tk.PanedWindow(self.tab_library, orient=tk.HORIZONTAL, sashwidth=4, bg="#565b5e")
         main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        left_frame = ttk.Frame(main_paned)
-        main_paned.add(left_frame, weight=3)
+        left_frame = ctk.CTkFrame(main_paned)
+        main_paned.add(left_frame, width=500)
 
         self.tree_lib = ttk.Treeview(left_frame, columns=("id", "content"), show="headings", height=8, selectmode="extended")
         self.tree_lib.heading("id", text="ID"); self.tree_lib.column("id", width=40)
         self.tree_lib.heading("content", text="题目内容")
-        self.tree_lib.pack(fill=tk.BOTH, expand=True)
+        self.tree_lib.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.tree_lib.bind('<<TreeviewSelect>>', self.on_lib_select)
 
-        det_frame = ttk.LabelFrame(left_frame, text="题目详情与修改")
-        det_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        det_frame = ctk.CTkFrame(left_frame)
+        det_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
+        ctk.CTkLabel(det_frame, text="题目详情与修改", font=ctk.CTkFont(weight="bold")).pack(pady=2)
 
-        self.txt_lib_det = tk.Text(det_frame, height=5, font=("Consolas", 10))
-        self.txt_lib_det.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.txt_lib_det = ctk.CTkTextbox(det_frame, height=100, font=ctk.CTkFont(family="Consolas", size=12))
+        self.txt_lib_det.pack(fill=tk.BOTH, expand=True, pady=2, padx=5)
 
-        action_frame = ttk.Frame(det_frame)
-        action_frame.pack(fill=tk.X, pady=2)
+        action_frame = ctk.CTkFrame(det_frame, fg_color="transparent")
+        action_frame.pack(fill=tk.X, pady=2, padx=5)
 
-        ttk.Label(action_frame, text="当前标签:").pack(side=tk.LEFT)
-        self.ent_lib_tags = ttk.Entry(action_frame, width=30)
+        ctk.CTkLabel(action_frame, text="当前标签:").pack(side=tk.LEFT)
+        self.ent_lib_tags = ctk.CTkEntry(action_frame, width=250)
         self.ent_lib_tags.pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="更新标签", command=self.update_lib_tags).pack(side=tk.LEFT)
+        ctk.CTkButton(action_frame, text="更新标签", command=self.update_lib_tags).pack(side=tk.LEFT)
 
-        ttk.Button(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(side=tk.LEFT, padx=10)
-        ttk.Button(action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question).pack(side=tk.RIGHT)
+        ctk.CTkButton(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(side=tk.LEFT, padx=10)
+        ctk.CTkButton(action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question, fg_color="#C0392B", hover_color="#E74C3C").pack(side=tk.RIGHT)
 
         # New diagram UI missing from previous
-        self.lbl_lib_diagram = ttk.Label(det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
-        self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.lbl_lib_diagram = ctk.CTkLabel(det_frame, text="无图样", fg_color="transparent")
+        self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
 
-        self.lbl_lib_diag_info = ttk.Label(det_frame, text="", anchor=tk.CENTER)
-        self.lbl_lib_diag_info.pack(fill=tk.X)
+        self.lbl_lib_diag_info = ctk.CTkLabel(det_frame, text="")
+        self.lbl_lib_diag_info.pack(fill=tk.X, padx=5)
 
-        lib_btn_frame = ttk.Frame(det_frame)
-        lib_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        lib_btn_frame = ctk.CTkFrame(det_frame, fg_color="transparent")
+        lib_btn_frame.pack(fill=tk.X, pady=2, padx=5)
+        ctk.CTkButton(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ctk.CTkButton(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        right_frame = ttk.LabelFrame(main_paned, text="AI 软搜索助手 (MCP)")
-        main_paned.add(right_frame, weight=2)
+        right_frame = ctk.CTkFrame(main_paned)
+        main_paned.add(right_frame)
+        ctk.CTkLabel(right_frame, text="AI 软搜索助手 (MCP)", font=ctk.CTkFont(weight="bold")).pack(pady=5)
 
-        self.txt_chat = tk.Text(right_frame, wrap=tk.WORD, font=("微软雅黑", 10), state=tk.DISABLED)
-        self.txt_chat.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
+        self.txt_chat = ctk.CTkTextbox(right_frame, wrap=tk.WORD, font=ctk.CTkFont(family="微软雅黑", size=13))
+        self.txt_chat.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.txt_chat.configure(state=tk.DISABLED)
 
-        chat_bot_frame = ttk.Frame(right_frame)
-        chat_bot_frame.pack(fill=tk.X, pady=2)
+        chat_bot_frame = ctk.CTkFrame(right_frame, fg_color="transparent")
+        chat_bot_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        self.ent_chat = ttk.Entry(chat_bot_frame)
-        self.ent_chat.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.ent_chat = ctk.CTkEntry(chat_bot_frame)
+        self.ent_chat.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         self.ent_chat.bind("<Return>", lambda e: self.on_ai_chat())
-        ttk.Button(chat_bot_frame, text="发送", command=self.on_ai_chat).pack(side=tk.RIGHT)
+        ctk.CTkButton(chat_bot_frame, text="发送", command=self.on_ai_chat).pack(side=tk.RIGHT)
 
         self.chat_history = [
             {"role": "system", "content": "你是 SmartQB 的寻题助手。你可以理解用户的寻题需求，调用 search_database 工具查询题库向量。如果用户要求将某些题加入题目袋/试卷，请调用 add_to_bag 工具。"}
@@ -1341,10 +1349,10 @@ class SmartQBApp(tk.Tk):
         self.append_chat("🤖 助手", "您好！想找什么样的题目？(例如：帮我找两道关于导数极值的题，并加入题目袋)")
 
     def append_chat(self, sender, text):
-        self.txt_chat.config(state=tk.NORMAL)
+        self.txt_chat.configure(state=tk.NORMAL)
         self.txt_chat.insert(tk.END, f"{sender}: {text}\n\n")
         self.txt_chat.see(tk.END)
-        self.txt_chat.config(state=tk.DISABLED)
+        self.txt_chat.configure(state=tk.DISABLED)
 
     def on_ai_chat(self):
         user_text = self.ent_chat.get().strip()
@@ -1416,10 +1424,10 @@ class SmartQBApp(tk.Tk):
 
     def _render_lib_diagram(self):
         if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
-            self.lbl_lib_diagram.config(image='', text="无图样")
+            self.lbl_lib_diagram.configure(image='', text="无图样")
             if hasattr(self.lbl_lib_diagram, 'image'):
                 del self.lbl_lib_diagram.image
-            self.lbl_lib_diag_info.config(text="")
+            self.lbl_lib_diag_info.configure(text="")
             return
 
         display_img_b64 = self.lib_current_diags[self.lib_img_index]
@@ -1428,17 +1436,17 @@ class SmartQBApp(tk.Tk):
                 img_data = base64.b64decode(display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64)
                 img = Image.open(io.BytesIO(img_data)).copy()
                 img.thumbnail((400, 200))
-                photo = ImageTk.PhotoImage(img)
-                self.lbl_lib_diagram.config(image=photo, text="")
+                photo = ctk.CTkImage(light_image=img, dark_image=img, size=img.size)
+                self.lbl_lib_diagram.configure(image=photo, text="")
                 self.lbl_lib_diagram.image = photo
                 info_text = f"图样 {self.lib_img_index + 1} / {len(self.lib_current_diags)}"
-                self.lbl_lib_diag_info.config(text=info_text)
+                self.lbl_lib_diag_info.configure(text=info_text)
             except Exception as e:
-                self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
-                self.lbl_lib_diag_info.config(text="")
+                self.lbl_lib_diagram.configure(image='', text=f"图样加载失败: {e}")
+                self.lbl_lib_diag_info.configure(text="")
         else:
-            self.lbl_lib_diagram.config(image='', text="无图样")
-            self.lbl_lib_diag_info.config(text="")
+            self.lbl_lib_diagram.configure(image='', text="无图样")
+            self.lbl_lib_diag_info.configure(text="")
 
     def lib_prev_diagram(self):
         if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
@@ -1511,29 +1519,29 @@ class SmartQBApp(tk.Tk):
     # Export View
     # ------------------------------------------
     def build_export_tab(self):
-        top_frame = ttk.Frame(self.tab_export)
+        top_frame = ctk.CTkFrame(self.tab_export, fg_color="transparent")
         top_frame.pack(fill=tk.X, pady=5, padx=10)
-        ttk.Label(top_frame, text="组卷题目袋 (选中题目可上下移动排序):", font=("", 12, "bold")).pack(side=tk.LEFT)
+        ctk.CTkLabel(top_frame, text="组卷题目袋 (选中题目可上下移动排序):", font=ctk.CTkFont(size=14, weight="bold")).pack(side=tk.LEFT)
 
-        middle_frame = ttk.Frame(self.tab_export)
+        middle_frame = ctk.CTkFrame(self.tab_export, fg_color="transparent")
         middle_frame.pack(fill=tk.BOTH, expand=True, padx=10)
 
-        self.listbox_bag = tk.Listbox(middle_frame, font=("微软雅黑", 10))
+        self.listbox_bag = tk.Listbox(middle_frame, font=("微软雅黑", 11), bg="#2b2b2b", fg="white", selectbackground="#1f538d", highlightthickness=0, relief="flat")
         self.listbox_bag.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        btn_frame = ttk.Frame(middle_frame)
+        btn_frame = ctk.CTkFrame(middle_frame, fg_color="transparent")
         btn_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=5)
 
-        ttk.Button(btn_frame, text="⬆️ 上移", command=self.bag_move_up).pack(pady=5)
-        ttk.Button(btn_frame, text="⬇️ 下移", command=self.bag_move_down).pack(pady=5)
-        ttk.Button(btn_frame, text="❌ 移除", command=self.bag_remove).pack(pady=20)
+        ctk.CTkButton(btn_frame, text="⬆️ 上移", command=self.bag_move_up).pack(pady=5)
+        ctk.CTkButton(btn_frame, text="⬇️ 下移", command=self.bag_move_down).pack(pady=5)
+        ctk.CTkButton(btn_frame, text="❌ 移除", command=self.bag_remove, fg_color="#C0392B", hover_color="#E74C3C").pack(pady=20)
 
-        bottom_frame = ttk.Frame(self.tab_export)
+        bottom_frame = ctk.CTkFrame(self.tab_export, fg_color="transparent")
         bottom_frame.pack(fill=tk.X, pady=10, padx=10)
 
-        self.lbl_export_status = ttk.Label(bottom_frame, text="", foreground="green")
+        self.lbl_export_status = ctk.CTkLabel(bottom_frame, text="", text_color="#27AE60")
         self.lbl_export_status.pack(side=tk.LEFT, padx=10)
-        ttk.Button(bottom_frame, text="🖨️ 导出试卷并自动编译 PDF", command=self.export_paper).pack(side=tk.RIGHT)
+        ctk.CTkButton(bottom_frame, text="🖨️ 导出试卷并自动编译 PDF", command=self.export_paper).pack(side=tk.RIGHT)
 
     def refresh_bag_ui(self):
         if hasattr(self, 'listbox_bag'):
@@ -1640,7 +1648,7 @@ class SmartQBApp(tk.Tk):
         with open(export_tex_path, "w", encoding="utf-8") as f:
             f.write("\n".join(tex))
 
-        self.lbl_export_status.config(text="⏳ 正在后台调用 xelatex 编译 PDF，请稍候...", foreground="blue")
+        self.lbl_export_status.configure(text="⏳ 正在后台调用 xelatex 编译 PDF，请稍候...", text_color="#3B8ED0")
         self.update()
 
         def compile_pdf():
@@ -1668,7 +1676,7 @@ class SmartQBApp(tk.Tk):
                 error_msg = str(e)
 
             def on_finish():
-                self.lbl_export_status.config(text="")
+                self.lbl_export_status.configure(text="")
                 if pdf_success:
                     messagebox.showinfo("✅ 自动编译成功", f"文件已保存: {base_path}.pdf")
                 else:
@@ -1737,116 +1745,116 @@ class SmartQBApp(tk.Tk):
             messagebox.showerror("错误", f"保存设置时发生异常:\n{e}")
 
     def build_settings_tab(self):
-        container = ttk.Frame(self.tab_settings)
+        container = ctk.CTkScrollableFrame(self.tab_settings)
         container.pack(padx=20, pady=20, fill=tk.BOTH, expand=True)
 
-        provider_frame = ttk.Frame(container)
+        provider_frame = ctk.CTkFrame(container, fg_color="transparent")
         provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
-        ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
-        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
-        self.cbo_provider.current(0)
+        ctk.CTkLabel(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
+        self.cbo_provider = ctk.CTkComboBox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=200, state="readonly", command=self.on_provider_changed)
+        self.cbo_provider.set("自定义")
         self.cbo_provider.pack(side=tk.LEFT, padx=10)
-        self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
 
-        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
-        self.ent_api = ttk.Entry(container, width=50, show="*")
+        ctk.CTkLabel(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
+        self.ent_api = ctk.CTkEntry(container, width=400, show="*")
         self.ent_api.insert(0, self.settings.api_key)
         self.ent_api.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Base URL:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_base = ttk.Entry(container, width=50)
+        ctk.CTkLabel(container, text="Base URL:").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_base = ctk.CTkEntry(container, width=400)
         self.ent_base.insert(0, self.settings.base_url)
         self.ent_base.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Model ID:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_model = ttk.Entry(container, width=50)
+        ctk.CTkLabel(container, text="Model ID:").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_model = ctk.CTkEntry(container, width=400)
         self.ent_model.insert(0, self.settings.model_id)
         self.ent_model.pack(anchor=tk.W)
 
         # ====== New Advanced API Params ======
-        adv_api_frame = ttk.LabelFrame(container, text="高级模型参数")
+        adv_api_frame = ctk.CTkFrame(container)
         adv_api_frame.pack(anchor=tk.W, fill=tk.X, pady=(10, 5), padx=20)
+        ctk.CTkLabel(adv_api_frame, text="高级模型参数", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, columnspan=4, pady=(5, 10))
 
-        ttk.Label(adv_api_frame, text="Temperature (0-2):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
-        self.ent_temp = ttk.Entry(adv_api_frame, width=10)
+        ctk.CTkLabel(adv_api_frame, text="Temperature (0-2):").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        self.ent_temp = ctk.CTkEntry(adv_api_frame, width=100)
         self.ent_temp.insert(0, str(getattr(self.settings, 'temperature', 1.0)))
-        self.ent_temp.grid(row=0, column=1, pady=2)
+        self.ent_temp.grid(row=1, column=1, pady=2)
 
-        ttk.Label(adv_api_frame, text="Top P (0-1):").grid(row=0, column=2, sticky=tk.W, padx=(20, 5), pady=2)
-        self.ent_top_p = ttk.Entry(adv_api_frame, width=10)
+        ctk.CTkLabel(adv_api_frame, text="Top P (0-1):").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2)
+        self.ent_top_p = ctk.CTkEntry(adv_api_frame, width=100)
         self.ent_top_p.insert(0, str(getattr(self.settings, 'top_p', 1.0)))
-        self.ent_top_p.grid(row=0, column=3, pady=2)
+        self.ent_top_p.grid(row=1, column=3, pady=2)
 
-        ttk.Label(adv_api_frame, text="Max Tokens:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
-        self.ent_max_tokens = ttk.Entry(adv_api_frame, width=10)
+        ctk.CTkLabel(adv_api_frame, text="Max Tokens:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        self.ent_max_tokens = ctk.CTkEntry(adv_api_frame, width=100)
         self.ent_max_tokens.insert(0, str(getattr(self.settings, 'max_tokens', 4096)))
-        self.ent_max_tokens.grid(row=1, column=1, pady=2)
+        self.ent_max_tokens.grid(row=2, column=1, pady=2)
 
-        ttk.Label(adv_api_frame, text="思考强度(Reasoning Effort):").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2)
-        self.cbo_reasoning = ttk.Combobox(adv_api_frame, values=["low", "medium", "high", "none"], width=8, state="readonly")
+        ctk.CTkLabel(adv_api_frame, text="思考强度(Reasoning Effort):").grid(row=2, column=2, sticky=tk.W, padx=(20, 5), pady=2)
+        self.cbo_reasoning = ctk.CTkComboBox(adv_api_frame, values=["low", "medium", "high", "none"], width=100, state="readonly")
         current_reason = getattr(self.settings, 'reasoning_effort', 'medium')
         self.cbo_reasoning.set(current_reason)
-        self.cbo_reasoning.grid(row=1, column=3, pady=2)
+        self.cbo_reasoning.grid(row=2, column=3, pady=2)
         # ======================================
 
-        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_api = ttk.Entry(container, width=50, show="*")
+        ctk.CTkLabel(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_api = ctk.CTkEntry(container, width=400, show="*")
         self.ent_embed_api.insert(0, self.settings.embed_api_key)
         self.ent_embed_api.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding Base URL:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_base = ttk.Entry(container, width=50)
+        ctk.CTkLabel(container, text="Embedding Base URL:").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_base = ctk.CTkEntry(container, width=400)
         self.ent_embed_base.insert(0, self.settings.embed_base_url)
         self.ent_embed_base.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding Model ID:").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_model = ttk.Entry(container, width=50)
+        ctk.CTkLabel(container, text="Embedding Model ID:").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_model = ctk.CTkEntry(container, width=400)
         self.ent_embed_model.insert(0, self.settings.embed_model_id)
         self.ent_embed_model.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
-        self.ent_embed_dim = ttk.Entry(container, width=15)
+        ctk.CTkLabel(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
+        self.ent_embed_dim = ctk.CTkEntry(container, width=150)
         self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
         self.ent_embed_dim.pack(anchor=tk.W)
 
-        ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
+        ctk.CTkLabel(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
 
         # --- ENGINE TOGGLES ---
-        engine_frame = ttk.Frame(container)
+        engine_frame = ctk.CTkFrame(container, fg_color="transparent")
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
-        ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        ctk.CTkLabel(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
         layout_vals = ["DocLayout-YOLO"]
-        self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
+        self.cbo_layout_engine = ctk.CTkComboBox(engine_frame, values=layout_vals, width=150, state="readonly")
         current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
         self.cbo_layout_engine.set("DocLayout-YOLO")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
 
-        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        ctk.CTkLabel(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
         ocr_vals = ["Pix2Text"]
-        self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
+        self.cbo_ocr_engine = ctk.CTkComboBox(engine_frame, values=ocr_vals, width=150, state="readonly")
         current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
         self.cbo_ocr_engine.set("Pix2Text")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 
         self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)
-        ttk.Radiobutton(container, text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)", variable=self.var_rec_mode, value=1).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)", variable=self.var_rec_mode, value=2).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)", variable=self.var_rec_mode, value=3).pack(anchor=tk.W, padx=20, pady=2)
+        ctk.CTkRadioButton(container, text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)", variable=self.var_rec_mode, value=1).pack(anchor=tk.W, padx=20, pady=5)
+        ctk.CTkRadioButton(container, text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)", variable=self.var_rec_mode, value=2).pack(anchor=tk.W, padx=20, pady=5)
+        ctk.CTkRadioButton(container, text="3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)", variable=self.var_rec_mode, value=3).pack(anchor=tk.W, padx=20, pady=5)
 
-        ttk.Label(container, text="🚀 高级选项:").pack(anchor=tk.W, pady=(20, 5))
-        prm_frame = ttk.Frame(container)
+        ctk.CTkLabel(container, text="🚀 高级选项:").pack(anchor=tk.W, pady=(20, 5))
+        prm_frame = ctk.CTkFrame(container, fg_color="transparent")
         prm_frame.pack(anchor=tk.W, padx=20, fill=tk.X)
         self.var_use_prm = tk.BooleanVar(value=self.settings.use_prm_optimization)
-        ttk.Checkbutton(prm_frame, text="启用多切片并发", variable=self.var_use_prm).pack(side=tk.LEFT)
+        ctk.CTkCheckBox(prm_frame, text="启用多切片并发", variable=self.var_use_prm).pack(side=tk.LEFT)
 
-        ttk.Label(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(side=tk.LEFT, padx=(30, 5))
-        self.ent_prm_batch = ttk.Spinbox(prm_frame, from_=2, to=15, width=5)
-        self.ent_prm_batch.set(self.settings.prm_batch_size)
+        ctk.CTkLabel(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(side=tk.LEFT, padx=(30, 5))
+        self.ent_prm_batch = ctk.CTkComboBox(prm_frame, values=[str(i) for i in range(2, 16)], width=60, state="readonly")
+        self.ent_prm_batch.set(str(self.settings.prm_batch_size))
         self.ent_prm_batch.pack(side=tk.LEFT)
 
-        ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
+        ctk.CTkButton(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
     def on_provider_changed(self, event):
         provider_presets = {
             "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
@@ -1882,8 +1890,8 @@ class SmartQBApp(tk.Tk):
         # This clears DeepSeek/Kimi embedding fields, indicating no default embedding model.
         update_entry(self.ent_embed_base, config.get("embed_base"))
         update_entry(self.ent_embed_model, config.get("embed_model"))
-    def on_tab_changed(self, event):
-        current_tab = self.notebook.tab(self.notebook.select(), "text")
+    def on_tab_changed(self, event=None):
+        current_tab = self.notebook.get()
         if "Library" in current_tab:
             self.on_hard_search()
         elif "Export" in current_tab:
