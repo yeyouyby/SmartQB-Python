@@ -205,8 +205,8 @@ if __name__ == "__main__":
 
     ensure_lancedb_tables()
 
-    from gui_app import SmartQBApp
+    from fluent_gui_app import start_fluent_app
     logger.info("Starting GUI main loop...")
-    app = SmartQBApp()
-    app.mainloop()
+    start_fluent_app()
+    # app.mainloop()
     logger.info("SmartQB Pro V3 stopped.")

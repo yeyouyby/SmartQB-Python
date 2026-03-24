@@ -181,7 +181,7 @@ if "!GPU_VENDOR!"=="NVIDIA" (
 )
 
 :: Removed hardcoded onnxruntime, replaced with %ONNX_PKG% and added pyinstaller
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install PySide6 PySide6-Fluent-Widgets numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo [ERROR] Python dependency installation failed.
     set "EXIT_CODE=1"
