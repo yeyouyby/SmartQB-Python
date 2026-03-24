@@ -14,7 +14,7 @@ echo     It will run silently in the background. Please BE PATIENT.
 echo.
 
 :: 1. Check Python installation and Version 3.12.x Requirement
-echo [1/6] Checking Python 3.12.x Environment...
+echo [1/5] Checking Python 3.12.x Environment...
 
 set "PYTHON_CMD="
 set "PYTHON_VER="
@@ -127,7 +127,7 @@ echo [OK] Package configuration completed.
 echo.
 
 :: 3. Create and activate virtual environment
-echo [2/6] Creating virtual environment (venv)...
+echo [2/5] Creating virtual environment (venv)...
 if not exist "venv" (
     !PYTHON_CMD! -c "import venv; venv.create('venv', with_pip=True)"
 )
@@ -138,13 +138,12 @@ if not exist "venv" (
     goto end_script
 )
 
-echo [3/6] Activating virtual environment...
+echo [3/5] Activating virtual environment...
 call venv\Scripts\activate
 python -m pip install --upgrade pip >nul 2>&1
 
-
 :: 4. Direct Install Dependencies
-echo [4/6] Detecting GPU and installing Python dependencies...
+echo [4/5] Detecting GPU and installing Python dependencies...
 
 set "GPU_VENDOR="
 set "ONNX_PKG=onnxruntime"
@@ -180,31 +179,17 @@ if "!GPU_VENDOR!"=="NVIDIA" (
     echo [INFO] No dedicated GPU vendor recognized. Will install !ONNX_PKG!
 )
 
-:: Removed hardcoded onnxruntime, replaced with %ONNX_PKG% and added pyinstaller
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller huggingface_hub modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo [ERROR] Python dependency installation failed.
     set "EXIT_CODE=1"
     pause
     goto end_script
 )
-:: 5. Setup AI Models
+
 echo.
-echo [5/6] Setting up AI Models from local cache...
-python model_use.py
-set MODEL_ERR=%errorlevel%
-
-if %MODEL_ERR% neq 0 (
-    echo [ERROR] AI Model setup failed. Please make sure the 'model' folder exists and contains the model files.
-    set "EXIT_CODE=1"
-    pause
-    goto end_script
-)
-echo.
-
-
-:: 6. Download Models and Build PyInstaller
-echo [6/6] Packaging application with PyInstaller...
+:: 5. Download Models and Build PyInstaller
+echo [5/5] Downloading AI Models and Packaging application...
 
 echo [INFO] Pre-downloading AI models and checking MiKTeX before packaging...
 python main.py --setup-only
