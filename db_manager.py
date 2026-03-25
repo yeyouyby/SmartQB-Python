@@ -120,29 +120,32 @@ class dbManager:
 
         try:
             payload = base64.b64decode(row[0].encode('utf-8'))
-            if len(payload) < 28:
-                logger.error(f"Failed to decrypt setting '{key}': Payload too short.")
-                return None
-            salt = payload[:16]
-            nonce = payload[16:28]
-            encrypted_value = payload[28:]
-
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=600000,
-                backend=default_backend()
-            )
-            derived_key = kdf.derive(master_key.encode('utf-8'))
-            aesgcm = AESGCM(derived_key)
-
-            value = aesgcm.decrypt(nonce, encrypted_value, None)
-            return value.decode('utf-8')
-
         except (binascii.Error, ValueError) as e:
             logger.error(f"Failed to decrypt setting '{key}': Invalid base64 or length. Data might be corrupted. {e}")
             return None
+
+        # AES-GCM minimum payload: 16 (salt) + 12 (nonce) + 16 (tag) = 44 bytes
+        if len(payload) < 44:
+            logger.error(f"Failed to decrypt setting '{key}': Payload too short ({len(payload)} bytes, need >= 44).")
+            return None
+
+        salt = payload[:16]
+        nonce = payload[16:28]
+        encrypted_value = payload[28:]
+
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=600000,
+            backend=default_backend()
+        )
+        derived_key = kdf.derive(master_key.encode('utf-8'))
+        aesgcm = AESGCM(derived_key)
+
+        try:
+            value = aesgcm.decrypt(nonce, encrypted_value, None)
+            return value.decode('utf-8')
         except InvalidTag:
             logger.error(f"Failed to decrypt setting '{key}': Invalid auth tag. Data might be tampered or key is wrong.")
             return None
@@ -152,6 +155,13 @@ class dbManager:
         except Exception as e:
             logger.error(f"Unexpected error decrypting setting '{key}': {e}", exc_info=True)
             return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
     def close(self):
         with self._lock:

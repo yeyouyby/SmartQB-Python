@@ -14,8 +14,8 @@ class SimulatedAnnealingExamBuilder:
         if not state:
             return float('inf')
 
-        current_score = sum(q["score"] for q in state)
-        current_diff = sum(q["difficulty"] for q in state) / len(state)
+        current_score = sum(q.get("score", 0) for q in state)
+        current_diff = sum(q.get("difficulty", 0.5) for q in state) / len(state)
 
         # Penalty for deviation from target score and difficulty
         score_penalty = abs(current_score - self.target_score)
@@ -55,11 +55,11 @@ class SimulatedAnnealingExamBuilder:
 
     def build_exam(self, initial_temp=100.0, cooling_rate=0.99, max_iterations=1000):
         if not self.pool:
-            return []
+            raise ValueError("question pool is empty")
 
         # Initial guess based on score
         avg_score = sum(float(q.get("score", 1)) for q in self.pool) / len(self.pool)
-        estimated_count = max(1, int(round(self.target_score / avg_score))) if avg_score > 0 else min(20, len(self.pool))
+        estimated_count = max(1, round(self.target_score / avg_score)) if avg_score > 0 else min(20, len(self.pool))
         n_initial = min(estimated_count, len(self.pool))
 
         current_state = random.sample(self.pool, n_initial)

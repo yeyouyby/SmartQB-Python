@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         self.navigationInterface.addSeparator()
         self.navigationInterface.addItem(
             routeKey='Zen',
-            icon=FluentIcon.FULLSCREEN,
+            icon=FluentIcon.FULL_SCREEN,
             text='专注模式',
             position=NavigationItemPosition.BOTTOM,
             onClick=self.enterZenMode

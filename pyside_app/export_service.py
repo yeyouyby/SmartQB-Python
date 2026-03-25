@@ -21,7 +21,7 @@ class ExportService:
             except Exception as e:
                 # If explicit template was passed but failed to load (e.g., bad format or not a docx),
                 # raise an error instead of silently falling back to a blank document.
-                raise ValueError(f"Failed to load specified template {self.template_path}: {e}")
+                raise ValueError(f"Failed to load specified template {self.template_path}: {e}") from e
         else:
             doc = Document()
 

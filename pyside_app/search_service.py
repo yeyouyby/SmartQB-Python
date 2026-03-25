@@ -8,8 +8,8 @@ logger = logging.getLogger(__name__)
 VECTOR_DIMENSION = 1536
 
 class HybridSearcher:
-    def __init__(self, lancedb_dir="smartqb_lancedb", sqlite_db="smartqb.db"):
-        self.db = db_manager.dbManager(lancedb_dir, sqlite_db)
+    def __init__(self, db_instance=None, lancedb_dir="smartqb_lancedb", sqlite_db="smartqb.db"):
+        self.db = db_instance if db_instance is not None else db_manager.dbManager(lancedb_dir, sqlite_db)
 
     def reciprocal_rank_fusion(self, bm25_results, vector_results, k=60):
         # Calculate RRF score for both rank lists.
