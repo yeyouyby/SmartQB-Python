@@ -4,6 +4,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Constants to manage global vector dimensions. Can be moved to config.py later.
+VECTOR_DIMENSION = 1536
+
 class HybridSearcher:
     def __init__(self, lancedb_dir="smartqb_lancedb", sqlite_db="smartqb.db"):
         self.db = db_manager.dbManager(lancedb_dir, sqlite_db)
@@ -17,7 +20,11 @@ class HybridSearcher:
         for rank, (doc_id, _) in enumerate(bm25_results, start=1):
             rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank)
 
-        for rank, (doc_id, _) in enumerate(vector_results, start=1):
+        for rank, (doc_id, distance) in enumerate(vector_results, start=1):
+            # LanceDB _distance is 'smaller is better'. We convert distance into a similarity
+            # bound (1 / (1 + distance)) before RRF to align with BM25 'larger is better' logic.
+            # While RRF strictly uses rank position, we can log the similarity or use it for thresholding.
+            similarity = 1.0 / (1.0 + distance)
             rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank)
 
         # Sort by score descending
@@ -63,11 +70,11 @@ class HybridSearcher:
         vector_scores = []
         if embedding:
             # Normalize embedding dimension to match expected schema if needed
-            if len(embedding) != 1536:
-                if len(embedding) > 1536:
-                    embedding = embedding[:1536]
+            if len(embedding) != VECTOR_DIMENSION:
+                if len(embedding) > VECTOR_DIMENSION:
+                    embedding = embedding[:VECTOR_DIMENSION]
                 else:
-                    embedding = list(embedding) + [0.0] * (1536 - len(embedding))
+                    embedding = list(embedding) + [0.0] * (VECTOR_DIMENSION - len(embedding))
 
             try:
                 table = self.db.lance_db.open_table("questions")

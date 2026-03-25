@@ -9,7 +9,8 @@ from .base import BaseParser
 
 logger = logging.getLogger(__name__)
 
-# This process runs isolated to avoid GIL block
+# This process runs isolated to avoid GIL block and memory leaks in the main PySide6 process.
+# We intentionally spin up and tear down the PaddleOCR engine per parse call for total stability.
 def pp_structure_worker(file_path: str, result_queue: mp.Queue):
     try:
         from paddleocr import PPStructure

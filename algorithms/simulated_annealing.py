@@ -34,14 +34,22 @@ class SimulatedAnnealingExamBuilder:
         idx_to_remove = random.randint(0, len(neighbor) - 1)
         removed = neighbor.pop(idx_to_remove)
 
-        # Add a random item not in neighbor
         in_state_ids = {q["id"] for q in neighbor}
-        candidates = [q for q in self.pool if q["id"] not in in_state_ids]
 
-        if candidates:
-            neighbor.append(random.choice(candidates))
+        # Efficient random sampling instead of list comprehension for large pools
+        attempts = 0
+        candidate = None
+        while attempts < 100:
+            potential = random.choice(self.pool)
+            if potential["id"] not in in_state_ids:
+                candidate = potential
+                break
+            attempts += 1
+
+        if candidate:
+            neighbor.append(candidate)
         else:
-            neighbor.append(removed) # fallback
+            neighbor.append(removed) # fallback if pool is completely saturated or unlucky
 
         return neighbor
 

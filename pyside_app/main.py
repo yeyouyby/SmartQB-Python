@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, Q
 from qfluentwidgets import (NavigationInterface, NavigationItemPosition,
                             setTheme, Theme, InfoBar, InfoBarPosition,
                             CardWidget, SubtitleLabel, BodyLabel,
-                            PrimaryPushButton, FluentIcon)
+                            PrimaryPushButton, FluentIcon, theme)
 
 class MarkdownBackend(QObject):
     def __init__(self, parent=None):
@@ -139,7 +139,8 @@ class MainWindow(QMainWindow):
             else:
                 setTheme(Theme.LIGHT)
         else:
-            self._original_theme = Theme.LIGHT  # Assumption based on app default
+            # Dynamically grab the active theme instead of assuming LIGHT
+            self._original_theme = theme()
             self.showFullScreen()
             self.navigationInterface.hide()
             setTheme(Theme.DARK)
