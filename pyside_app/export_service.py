@@ -13,9 +13,15 @@ class ExportService:
         For simplicity in this demonstration, this generates a basic docx,
         using the template if it exists, otherwise a blank document.
         """
-        # Load template if it exists
-        if os.path.exists(self.template_path):
-            doc = Document(self.template_path)
+        # Load template if it explicitly exists as a file, and catch potential format errors
+        doc = None
+        if self.template_path and os.path.isfile(self.template_path):
+            try:
+                doc = Document(self.template_path)
+            except Exception as e:
+                # If explicit template was passed but failed to load (e.g., bad format or not a docx),
+                # raise an error instead of silently falling back to a blank document.
+                raise ValueError(f"Failed to load specified template {self.template_path}: {e}")
         else:
             doc = Document()
 

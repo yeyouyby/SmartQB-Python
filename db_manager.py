@@ -3,6 +3,7 @@ import lancedb
 import pyarrow as pa
 import os
 import base64
+import binascii
 import threading
 import logging
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
@@ -117,24 +118,31 @@ class dbManager:
             if not row:
                 return None
 
-        payload = base64.b64decode(row[0].encode('utf-8'))
-        salt = payload[:16]
-        nonce = payload[16:28]
-        encrypted_value = payload[28:]
-
-        kdf = PBKDF2HMAC(
-            algorithm=hashes.SHA256(),
-            length=32,
-            salt=salt,
-            iterations=600000,
-            backend=default_backend()
-        )
-        derived_key = kdf.derive(master_key.encode('utf-8'))
-        aesgcm = AESGCM(derived_key)
-
         try:
+            payload = base64.b64decode(row[0].encode('utf-8'))
+            if len(payload) < 28:
+                logger.error(f"Failed to decrypt setting '{key}': Payload too short.")
+                return None
+            salt = payload[:16]
+            nonce = payload[16:28]
+            encrypted_value = payload[28:]
+
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=600000,
+                backend=default_backend()
+            )
+            derived_key = kdf.derive(master_key.encode('utf-8'))
+            aesgcm = AESGCM(derived_key)
+
             value = aesgcm.decrypt(nonce, encrypted_value, None)
             return value.decode('utf-8')
+
+        except (binascii.Error, ValueError) as e:
+            logger.error(f"Failed to decrypt setting '{key}': Invalid base64 or length. Data might be corrupted. {e}")
+            return None
         except InvalidTag:
             logger.error(f"Failed to decrypt setting '{key}': Invalid auth tag. Data might be tampered or key is wrong.")
             return None

@@ -27,6 +27,7 @@ def sqb_hybrid_search(query: str, limit: int = 5) -> str:
     Search the question bank using hybrid search (BM25 + LanceDB Vector).
     Returns the top matching questions.
     """
+    searcher = None
     try:
         searcher = HybridSearcher()
         results = searcher.search(query, limit)
@@ -41,7 +42,8 @@ def sqb_hybrid_search(query: str, limit: int = 5) -> str:
     except Exception as e:
         return f"Error executing search: {str(e)}"
     finally:
-        searcher.db.close()
+        if searcher is not None and hasattr(searcher, 'db'):
+            searcher.db.close()
 
 @mcp.tool()
 def sqb_sql_query(sql_string: str) -> str:
@@ -53,11 +55,12 @@ def sqb_sql_query(sql_string: str) -> str:
     if not sql_upper.startswith("SELECT"):
         return "Error: Only SELECT queries are allowed for safety."
 
-    # Restrict to safe tables. Disallow settings/api_keys
-    forbidden_tables = ["settings", "api_keys"]
-    for ft in forbidden_tables:
-        if ft.upper() in sql_upper:
-            return f"Error: Access to the '{ft}' table is strictly forbidden."
+    # Restrict to safe tables using regex to parse FROM/JOIN clauses
+    forbidden_tables = {"settings", "api_keys"}
+    referenced_tables = re.findall(r"\b(?:FROM|JOIN)\s+([A-Z_][A-Z0-9_]*)", sql_upper)
+    for table_name in referenced_tables:
+        if table_name.lower() in forbidden_tables:
+            return f"Error: Access to the '{table_name.lower()}' table is strictly forbidden."
 
     db = get_db()
     with db._lock:
@@ -76,6 +79,7 @@ def sqb_sql_query(sql_string: str) -> str:
 def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
     """
     Generate an exam using Simulated Annealing based on target constraints.
+    NOTE: Currently uses a mocked question pool for demonstration.
     """
     try:
         # Mocking question pool. In real impl, fetch from DB.
@@ -88,7 +92,7 @@ def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
         final_score = sum(q["score"] for q in best_state)
         final_diff = sum(q["difficulty"] for q in best_state) / len(best_state) if best_state else 0
 
-        return f"Generated exam with {len(selected_ids)} questions.\nTotal Score: {final_score}, Average Difficulty: {final_diff:.2f}\nSelected IDs: {selected_ids}"
+        return f"[MOCK DATA WARNING] Generated mock exam with {len(selected_ids)} questions.\nTotal Score: {final_score}, Average Difficulty: {final_diff:.2f}\nSelected IDs: {selected_ids}"
     except Exception as e:
         return f"Error generating exam: {str(e)}"
 

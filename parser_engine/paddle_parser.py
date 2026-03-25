@@ -3,6 +3,8 @@ import os
 import multiprocessing as mp
 import logging
 import queue
+import time
+import traceback
 from .base import BaseParser
 
 logger = logging.getLogger(__name__)
@@ -32,8 +34,9 @@ def pp_structure_worker(file_path: str, result_queue: mp.Queue):
 
         result_queue.put({"status": "success", "data": res_data})
     except Exception as e:
-        # Catch all here to ensure worker doesn't silently die without notifying the queue
-        result_queue.put({"status": "error", "message": str(e)})
+        # Pass traceback back through IPC so main process can log it
+        tb = traceback.format_exc()
+        result_queue.put({"status": "error", "message": str(e), "traceback": tb})
 
 class PPStructureParser(BaseParser):
     def __init__(self):
@@ -51,21 +54,32 @@ class PPStructureParser(BaseParser):
         p = mp.Process(target=pp_structure_worker, args=(file_path, result_queue))
         p.start()
 
+        res = None
+        timeout = 300
+        start_time = time.time()
+
         try:
-            # Add reasonable timeout to avoid infinite blocking if worker dies
-            res = result_queue.get(timeout=300)
-        except queue.Empty:
+            # Poll instead of a single blocking `get` to detect early crashes without hanging for 300s
+            while True:
+                try:
+                    res = result_queue.get(timeout=0.5)
+                    break
+                except queue.Empty:
+                    if not p.is_alive():
+                        # Subprocess died unexpectedly before returning anything
+                        raise RuntimeError(f"PaddleOCR worker process terminated unexpectedly with exit code {p.exitcode}.")
+                    if time.time() - start_time > timeout:
+                        raise TimeoutError("PaddleOCR worker process timed out.")
+        finally:
+            # Always ensure cleanup
             if p.is_alive():
                 p.terminate()
-            p.join()
-            raise TimeoutError("PaddleOCR worker process timed out.")
+            p.join(timeout=1)
 
-        p.join(timeout=5)
-        if p.is_alive():
-            p.terminate()
-            p.join()
-
-        if res["status"] == "success":
+        if res and res["status"] == "success":
             return res["data"]
         else:
-            raise RuntimeError(f"Parse failed: {res.get('message')}")
+            tb = res.get("traceback", "") if res else ""
+            if tb:
+                logger.error(f"PaddleOCR Worker failed:\n{tb}")
+            raise RuntimeError(f"Parse failed: {res.get('message') if res else 'Unknown Error'}")

@@ -4,7 +4,7 @@ from PySide6.QtCore import Qt, QUrl, Slot, QObject
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QStackedWidget, QLabel
+from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QStackedWidget
 from qfluentwidgets import (NavigationInterface, NavigationItemPosition,
                             setTheme, Theme, InfoBar, InfoBarPosition,
                             CardWidget, SubtitleLabel, BodyLabel,
@@ -16,7 +16,9 @@ class MarkdownBackend(QObject):
 
     @Slot(str)
     def receive_markdown(self, content):
-        print(f"Received from JS: {content[:30]}...")
+        # We purposely do not log content here so we don't spam standard output
+        # or leak the user's exam content into debugging tools.
+        pass
 
 class QuestionCard(CardWidget):
     def __init__(self, title, content, parent=None):
@@ -163,8 +165,10 @@ class MainWindow(QMainWindow):
         )
 
 if __name__ == '__main__':
-    # Add flag to workaround some X11 headless environment crashes
-    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    # Add flag only for headless Linux environments to prevent breaking native desktop users
+    if sys.platform.startswith("linux") and not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()
