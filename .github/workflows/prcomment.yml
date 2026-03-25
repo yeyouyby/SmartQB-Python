@@ -1,0 +1,23 @@
+name: Hide Outdated PR Comments
+
+# 触发条件：当 PR 有新的代码推送 (synchronize) 时触发
+on:
+  pull_request_target:
+    types: [synchronize]
+
+# 必须赋予 Actions 修改 PR 和评论的权限
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  hide-outdated-comments:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hide outdated comments
+        uses: dessant/outdated-pr-comments@v3
+        with:
+          # 使用 GitHub 自动注入的 Token 进行身份验证
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          # 针对包含代码修改的评论，当代码发生变化时自动折叠为 "outdated"
+          # 这个插件会自动扫描未解决的评论并执行隐藏操作
