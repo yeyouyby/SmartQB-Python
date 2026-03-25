@@ -1,0 +1,25 @@
+PySide6>=6.5.0
+qfluentwidgets
+paddlepaddle
+paddleocr
+python-docx
+lancedb
+pyarrow
+numpy
+cryptography
+mcp
+sqlparse
+PyMuPDF
+markdown
+pypandoc
+
+# Legacy GUI / Core Processing Dependencies
+customtkinter
+Pillow
+pix2text
+ultralytics
+onnxruntime-directml
+huggingface_hub
+modelscope
+keyring
+pytest
