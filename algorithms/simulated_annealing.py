@@ -34,7 +34,7 @@ class SimulatedAnnealingExamBuilder:
 
     def get_neighbor(self, current_state):
         if not current_state:
-            return random.sample(self.pool, min(10, len(self.pool)))
+            return random.sample(self.pool, min(10, len(self.pool)))  # nosec B311
 
         neighbor = current_state.copy()
 
@@ -48,16 +48,16 @@ class SimulatedAnnealingExamBuilder:
         elif len(neighbor) <= 1:
             operation = 1  # Must add if only 1 item left
         else:
-            operation = random.choice([0, 1, 2])
+            operation = random.choice([0, 1, 2])  # nosec B311
 
         if operation == 0:  # Swap
-            idx_to_remove = random.randint(0, len(neighbor) - 1)
+            idx_to_remove = random.randint(0, len(neighbor) - 1)  # nosec B311
             neighbor.pop(idx_to_remove)
-            neighbor.append(random.choice(available_candidates))
+            neighbor.append(random.choice(available_candidates))  # nosec B311
         elif operation == 1:  # Add
-            neighbor.append(random.choice(available_candidates))
+            neighbor.append(random.choice(available_candidates))  # nosec B311
         elif operation == 2:  # Remove
-            idx_to_remove = random.randint(0, len(neighbor) - 1)
+            idx_to_remove = random.randint(0, len(neighbor) - 1)  # nosec B311
             neighbor.pop(idx_to_remove)
 
         return neighbor
@@ -75,7 +75,7 @@ class SimulatedAnnealingExamBuilder:
         )
         n_initial = min(estimated_count, len(self.pool))
 
-        current_state = random.sample(self.pool, n_initial)
+        current_state = random.sample(self.pool, n_initial)  # nosec B311
         current_energy = self.energy(current_state)
 
         best_state = current_state
@@ -98,7 +98,7 @@ class SimulatedAnnealingExamBuilder:
             else:
                 # Accept worse state with probability based on temp
                 prob = math.exp((current_energy - neighbor_energy) / temp)
-                if random.random() < prob:
+                if random.random() < prob:  # nosec B311
                     current_state = neighbor
                     current_energy = neighbor_energy
 
