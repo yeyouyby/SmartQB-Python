@@ -1,8 +1,8 @@
 @echo off
 echo Installing PySide6 and required dependencies...
-pip install PySide6 qfluentwidgets paddlepaddle paddleocr python-docx Jinja2 lancedb pyarrow numpy cryptography mcp sqlparse
+pip install PySide6 qfluentwidgets paddlepaddle paddleocr python-docx lancedb pyarrow numpy cryptography mcp sqlparse PyMuPDF markdown
 if %errorlevel% neq 0 (
     echo Setup failed: dependency installation error.
-    cmd /c exit /b 1
+    exit /b 1
 )
 echo Setup complete.

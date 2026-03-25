@@ -40,8 +40,7 @@ class dbManager:
                 )
             ''')
 
-            # Snowflake ID sequence state (handled in application logic, but stored for reference)
-            # Assuming pure application-level Snowflake, but we need relations:
+            # Snowflake ID sequence state
             self.cursor.execute('''
                 CREATE TABLE IF NOT EXISTS exam_bags (
                     id INTEGER PRIMARY KEY,
@@ -69,12 +68,10 @@ class dbManager:
             ''')
 
             # SQLite FTS5 extension for BM25 Sparse Index
-            # Virtual tables can't be DROPped or CREATEd IF NOT EXISTS safely in all SQLite versions,
-            # but modern versions handle IF NOT EXISTS.
             self.cursor.execute('''
                 CREATE VIRTUAL TABLE IF NOT EXISTS fts_questions USING fts5(
-                    id UNINDEXED, -- Store Snowflake ID without indexing it
-                    content -- Store full Markdown text to be indexed
+                    id UNINDEXED,
+                    content
                 )
             ''')
             self.conn.commit()
@@ -85,7 +82,9 @@ class dbManager:
             ("id", pa.int64()),
             ("vector", pa.list_(pa.float32(), 1536)),
             ("content_md", pa.string()),
-            ("images", pa.string())  # JSON of base64 images
+            ("images", pa.string()),  # JSON of base64 images
+            ("score", pa.int64()),
+            ("difficulty", pa.float32())
         ])
         if "questions" not in self.lance_db.table_names():
             self.lance_db.create_table("questions", schema=schema)
@@ -93,11 +92,12 @@ class dbManager:
     def set_setting(self, key, value, master_key):
         with self._lock:
             salt = os.urandom(16)
+            iterations = 600000
             kdf = PBKDF2HMAC(
                 algorithm=hashes.SHA256(),
                 length=32,
                 salt=salt,
-                iterations=600000,
+                iterations=iterations,
                 backend=default_backend()
             )
             derived_key = kdf.derive(master_key.encode('utf-8'))
@@ -105,10 +105,14 @@ class dbManager:
             nonce = os.urandom(12)
             encrypted_value = aesgcm.encrypt(nonce, value.encode('utf-8'), None)
 
-            # Store salt + nonce + encrypted payload
-            payload = base64.b64encode(salt + nonce + encrypted_value).decode('utf-8')
+            # Prepend structured header for forward compatibility: version||kdf_id||iterations||salt||nonce||ciphertext
+            header = f"v1:pbkdf2-sha256:{iterations}:".encode('utf-8')
+            full_payload = header + salt + nonce + encrypted_value
 
-            self.cursor.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", (key, payload))
+            # Store base64 encoded payload
+            encoded_payload = base64.b64encode(full_payload).decode('utf-8')
+
+            self.cursor.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", (key, encoded_payload))
             self.conn.commit()
 
     def get_setting(self, key, master_key):
@@ -124,20 +128,37 @@ class dbManager:
             logger.error(f"Failed to decrypt setting '{key}': Invalid base64 or length. Data might be corrupted. {e}")
             return None
 
-        # AES-GCM minimum payload: 16 (salt) + 12 (nonce) + 16 (tag) = 44 bytes
-        if len(payload) < 44:
-            logger.error(f"Failed to decrypt setting '{key}': Payload too short ({len(payload)} bytes, need >= 44).")
+        # Parse structured header if present. Backward compatibility fallback.
+        if payload.startswith(b"v1:"):
+            parts = payload.split(b':', 3)
+            if len(parts) == 4:
+                version, kdf_id, iterations_str, remaining = parts
+                iterations = int(iterations_str)
+                if kdf_id != b"pbkdf2-sha256":
+                    logger.error(f"Failed to decrypt setting '{key}': Unknown KDF '{kdf_id.decode('utf-8', 'ignore')}'.")
+                    return None
+            else:
+                logger.error(f"Failed to decrypt setting '{key}': Malformed header.")
+                return None
+        else:
+            # Fallback for legacy items without header
+            remaining = payload
+            iterations = 600000
+
+        # AES-GCM minimum remaining payload: 16 (salt) + 12 (nonce) + 16 (tag) = 44 bytes
+        if len(remaining) < 44:
+            logger.error(f"Failed to decrypt setting '{key}': Payload too short ({len(remaining)} bytes, need >= 44).")
             return None
 
-        salt = payload[:16]
-        nonce = payload[16:28]
-        encrypted_value = payload[28:]
+        salt = remaining[:16]
+        nonce = remaining[16:28]
+        encrypted_value = remaining[28:]
 
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
-            iterations=600000,
+            iterations=iterations,
             backend=default_backend()
         )
         derived_key = kdf.derive(master_key.encode('utf-8'))
@@ -155,6 +176,68 @@ class dbManager:
         except Exception as e:
             logger.error(f"Unexpected error decrypting setting '{key}': {e}", exc_info=True)
             return None
+
+    def get_all_questions_for_sa(self):
+        """Fetch all questions from LanceDB as a pool for Simulated Annealing."""
+        with self._lock:
+            try:
+                table = self.lance_db.open_table("questions")
+                # Selecting specific columns to save memory if needed
+                df = table.search().limit(10000).to_pandas()
+                pool = []
+                for _, row in df.iterrows():
+                    pool.append({
+                        "id": int(row["id"]),
+                        "score": float(row.get("score", 5.0)),
+                        "difficulty": float(row.get("difficulty", 0.5))
+                    })
+                return pool
+            except Exception as e:
+                logger.error(f"Failed to load questions from LanceDB: {e}")
+                return []
+
+    def get_exam_bag_markdown(self, bag_id: int):
+        """Retrieve full markdown content for a given exam bag."""
+        with self._lock:
+            self.cursor.execute("SELECT name FROM exam_bags WHERE id = ?", (bag_id,))
+            bag = self.cursor.fetchone()
+            if not bag:
+                return None
+
+            bag_name = bag[0]
+            md_lines = [f"# {bag_name}\n"]
+
+            self.cursor.execute("SELECT id, name FROM exam_groups WHERE bag_id = ? ORDER BY sort_order", (bag_id,))
+            groups = self.cursor.fetchall()
+
+            try:
+                table = self.lance_db.open_table("questions")
+            except Exception:
+                table = None
+
+            for group_id, group_name in groups:
+                md_lines.append(f"## {group_name}\n")
+
+                self.cursor.execute("SELECT question_id FROM question_map WHERE group_id = ? ORDER BY sort_order", (group_id,))
+                q_ids = [row[0] for row in self.cursor.fetchall()]
+
+                if table and q_ids:
+                    # In a real impl, batch query LanceDB for efficiency using `where(f"id IN {tuple(q_ids)}")`
+                    id_filter = ", ".join(str(i) for i in q_ids)
+                    if id_filter:
+                        try:
+                            # LanceDB syntax: table.search().where(f"id IN ({id_filter})").to_list()
+                            q_data = table.search().where(f"id IN ({id_filter})").limit(len(q_ids)).to_list()
+                            # Sort results back to order of q_ids
+                            q_map = {item["id"]: item.get("content_md", f"[Question {item['id']} content]") for item in q_data}
+                            for index, qid in enumerate(q_ids, 1):
+                                md_lines.append(f"{index}. {q_map.get(qid, f'[Question {qid} missing]')}\n")
+                        except Exception as e:
+                            logger.error(f"Error fetching questions {q_ids}: {e}")
+                            for qid in q_ids:
+                                md_lines.append(f"- [Question ID: {qid}]\n")
+
+            return "\n".join(md_lines)
 
     def __enter__(self):
         return self

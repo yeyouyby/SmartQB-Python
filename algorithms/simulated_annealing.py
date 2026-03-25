@@ -24,32 +24,32 @@ class SimulatedAnnealingExamBuilder:
         return score_penalty + diff_penalty
 
     def get_neighbor(self, current_state):
-        # Swap one question with a random one from the pool not in the state
         if not current_state:
             return random.sample(self.pool, min(10, len(self.pool)))
 
         neighbor = current_state.copy()
 
-        # Remove a random item
-        idx_to_remove = random.randint(0, len(neighbor) - 1)
-        removed = neighbor.pop(idx_to_remove)
-
         in_state_ids = {q["id"] for q in neighbor}
+        available_candidates = [p for p in self.pool if p["id"] not in in_state_ids]
 
-        # Efficient random sampling instead of list comprehension for large pools
-        attempts = 0
-        candidate = None
-        while attempts < 100:
-            potential = random.choice(self.pool)
-            if potential["id"] not in in_state_ids:
-                candidate = potential
-                break
-            attempts += 1
-
-        if candidate:
-            neighbor.append(candidate)
+        # 0: Swap, 1: Add, 2: Remove
+        # Choose operation based on available pool and current state
+        if not available_candidates:
+            operation = 2 # Must remove if no candidates left
+        elif len(neighbor) <= 1:
+            operation = 1 # Must add if only 1 item left
         else:
-            neighbor.append(removed) # fallback if pool is completely saturated or unlucky
+            operation = random.choice([0, 1, 2])
+
+        if operation == 0: # Swap
+            idx_to_remove = random.randint(0, len(neighbor) - 1)
+            neighbor.pop(idx_to_remove)
+            neighbor.append(random.choice(available_candidates))
+        elif operation == 1: # Add
+            neighbor.append(random.choice(available_candidates))
+        elif operation == 2: # Remove
+            idx_to_remove = random.randint(0, len(neighbor) - 1)
+            neighbor.pop(idx_to_remove)
 
         return neighbor
 
