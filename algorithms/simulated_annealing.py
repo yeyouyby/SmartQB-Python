@@ -1,8 +1,15 @@
 import math
 import random
 
+
 class SimulatedAnnealingExamBuilder:
-    def __init__(self, question_pool, target_score=100, target_difficulty=0.65, difficulty_weight=100.0):
+    def __init__(
+        self,
+        question_pool,
+        target_score=100,
+        target_difficulty=0.65,
+        difficulty_weight=100.0,
+    ):
         # pool is a list of dicts: {"id": 1, "score": 5, "difficulty": 0.5, "tags": ["math"]}
         self.pool = question_pool
         self.target_score = target_score
@@ -12,14 +19,16 @@ class SimulatedAnnealingExamBuilder:
     def energy(self, state):
         # State is a subset of pool
         if not state:
-            return float('inf')
+            return float("inf")
 
         current_score = sum(q.get("score", 0) for q in state)
         current_diff = sum(q.get("difficulty", 0.5) for q in state) / len(state)
 
         # Penalty for deviation from target score and difficulty
         score_penalty = abs(current_score - self.target_score)
-        diff_penalty = abs(current_diff - self.target_difficulty) * self.difficulty_weight
+        diff_penalty = (
+            abs(current_diff - self.target_difficulty) * self.difficulty_weight
+        )
 
         return score_penalty + diff_penalty
 
@@ -35,19 +44,19 @@ class SimulatedAnnealingExamBuilder:
         # 0: Swap, 1: Add, 2: Remove
         # Choose operation based on available pool and current state
         if not available_candidates:
-            operation = 2 # Must remove if no candidates left
+            operation = 2  # Must remove if no candidates left
         elif len(neighbor) <= 1:
-            operation = 1 # Must add if only 1 item left
+            operation = 1  # Must add if only 1 item left
         else:
             operation = random.choice([0, 1, 2])
 
-        if operation == 0: # Swap
+        if operation == 0:  # Swap
             idx_to_remove = random.randint(0, len(neighbor) - 1)
             neighbor.pop(idx_to_remove)
             neighbor.append(random.choice(available_candidates))
-        elif operation == 1: # Add
+        elif operation == 1:  # Add
             neighbor.append(random.choice(available_candidates))
-        elif operation == 2: # Remove
+        elif operation == 2:  # Remove
             idx_to_remove = random.randint(0, len(neighbor) - 1)
             neighbor.pop(idx_to_remove)
 
@@ -59,7 +68,11 @@ class SimulatedAnnealingExamBuilder:
 
         # Initial guess based on score
         avg_score = sum(float(q.get("score", 1)) for q in self.pool) / len(self.pool)
-        estimated_count = max(1, round(self.target_score / avg_score)) if avg_score > 0 else min(20, len(self.pool))
+        estimated_count = (
+            max(1, round(self.target_score / avg_score))
+            if avg_score > 0
+            else min(20, len(self.pool))
+        )
         n_initial = min(estimated_count, len(self.pool))
 
         current_state = random.sample(self.pool, n_initial)

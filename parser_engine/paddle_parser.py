@@ -9,9 +9,11 @@ from .base import BaseParser
 
 logger = logging.getLogger(__name__)
 
+
 def parse_single_image(img, engine, idx_offset=0):
     """Helper to parse a single image array with the initialized PPStructure engine."""
     import cv2
+
     raw_result = engine(img)
     md_lines = []
     images_map = {}
@@ -48,6 +50,7 @@ def parse_single_image(img, engine, idx_offset=0):
 
     return md_lines, images_map, idx_offset + len(raw_result)
 
+
 # This process runs isolated to avoid GIL block and memory leaks in the main PySide6 process.
 def pp_structure_worker(file_paths: list[str], result_queue: mp.Queue):
     try:
@@ -65,6 +68,7 @@ def pp_structure_worker(file_paths: list[str], result_queue: mp.Queue):
 
             if is_pdf:
                 import fitz
+
                 doc = fitz.open(file_path)
                 for page in doc:
                     pix = page.get_pixmap(dpi=150)
@@ -80,28 +84,33 @@ def pp_structure_worker(file_paths: list[str], result_queue: mp.Queue):
                 else:
                     img = cv2.imread(file_path)
                     if img is None:
-                        raise FileNotFoundError(f"cv2 could not read image file: {file_path}")
+                        raise FileNotFoundError(
+                            f"cv2 could not read image file: {file_path}"
+                        )
                     images_to_parse = [img]
 
             global_idx = 0
 
             for img_mat in images_to_parse:
-                md_lines, images_map, global_idx = parse_single_image(img_mat, engine, global_idx)
+                md_lines, images_map, global_idx = parse_single_image(
+                    img_mat, engine, global_idx
+                )
 
-                pages.append({
-                    "markdown_content": "\n\n".join(md_lines),
-                    "images": images_map,
-                    "page_num": global_page_idx
-                })
+                pages.append(
+                    {
+                        "markdown_content": "\n\n".join(md_lines),
+                        "images": images_map,
+                        "page_num": global_page_idx,
+                    }
+                )
                 global_page_idx += 1
 
         result_queue.put({"status": "success", "data": pages})
     except Exception as e:
-        result_queue.put({
-            "status": "error",
-            "message": str(e),
-            "traceback": traceback.format_exc()
-        })
+        result_queue.put(
+            {"status": "error", "message": str(e), "traceback": traceback.format_exc()}
+        )
+
 
 class PPStructureParser(BaseParser):
     def __init__(self):
@@ -151,7 +160,9 @@ class PPStructureParser(BaseParser):
                         break
 
                     if time.time() - start_time > timeout:
-                        raise TimeoutError("PaddleOCR worker process timed out after 300s.")
+                        raise TimeoutError(
+                            "PaddleOCR worker process timed out after 300s."
+                        )
         except RuntimeError as err:
             raise RuntimeError("OCR Processing failed") from err
         except TimeoutError as err:
@@ -174,4 +185,6 @@ class PPStructureParser(BaseParser):
             tb = res.get("traceback", "") if res else ""
             if tb:
                 logger.error(f"PaddleOCR Worker failed:\n{tb}")
-            raise RuntimeError(f"Parse failed: {res.get('message') if res else 'Unknown Error'}\n{tb}")
+            raise RuntimeError(
+                f"Parse failed: {res.get('message') if res else 'Unknown Error'}\n{tb}"
+            )

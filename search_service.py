@@ -9,6 +9,7 @@ from db_adapter import LanceDBAdapter
 # 辅助工具 (向量搜索)
 # ==========================================
 
+
 def vector_search_db(ai_service, query_text, limit=10):
     logger.info(f"Starting vector search for query: '{query_text}' (limit={limit})")
     query_vec = ai_service.get_embedding(query_text)
@@ -35,16 +36,22 @@ def vector_search_db(ai_service, query_text, limit=10):
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
         except Exception as e:
-            logger.warning(f"Could not get target vector dimension from schema: {e}", exc_info=True)
+            logger.warning(
+                f"Could not get target vector dimension from schema: {e}", exc_info=True
+            )
 
         if len(query_vec) != target_dim:
             if len(query_vec) == 0:
                 query_vec = [0.0] * target_dim
             elif len(query_vec) > target_dim:
-                logger.warning(f"Search query vector dimension mismatch. Truncating vector from {len(query_vec)} to {target_dim}.")
+                logger.warning(
+                    f"Search query vector dimension mismatch. Truncating vector from {len(query_vec)} to {target_dim}."
+                )
                 query_vec = query_vec[:target_dim]
             else:
-                logger.warning(f"Search query vector dimension mismatch. Padding vector from {len(query_vec)} to {target_dim}.")
+                logger.warning(
+                    f"Search query vector dimension mismatch. Padding vector from {len(query_vec)} to {target_dim}."
+                )
                 query_vec.extend([0.0] * (target_dim - len(query_vec)))
 
         # LanceDB native vector search
@@ -57,13 +64,15 @@ def vector_search_db(ai_service, query_text, limit=10):
 
         ret = []
         for _, row in results.iterrows():
-            sim = 1.0 - row['_distance'] if '_distance' in row else 0.0
-            content = row['content']
-            ret.append({
-                "id": int(row['id']),
-                "content": content[:100] if content else "",
-                "similarity": float(sim)
-            })
+            sim = 1.0 - row["_distance"] if "_distance" in row else 0.0
+            content = row["content"]
+            ret.append(
+                {
+                    "id": int(row["id"]),
+                    "content": content[:100] if content else "",
+                    "similarity": float(sim),
+                }
+            )
 
         logger.info(f"Vector search returned {len(ret)} results.")
         return ret

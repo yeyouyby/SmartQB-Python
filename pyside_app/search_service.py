@@ -7,9 +7,16 @@ logger = logging.getLogger(__name__)
 # Constants to manage global vector dimensions. Can be moved to config.py later.
 VECTOR_DIMENSION = 1536
 
+
 class HybridSearcher:
-    def __init__(self, db_instance=None, lancedb_dir="smartqb_lancedb", sqlite_db="smartqb.db"):
-        self.db = db_instance if db_instance is not None else db_manager.dbManager(lancedb_dir, sqlite_db)
+    def __init__(
+        self, db_instance=None, lancedb_dir="smartqb_lancedb", sqlite_db="smartqb.db"
+    ):
+        self.db = (
+            db_instance
+            if db_instance is not None
+            else db_manager.dbManager(lancedb_dir, sqlite_db)
+        )
 
     def reciprocal_rank_fusion(self, bm25_results, vector_results, k=60):
         # Calculate RRF score for both rank lists.
@@ -40,21 +47,31 @@ class HybridSearcher:
         with self.db._lock:
             try:
                 # Note: MATCH query string formatting is critical, simplistic for demo
-                self.db.cursor.execute("""
+                self.db.cursor.execute(
+                    """
                     SELECT id, bm25(fts_questions)
                     FROM fts_questions
                     WHERE fts_questions MATCH ?
                     ORDER BY bm25(fts_questions) LIMIT ?
-                """, (query, limit))
+                """,
+                    (query, limit),
+                )
                 bm25_scores = self.db.cursor.fetchall()
             except Exception as e:
                 # Check for standard FTS5 absence errors
                 msg = str(e).lower()
-                if isinstance(e, sqlite3.OperationalError) and ("no such table: fts_questions" in msg or "no such module: fts5" in msg):
+                if isinstance(e, sqlite3.OperationalError) and (
+                    "no such table: fts_questions" in msg
+                    or "no such module: fts5" in msg
+                ):
                     bm25_scores = []
-                    logger.warning(f"FTS5 not available or table missing, skipping sparse search: {msg}")
+                    logger.warning(
+                        f"FTS5 not available or table missing, skipping sparse search: {msg}"
+                    )
                 else:
-                    logger.error(f"FTS5 Sparse search failed unexpectedly: {msg}", exc_info=True)
+                    logger.error(
+                        f"FTS5 Sparse search failed unexpectedly: {msg}", exc_info=True
+                    )
                     raise
 
         # 2. Dense Match (Vector search via LanceDB)
@@ -64,7 +81,9 @@ class HybridSearcher:
             try:
                 embedding = ai_service.get_embedding(query)
             except Exception as e:
-                logger.error(f"Error getting embedding from ai_service: {e}", exc_info=True)
+                logger.error(
+                    f"Error getting embedding from ai_service: {e}", exc_info=True
+                )
                 embedding = []
 
         vector_scores = []
@@ -74,7 +93,9 @@ class HybridSearcher:
                 if len(embedding) > VECTOR_DIMENSION:
                     embedding = embedding[:VECTOR_DIMENSION]
                 else:
-                    embedding = list(embedding) + [0.0] * (VECTOR_DIMENSION - len(embedding))
+                    embedding = list(embedding) + [0.0] * (
+                        VECTOR_DIMENSION - len(embedding)
+                    )
 
             try:
                 table = self.db.lance_db.open_table("questions")

@@ -23,6 +23,7 @@ mcp = FastMCP("SmartQB-QT-MCP")
 _db_instance = None
 _db_lock = threading.Lock()
 
+
 def get_db():
     global _db_instance
     if _db_instance is None:
@@ -31,14 +32,22 @@ def get_db():
                 _db_instance = db_manager.dbManager()
     return _db_instance
 
+
 def _extract_tables(tokens, tables: set):
     """Recursively extract all referenced table names from sqlparse token list."""
     from_seen = False
     for token in tokens:
         # Detect FROM / JOIN keywords (any variant)
         if token.ttype is Keyword and token.normalized.upper() in (
-            'FROM', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN',
-            'FULL JOIN', 'CROSS JOIN', 'LEFT OUTER JOIN', 'RIGHT OUTER JOIN'
+            "FROM",
+            "JOIN",
+            "INNER JOIN",
+            "LEFT JOIN",
+            "RIGHT JOIN",
+            "FULL JOIN",
+            "CROSS JOIN",
+            "LEFT OUTER JOIN",
+            "RIGHT OUTER JOIN",
         ):
             from_seen = True
             continue
@@ -68,8 +77,9 @@ def _extract_tables(tokens, tables: set):
                 from_seen = False
 
         # Always recurse into compound tokens
-        if hasattr(token, 'tokens'):
+        if hasattr(token, "tokens"):
             _extract_tables(token.tokens, tables)
+
 
 def _validate_sql(sql_string: str) -> str | None:
     """Returns an error string if the query is unsafe, else None."""
@@ -77,7 +87,14 @@ def _validate_sql(sql_string: str) -> str | None:
         return "Error: Only SELECT queries are allowed for safety."
 
     # Using strict whitelist of allowed tables for sql queries to be bulletproof
-    allowed_tables = {"exam_bags", "exam_groups", "question_map", "fts_questions", "questions", "sqlite_sequence"}
+    allowed_tables = {
+        "exam_bags",
+        "exam_groups",
+        "question_map",
+        "fts_questions",
+        "questions",
+        "sqlite_sequence",
+    }
     tables: set = set()
     for statement in sqlparse.parse(sql_string):
         _extract_tables(statement.tokens, tables)
@@ -86,6 +103,7 @@ def _validate_sql(sql_string: str) -> str | None:
         if table not in allowed_tables:
             return f"Error: Access to the '{table}' table is strictly forbidden. Allowed tables are: {', '.join(allowed_tables)}."
     return None
+
 
 @mcp.tool()
 def sqb_hybrid_search(query: str, limit: int = 5) -> str:
@@ -101,10 +119,15 @@ def sqb_hybrid_search(query: str, limit: int = 5) -> str:
         for doc_id, score in results:
             formatted_results.append(f"Question ID: {doc_id}, Score: {score:.2f}")
 
-        return "Search Results:\n" + "\n".join(formatted_results) if formatted_results else "No results found."
+        return (
+            "Search Results:\n" + "\n".join(formatted_results)
+            if formatted_results
+            else "No results found."
+        )
     except Exception as e:
         logger.error(f"Error executing search: {e}", exc_info=True)
         return f"Error executing search: {str(e)}"
+
 
 @mcp.tool()
 def sqb_sql_query(sql_string: str) -> str:
@@ -127,9 +150,11 @@ def sqb_sql_query(sql_string: str) -> str:
             stripped_sql = sql_string.rstrip().rstrip(";")
 
             # Replace existing limit with max_rows using regex (handling LIMIT X OFFSET Y, LIMIT Y, X, etc)
-            limit_pattern = r'(?i)\bLIMIT\s+\d+(?:\s*(?:OFFSET|,)\s*\d+)?'
+            limit_pattern = r"(?i)\bLIMIT\s+\d+(?:\s*(?:OFFSET|,)\s*\d+)?"
             if re.search(limit_pattern, stripped_sql):
-                bounded_sql = re.sub(limit_pattern, f'LIMIT {max_rows}', stripped_sql) + ";"
+                bounded_sql = (
+                    re.sub(limit_pattern, f"LIMIT {max_rows}", stripped_sql) + ";"
+                )
             else:
                 bounded_sql = f"{stripped_sql} LIMIT {max_rows};"
 
@@ -150,6 +175,7 @@ def sqb_sql_query(sql_string: str) -> str:
             logger.error(f"Database error executing SQL: {e}", exc_info=True)
             return f"Database error: {str(e)}"
 
+
 @mcp.tool()
 def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
     """
@@ -168,15 +194,22 @@ def sqb_generate_exam_sa(target_score: int, target_difficulty: float) -> str:
 
         selected_ids = [q["id"] for q in best_state]
         final_score = sum(q.get("score", 0) for q in best_state)
-        final_diff = sum(q.get("difficulty", 0.5) for q in best_state) / len(best_state) if best_state else 0
+        final_diff = (
+            sum(q.get("difficulty", 0.5) for q in best_state) / len(best_state)
+            if best_state
+            else 0
+        )
 
         return f"Generated exam with {len(selected_ids)} questions.\nTotal Score: {final_score}, Average Difficulty: {final_diff:.2f}\nSelected IDs: {selected_ids}"
     except Exception as e:
         logger.error(f"Error generating exam: {e}", exc_info=True)
         return f"Error generating exam: {str(e)}"
 
+
 @mcp.tool()
-def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/default.docx") -> str:
+def sqb_export_paper(
+    bag_id: int, template_name: str = "resources/templates/default.docx"
+) -> str:
     """
     Export an exam bag to a Word document using the specified template.
     """
@@ -185,8 +218,8 @@ def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/defa
     templates_dir = os.path.join(app_root, "resources", "templates")
 
     base_name = os.path.basename(template_name)
-    if not base_name.endswith('.docx'):
-        base_name += '.docx'
+    if not base_name.endswith(".docx"):
+        base_name += ".docx"
     resolved_path = os.path.abspath(os.path.join(templates_dir, base_name))
 
     if not resolved_path.startswith(templates_dir):
@@ -210,6 +243,7 @@ def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/defa
         logger.error(f"Export failed: {e}", exc_info=True)
         return f"Export failed: {str(e)}"
 
+
 if __name__ == "__main__":
     # Start the FastMCP server, exposing tools via stdio to Claude Desktop
-    mcp.run(transport='stdio')
+    mcp.run(transport="stdio")

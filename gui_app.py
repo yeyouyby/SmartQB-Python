@@ -13,12 +13,12 @@ import tkinter as tk
 from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
+
 try:
     from pix2text import Pix2Text
 except Exception as e:
     Pix2Text = None
     print(f"Warning: Failed to import Pix2Text: {e}")
-
 
 
 from config import DB_NAME
@@ -31,6 +31,7 @@ from search_service import vector_search_db
 # Set up transformers warnings suppression
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+
 
 # ==========================================
 # 主应用 GUI
@@ -51,12 +52,6 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
             self.ocr_engine = None
-
-
-
-
-
-
 
         logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
         try:
@@ -112,7 +107,7 @@ class SmartQBApp(tk.Tk):
         return [diag_data]
 
     def _resolve_markers_and_extract_diagrams(self, content_text, combined_d_map):
-        marker_pattern = re.compile(r'\[\[\{ima_dont_del_(\d+_\d+)\}\]\]')
+        marker_pattern = re.compile(r"\[\[\{ima_dont_del_(\d+_\d+)\}\]\]")
         matches = marker_pattern.findall(content_text)
         diagrams_list = []
         if matches:
@@ -146,14 +141,26 @@ class SmartQBApp(tk.Tk):
         return content_text, diagram
 
     def _test_compile_latex(self, content_text):
-        tex_code = f'''\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}'''
+        tex_code = f"""\\documentclass{{article}}\n\\usepackage{{ctex}}\n\\usepackage{{amsmath}}\n\\usepackage{{amssymb}}\n\\begin{{document}}\n{content_text}\n\\end{{document}}"""
         with tempfile.TemporaryDirectory() as td:
             tex_file = os.path.join(td, "test.tex")
             with open(tex_file, "w", encoding="utf-8") as f_tex:
                 f_tex.write(tex_code)
             try:
-                res = subprocess.run(["xelatex", "-interaction=nonstopmode", "--no-shell-escape", "test.tex"],
-                                     cwd=td, capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace")  # nosec
+                res = subprocess.run(
+                    [
+                        "xelatex",
+                        "-interaction=nonstopmode",
+                        "--no-shell-escape",
+                        "test.tex",
+                    ],
+                    cwd=td,
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
+                    encoding="utf-8",
+                    errors="replace",
+                )  # nosec
                 if res.returncode == 0:
                     return True, ""
                 else:
@@ -163,16 +170,16 @@ class SmartQBApp(tk.Tk):
 
     def _clear_staging_ui(self):
         for q in self.staging_questions:
-            q.pop('diagram', None)
-            q.pop('image_b64', None)
-            q.pop('page_annotated_b64', None)
+            q.pop("diagram", None)
+            q.pop("image_b64", None)
+            q.pop("page_annotated_b64", None)
         self.staging_questions.clear()
         self.txt_stg_content.delete("1.0", tk.END)
         self.ent_stg_tags.delete(0, tk.END)
-        if hasattr(self, 'lbl_vector_info'):
+        if hasattr(self, "lbl_vector_info"):
             self.lbl_vector_info.config(text="未生成向量")
-        self.lbl_stg_diagram.config(image='', text="无图样")
-        if hasattr(self.lbl_stg_diagram, 'image'):
+        self.lbl_stg_diagram.config(image="", text="无图样")
+        if hasattr(self.lbl_stg_diagram, "image"):
             del self.lbl_stg_diagram.image
         gc.collect()
 
@@ -186,7 +193,10 @@ class SmartQBApp(tk.Tk):
         for idx in selected_indices:
             q = self.staging_questions[idx]
             if q.get("logic") == "等待 AI 处理...":
-                messagebox.showwarning("无法检查", "选中的部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再检查！")
+                messagebox.showwarning(
+                    "无法检查",
+                    "选中的部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再检查！",
+                )
                 return
 
         self.update_status("正在检查选中题目的 LaTeX 编译...")
@@ -202,10 +212,20 @@ class SmartQBApp(tk.Tk):
             total_questions = len(selected_indices)
             for idx in selected_indices:
                 q = self.staging_questions[idx]
-                self.after(0, lambda i=idx, t=total_questions: self.update_status(f"正在编译检查第 {i+1} 题..."))
+                self.after(
+                    0,
+                    lambda i=idx, t=total_questions: self.update_status(
+                        f"正在编译检查第 {i+1} 题..."
+                    ),
+                )
                 success, err_msg = self._test_compile_latex(q["content"])
                 if not success:
-                    self.after(0, lambda i=idx: self.update_status(f"第 {i+1} 题编译失败，AI 正在尝试修复..."))
+                    self.after(
+                        0,
+                        lambda i=idx: self.update_status(
+                            f"第 {i+1} 题编译失败，AI 正在尝试修复..."
+                        ),
+                    )
                     fixed_content = self.ai_service.ai_fix_latex(q["content"], err_msg)
                     if fixed_content:
                         success2, err_msg2 = self._test_compile_latex(fixed_content)
@@ -229,8 +249,13 @@ class SmartQBApp(tk.Tk):
                         pass
                 if len(selected_indices) > 0:
                     self.on_staging_select(None)
-                self.update_status(f"LaTeX 检查完成。选中 {total_questions} 题，成功修复 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。")
-                messagebox.showinfo("检查完成", f"成功检查修复 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。")
+                self.update_status(
+                    f"LaTeX 检查完成。选中 {total_questions} 题，成功修复 {len(successful_questions)} 题，失败 {len(failed_indices)} 题。"
+                )
+                messagebox.showinfo(
+                    "检查完成",
+                    f"成功检查修复 {len(successful_questions)} 题。有 {len(failed_indices)} 题编译失败。",
+                )
 
             self.after(0, update_ui)
 
@@ -239,23 +264,30 @@ class SmartQBApp(tk.Tk):
     def ask_api_retry_sync(self, error_msg):
         result = [False]
         event = threading.Event()
+
         def show_dialog():
             dialog = tk.Toplevel(self)
             dialog.title("⚠️ API 请求失败")
             dialog.geometry("450x300")
             dialog.grab_set()
 
-            ttk.Label(dialog, text=f"发生错误:\n{error_msg}", foreground="red", wraplength=430).pack(pady=10)
+            ttk.Label(
+                dialog, text=f"发生错误:\n{error_msg}", foreground="red", wraplength=430
+            ).pack(pady=10)
 
             form_frame = ttk.Frame(dialog)
             form_frame.pack(fill=tk.X, padx=20, pady=5)
 
-            ttk.Label(form_frame, text="API Key:").grid(row=0, column=0, sticky=tk.W, pady=5)
+            ttk.Label(form_frame, text="API Key:").grid(
+                row=0, column=0, sticky=tk.W, pady=5
+            )
             ent_api = ttk.Entry(form_frame, width=35)
             ent_api.insert(0, self.settings.api_key)
             ent_api.grid(row=0, column=1, pady=5)
 
-            ttk.Label(form_frame, text="Base URL:").grid(row=1, column=0, sticky=tk.W, pady=5)
+            ttk.Label(form_frame, text="Base URL:").grid(
+                row=1, column=0, sticky=tk.W, pady=5
+            )
             ent_base = ttk.Entry(form_frame, width=35)
             ent_base.insert(0, self.settings.base_url)
             ent_base.grid(row=1, column=1, pady=5)
@@ -276,8 +308,12 @@ class SmartQBApp(tk.Tk):
 
             btn_frame = ttk.Frame(dialog)
             btn_frame.pack(pady=10)
-            ttk.Button(btn_frame, text="💾 保存并继续重试", command=on_save).pack(side=tk.LEFT, padx=10)
-            ttk.Button(btn_frame, text="⏭️ 取消并降级跳过", command=on_cancel).pack(side=tk.LEFT, padx=10)
+            ttk.Button(btn_frame, text="💾 保存并继续重试", command=on_save).pack(
+                side=tk.LEFT, padx=10
+            )
+            ttk.Button(btn_frame, text="⏭️ 取消并降级跳过", command=on_cancel).pack(
+                side=tk.LEFT, padx=10
+            )
             dialog.protocol("WM_DELETE_WINDOW", on_cancel)
 
         self.after(0, show_dialog)
@@ -291,11 +327,21 @@ class SmartQBApp(tk.Tk):
         top_frame = ttk.Frame(self.tab_import)
         top_frame.pack(fill=tk.X, pady=5, padx=5)
 
-        ttk.Button(top_frame, text="📄 导入 PDF", command=lambda: self.on_import_file("pdf")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="📝 导入 Word", command=lambda: self.on_import_file("word")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(top_frame, text="🖼️ 导入单张图片", command=lambda: self.on_import_file("image")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            top_frame, text="📄 导入 PDF", command=lambda: self.on_import_file("pdf")
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            top_frame, text="📝 导入 Word", command=lambda: self.on_import_file("word")
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            top_frame,
+            text="🖼️ 导入单张图片",
+            command=lambda: self.on_import_file("image"),
+        ).pack(side=tk.LEFT, padx=2)
 
-        self.lbl_import_status = ttk.Label(top_frame, text="等待导入...", foreground="blue")
+        self.lbl_import_status = ttk.Label(
+            top_frame, text="等待导入...", foreground="blue"
+        )
         self.lbl_import_status.pack(side=tk.LEFT, padx=10)
 
         paned = ttk.PanedWindow(self.tab_import, orient=tk.HORIZONTAL)
@@ -304,23 +350,36 @@ class SmartQBApp(tk.Tk):
         left_frame = ttk.Frame(paned)
         paned.add(left_frame, weight=1)
 
-        self.tree_staging = ttk.Treeview(left_frame, columns=("id", "content", "tags"), show="headings", selectmode="extended")
+        self.tree_staging = ttk.Treeview(
+            left_frame,
+            columns=("id", "content", "tags"),
+            show="headings",
+            selectmode="extended",
+        )
         self.tree_staging.heading("id", text="序号")
         self.tree_staging.column("id", width=40)
         self.tree_staging.heading("content", text="识别内容预览")
         self.tree_staging.heading("tags", text="标签")
         self.tree_staging.column("tags", width=100)
         self.tree_staging.pack(fill=tk.BOTH, expand=True)
-        self.tree_staging.bind('<<TreeviewSelect>>', self.on_staging_select)
+        self.tree_staging.bind("<<TreeviewSelect>>", self.on_staging_select)
 
-        ttk.Button(left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            left_frame, text="❌ 彻底删除选中题目", command=self.delete_staging_item
+        ).pack(fill=tk.X, pady=2)
 
         # New AI Actions
         ai_frame = ttk.LabelFrame(left_frame, text="AI 题目整理 (二次处理)")
         ai_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(ai_frame, text="🔗 合并选中项", command=self.merge_staging_items).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(fill=tk.X, pady=2)
-        ttk.Button(ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            ai_frame, text="🔗 合并选中项", command=self.merge_staging_items
+        ).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item
+        ).pack(fill=tk.X, pady=2)
+        ttk.Button(
+            ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item
+        ).pack(fill=tk.X, pady=2)
 
         right_frame = ttk.Frame(paned)
         paned.add(right_frame, weight=2)
@@ -332,17 +391,22 @@ class SmartQBApp(tk.Tk):
         ttk.Label(right_frame, text="AI 打标 (逗号分隔):").pack(anchor=tk.W)
         self.ent_stg_tags = ttk.Entry(right_frame)
         self.ent_stg_tags.pack(fill=tk.X, pady=2)
-        ttk.Button(right_frame, text="💾 更新当前题目", command=self.update_stg_item).pack(anchor=tk.E, pady=5)
+        ttk.Button(
+            right_frame, text="💾 更新当前题目", command=self.update_stg_item
+        ).pack(anchor=tk.E, pady=5)
 
         vec_frame = ttk.Frame(right_frame)
         vec_frame.pack(fill=tk.X, pady=2)
         ttk.Label(vec_frame, text="向量化预览:").pack(side=tk.LEFT)
         self.lbl_vector_info = ttk.Label(vec_frame, text="未生成向量")
         self.lbl_vector_info.pack(side=tk.LEFT, padx=5)
-        ttk.Button(vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector).pack(side=tk.RIGHT)
+        ttk.Button(
+            vec_frame, text="🔄 生成/更新向量", command=self.update_staging_vector
+        ).pack(side=tk.RIGHT)
 
-
-        self.lbl_stg_diagram = ttk.Label(right_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
+        self.lbl_stg_diagram = ttk.Label(
+            right_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER
+        )
         self.lbl_stg_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
         self.lbl_stg_diag_info = ttk.Label(right_frame, text="", anchor=tk.CENTER)
@@ -350,16 +414,32 @@ class SmartQBApp(tk.Tk):
 
         diag_btn_frame = ttk.Frame(right_frame)
         diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(
+            diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(
+            diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(
+            diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
         move_btn_frame = ttk.Frame(right_frame)
         move_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(move_btn_frame, text="⬇️ 将当前图样移至下一题", command=self.move_diagram_down).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(
+            move_btn_frame, text="⬆️ 将当前图样移至上一题", command=self.move_diagram_up
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(
+            move_btn_frame,
+            text="⬇️ 将当前图样移至下一题",
+            command=self.move_diagram_down,
+        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
 
-        ttk.Button(right_frame, text="👁️ 查看完整版面分析图 (Pix2Text/Surya)", command=self.show_page_layout_view).pack(anchor=tk.E, pady=2)
+        ttk.Button(
+            right_frame,
+            text="👁️ 查看完整版面分析图 (Pix2Text/Surya)",
+            command=self.show_page_layout_view,
+        ).pack(anchor=tk.E, pady=2)
 
         bottom_frame = ttk.Frame(self.tab_import)
         bottom_frame.pack(fill=tk.X, pady=5, padx=5)
@@ -367,21 +447,31 @@ class SmartQBApp(tk.Tk):
         ttk.Label(bottom_frame, text="为整个试卷批量追加标签:").pack(side=tk.LEFT)
         self.ent_batch_tag = ttk.Entry(bottom_frame, width=20)
         self.ent_batch_tag.pack(side=tk.LEFT, padx=5)
-        ttk.Button(bottom_frame, text="应用批量标签", command=self.apply_batch_tags).pack(side=tk.LEFT)
+        ttk.Button(
+            bottom_frame, text="应用批量标签", command=self.apply_batch_tags
+        ).pack(side=tk.LEFT)
 
-        ttk.Button(bottom_frame, text="💾 全部直接入库 (跳过编译检查)", command=self.save_staging_to_db).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bottom_frame, text="🛠️ 检查并修复选中题目的 LaTeX", command=self.check_and_fix_latex).pack(side=tk.RIGHT, padx=5)
-
+        ttk.Button(
+            bottom_frame,
+            text="💾 全部直接入库 (跳过编译检查)",
+            command=self.save_staging_to_db,
+        ).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(
+            bottom_frame,
+            text="🛠️ 检查并修复选中题目的 LaTeX",
+            command=self.check_and_fix_latex,
+        ).pack(side=tk.RIGHT, padx=5)
 
     def move_diagram_up(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         idx = int(sel[0])
         if idx == 0:
             messagebox.showinfo("提示", "已经是第一题，无法上移。")
             return
 
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
+        if not hasattr(self, "stg_current_diags") or not self.stg_current_diags:
             messagebox.showinfo("提示", "当前题目没有图样。")
             return
 
@@ -398,7 +488,9 @@ class SmartQBApp(tk.Tk):
         else:
             current_q["diagram"] = json.dumps(self.stg_current_diags)
 
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+        self.current_img_index = max(
+            0, min(self.current_img_index, len(self.stg_current_diags) - 1)
+        )
 
         # update prev
         prev_diags = self._parse_diagram_json(prev_q.get("diagram"))
@@ -415,13 +507,14 @@ class SmartQBApp(tk.Tk):
 
     def move_diagram_down(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         idx = int(sel[0])
         if idx == len(self.staging_questions) - 1:
             messagebox.showinfo("提示", "已经是最后一题，无法下移。")
             return
 
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
+        if not hasattr(self, "stg_current_diags") or not self.stg_current_diags:
             messagebox.showinfo("提示", "当前题目没有图样。")
             return
 
@@ -438,7 +531,9 @@ class SmartQBApp(tk.Tk):
         else:
             current_q["diagram"] = json.dumps(self.stg_current_diags)
 
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+        self.current_img_index = max(
+            0, min(self.current_img_index, len(self.stg_current_diags) - 1)
+        )
 
         # update next
         next_diags = self._parse_diagram_json(next_q.get("diagram"))
@@ -494,12 +589,19 @@ class SmartQBApp(tk.Tk):
             messagebox.showerror("错误", f"无法加载版面图: {e}")
 
     def on_import_file(self, file_type):
-        exts = {"pdf": [("PDF", "*.pdf")], "word": [("Word", "*.docx")], "image": [("Image", "*.png;*.jpg;*.jpeg")]}
+        exts = {
+            "pdf": [("PDF", "*.pdf")],
+            "word": [("Word", "*.docx")],
+            "image": [("Image", "*.png;*.jpg;*.jpeg")],
+        }
         file_path = filedialog.askopenfilename(filetypes=exts[file_type])
-        if not file_path: return
+        if not file_path:
+            return
         self.staging_questions.clear()
         self.refresh_staging_tree()
-        threading.Thread(target=self.run_ingestion_pipeline, args=(file_path, file_type), daemon=True).start()
+        threading.Thread(
+            target=self.run_ingestion_pipeline, args=(file_path, file_type), daemon=True
+        ).start()
 
     def run_ingestion_pipeline(self, file_path, file_type):
         self.update_status("正在提取文档切片...")
@@ -509,17 +611,31 @@ class SmartQBApp(tk.Tk):
         def handle_slice_ready(s):
             if mode == 1:
                 combined_map = dict(s.get("diagram_map", {}))
-                content_text, diagram = self._resolve_markers_and_extract_diagrams(s["text"], combined_map)
+                content_text, diagram = self._resolve_markers_and_extract_diagrams(
+                    s["text"], combined_map
+                )
                 item = {
-                    "content": content_text, "logic": "无 (本地OCR模式)", "tags": ["本地提取"], "diagram": diagram, "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                    "content": content_text,
+                    "logic": "无 (本地OCR模式)",
+                    "tags": ["本地提取"],
+                    "diagram": diagram,
+                    "page_annotated_b64": s.get("page_annotated_b64"),
+                    "image_b64": s.get("image_b64"),
                 }
             else:
                 item = {
-                    "content": s["text"], "logic": "等待 AI 处理...", "tags": ["本地提取中"], "diagram": s.get("diagram"), "page_annotated_b64": s.get("page_annotated_b64"), "image_b64": s.get("image_b64")
+                    "content": s["text"],
+                    "logic": "等待 AI 处理...",
+                    "tags": ["本地提取中"],
+                    "diagram": s.get("diagram"),
+                    "page_annotated_b64": s.get("page_annotated_b64"),
+                    "image_b64": s.get("image_b64"),
                 }
+
             def _append_and_refresh():
                 self.staging_questions.append(item)
                 self.refresh_staging_tree()
+
             self.after(0, _append_and_refresh)
 
         try:
@@ -528,10 +644,8 @@ class SmartQBApp(tk.Tk):
                 def _clear_stg():
                     self.staging_questions.clear()
                     self.refresh_staging_tree()
+
                 self.after(0, _clear_stg)
-
-
-
 
                 # Lazy load DocLayout-YOLO if selected but not loaded
                 if self.doclayout_yolo is None:
@@ -539,27 +653,50 @@ class SmartQBApp(tk.Tk):
                     try:
                         self.doclayout_yolo = DocLayoutYOLO()
                     except Exception as e:
-                        logger.error(f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True)
-                        self.after(0, lambda err=e: messagebox.showerror("Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"))
+                        logger.error(
+                            f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True
+                        )
+                        self.after(
+                            0,
+                            lambda err=e: messagebox.showerror(
+                                "Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"
+                            ),
+                        )
                         return
 
                 if self.doclayout_yolo is None:
-                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用版面分析引擎。请检查模型配置。")); return
+                    self.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Engine Error", "无可用版面分析引擎。请检查模型配置。"
+                        ),
+                    )
+                    return
                 if self.ocr_engine is None:
-                    self.after(0, lambda: messagebox.showerror("Engine Error", "无可用 OCR 引擎。请检查环境依赖。")); return
+                    self.after(
+                        0,
+                        lambda: messagebox.showerror(
+                            "Engine Error", "无可用 OCR 引擎。请检查环境依赖。"
+                        ),
+                    )
+                    return
 
                 pending_slices = DocumentService.process_doc_with_layout(
-                    file_path, file_type,
+                    file_path,
+                    file_type,
                     self.doclayout_yolo,
                     self.ocr_engine,
                     "Pix2Text",
-                    self.update_status, handle_slice_ready,
-                    det_predictor=None
+                    self.update_status,
+                    handle_slice_ready,
+                    det_predictor=None,
                 )
             elif file_type == "word":
+
                 def _clear_word():
                     self.staging_questions.clear()
                     self.refresh_staging_tree()
+
                 self.after(0, _clear_word)
                 pending_slices = DocumentService.extract_from_word(file_path)
                 for s in pending_slices:
@@ -582,12 +719,15 @@ class SmartQBApp(tk.Tk):
         def _clear_pre_ai():
             self.staging_questions.clear()
             self.refresh_staging_tree()
+
         self.after(0, _clear_pre_ai)
 
         self._process_ai_slices(pending_slices, mode, file_type)
         self.update_status("✅ 文件全部处理并关联合并完毕！")
 
-    def _parse_and_append_ai_res(self, ai_res, current_idx, pending_slices, cumulative_d_map):
+    def _parse_and_append_ai_res(
+        self, ai_res, current_idx, pending_slices, cumulative_d_map
+    ):
         questions = ai_res.get("Questions", [])
         pending_fragment = ai_res.get("PendingFragment", "")
 
@@ -624,11 +764,19 @@ class SmartQBApp(tk.Tk):
                 if 0 <= idx < len(pending_slices):
                     if not image_b64 and pending_slices[idx].get("image_b64"):
                         image_b64 = pending_slices[idx]["image_b64"]
-                    if not page_annotated_b64 and pending_slices[idx].get("page_annotated_b64"):
-                        page_annotated_b64 = pending_slices[idx].get("page_annotated_b64")
-                    per_question_d_map.update(pending_slices[idx].get("diagram_map", {}))
+                    if not page_annotated_b64 and pending_slices[idx].get(
+                        "page_annotated_b64"
+                    ):
+                        page_annotated_b64 = pending_slices[idx].get(
+                            "page_annotated_b64"
+                        )
+                    per_question_d_map.update(
+                        pending_slices[idx].get("diagram_map", {})
+                    )
 
-            content_text, diagram = self._resolve_markers_and_extract_diagrams(content_text, cumulative_d_map, per_question_d_map)
+            content_text, diagram = self._resolve_markers_and_extract_diagrams(
+                content_text, cumulative_d_map, per_question_d_map
+            )
 
             item = {
                 "content": content_text,
@@ -636,18 +784,22 @@ class SmartQBApp(tk.Tk):
                 "tags": q.get("Tags") if isinstance(q.get("Tags"), list) else [],
                 "diagram": diagram,
                 "image_b64": image_b64,
-                "page_annotated_b64": page_annotated_b64
+                "page_annotated_b64": page_annotated_b64,
             }
+
             def _safe_append(i=item):
                 self.staging_questions.append(i)
+
             self.after(0, _safe_append)
 
         self.after(0, self.refresh_staging_tree)
         return next_index, pending_fragment
 
     def _process_ai_slices(self, pending_slices, mode, file_type):
-        use_vision = (mode == 3 and file_type != "word")
-        batch_size = self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
+        use_vision = mode == 3 and file_type != "word"
+        batch_size = (
+            self.settings.prm_batch_size if self.settings.use_prm_optimization else 1
+        )
 
         current_idx = 0
         pending_fragment = ""
@@ -655,29 +807,35 @@ class SmartQBApp(tk.Tk):
 
         while current_idx < len(pending_slices):
             end_idx = min(current_idx + batch_size + 1, len(pending_slices))
-            is_last_batch = (end_idx == len(pending_slices))
+            is_last_batch = end_idx == len(pending_slices)
 
             slices_to_send = []
             for i in range(current_idx, end_idx):
-                slices_to_send.append({
-                    "index": i,
-                    "text": pending_slices[i]["text"],
-                    "image_b64": pending_slices[i].get("image_b64", "")
-                })
+                slices_to_send.append(
+                    {
+                        "index": i,
+                        "text": pending_slices[i]["text"],
+                        "image_b64": pending_slices[i].get("image_b64", ""),
+                    }
+                )
                 cumulative_d_map.update(pending_slices[i].get("diagram_map", {}))
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
-            self.update_status(f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}...")
+            self.update_status(
+                f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}..."
+            )
 
             try:
                 ai_res = self.ai_service.process_slices_with_context(
                     slices_to_send,
                     use_vision=use_vision,
                     pending_fragment=pending_fragment,
-                    is_last_batch=is_last_batch
+                    is_last_batch=is_last_batch,
                 )
 
-                current_idx, pending_fragment = self._parse_and_append_ai_res(ai_res, current_idx, pending_slices, cumulative_d_map)
+                current_idx, pending_fragment = self._parse_and_append_ai_res(
+                    ai_res, current_idx, pending_slices, cumulative_d_map
+                )
 
             except Exception as e:
                 logger.error(f"AI 处理异常: {e}", exc_info=True)
@@ -686,36 +844,51 @@ class SmartQBApp(tk.Tk):
                 else:
                     # 降级：放弃批次，保存源数据
                     fallback_end = min(current_idx + batch_size, len(pending_slices))
-                    if fallback_end == current_idx: fallback_end += 1
+                    if fallback_end == current_idx:
+                        fallback_end += 1
                     for i in range(current_idx, fallback_end):
                         raw_text = pending_slices[i]["text"]
-                        clean_text, fallback_diagram = self._resolve_markers_and_extract_diagrams(raw_text, cumulative_d_map, pending_slices[i].get("diagram_map", {}))
+                        clean_text, fallback_diagram = (
+                            self._resolve_markers_and_extract_diagrams(
+                                raw_text,
+                                cumulative_d_map,
+                                pending_slices[i].get("diagram_map", {}),
+                            )
+                        )
 
                         item = {
                             "content": clean_text,
                             "logic": "API 失败，未解析",
                             "tags": ["API错误", "需人工校对"],
                             "diagram": fallback_diagram,
-                            "page_annotated_b64": pending_slices[i].get("page_annotated_b64")
+                            "page_annotated_b64": pending_slices[i].get(
+                                "page_annotated_b64"
+                            ),
                         }
+
                         def _safe_append_f(itm=item):
                             self.staging_questions.append(itm)
+
                         self.after(0, _safe_append_f)
                     self.after(0, self.refresh_staging_tree)
                     current_idx = fallback_end
 
         # 如果结束时还有没处理完的 fragment，尝试把它作为一个单独题目保存
         if pending_fragment and pending_fragment.strip():
-            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(pending_fragment, cumulative_d_map)
+            clean_frag, diag_frag = self._resolve_markers_and_extract_diagrams(
+                pending_fragment, cumulative_d_map
+            )
             item = {
                 "content": clean_frag,
                 "logic": "跨页未完结残段 (合并结束仍遗留)",
                 "tags": ["需人工校对"],
                 "diagram": diag_frag,
-                "image_b64": ""
+                "image_b64": "",
             }
+
             def _safe_append_rem(itm=item):
                 self.staging_questions.append(itm)
+
             self.after(0, _safe_append_rem)
             self.after(0, self.refresh_staging_tree)
 
@@ -723,14 +896,18 @@ class SmartQBApp(tk.Tk):
         self.after(0, lambda: self.lbl_import_status.config(text=text))
 
     def refresh_staging_tree(self):
-        for i in self.tree_staging.get_children(): self.tree_staging.delete(i)
+        for i in self.tree_staging.get_children():
+            self.tree_staging.delete(i)
         for idx, q in enumerate(self.staging_questions):
-            preview = q["content"][:40].replace('\n', ' ')
-            self.tree_staging.insert("", tk.END, iid=str(idx), values=(idx+1, preview, ",".join(q["tags"])))
+            preview = q["content"][:40].replace("\n", " ")
+            self.tree_staging.insert(
+                "", tk.END, iid=str(idx), values=(idx + 1, preview, ",".join(q["tags"]))
+            )
 
     def on_staging_select(self, event):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
 
         # We only want to handle the first selected item for preview if multiple are selected
         q = self.staging_questions[int(sel[0])]
@@ -753,9 +930,9 @@ class SmartQBApp(tk.Tk):
             self.lbl_vector_info.config(text="未生成向量")
 
     def _render_stg_diagram(self):
-        if not hasattr(self, 'stg_current_diags') or not self.stg_current_diags:
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_stg_diagram, 'image'):
+        if not hasattr(self, "stg_current_diags") or not self.stg_current_diags:
+            self.lbl_stg_diagram.config(image="", text="无图样")
+            if hasattr(self.lbl_stg_diagram, "image"):
                 del self.lbl_stg_diagram.image
             self.lbl_stg_diag_info.config(text="")
             return
@@ -763,38 +940,49 @@ class SmartQBApp(tk.Tk):
         display_img_b64 = self.stg_current_diags[self.current_img_index]
         if display_img_b64:
             try:
-                display_img_clean = display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64
+                display_img_clean = (
+                    display_img_b64.split(",")[-1]
+                    if "," in display_img_b64
+                    else display_img_b64
+                )
                 img = Image.open(io.BytesIO(base64.b64decode(display_img_clean))).copy()
                 img.thumbnail((400, 300))
                 photo = ImageTk.PhotoImage(img)
                 self.lbl_stg_diagram.config(image=photo, text="")
                 self.lbl_stg_diagram.image = photo
 
-                info_text = f"图样 {self.current_img_index + 1} / {len(self.stg_current_diags)}"
+                info_text = (
+                    f"图样 {self.current_img_index + 1} / {len(self.stg_current_diags)}"
+                )
                 self.lbl_stg_diag_info.config(text=info_text)
             except Exception as e:
-                self.lbl_stg_diagram.config(image='', text=f"图片加载失败: {e}")
+                self.lbl_stg_diagram.config(image="", text=f"图片加载失败: {e}")
                 self.lbl_stg_diag_info.config(text="")
         else:
-            self.lbl_stg_diagram.config(image='', text="无图样")
+            self.lbl_stg_diagram.config(image="", text="无图样")
             self.lbl_stg_diag_info.config(text="")
 
     def stg_prev_diagram(self):
-        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
-            self.current_img_index = (self.current_img_index - 1) % len(self.stg_current_diags)
+        if hasattr(self, "stg_current_diags") and self.stg_current_diags:
+            self.current_img_index = (self.current_img_index - 1) % len(
+                self.stg_current_diags
+            )
             self._render_stg_diagram()
 
     def stg_next_diagram(self):
-        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
-            self.current_img_index = (self.current_img_index + 1) % len(self.stg_current_diags)
+        if hasattr(self, "stg_current_diags") and self.stg_current_diags:
+            self.current_img_index = (self.current_img_index + 1) % len(
+                self.stg_current_diags
+            )
             self._render_stg_diagram()
 
     def stg_delete_diagram(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         idx = int(sel[0])
 
-        if not (hasattr(self, 'stg_current_diags') and self.stg_current_diags):
+        if not (hasattr(self, "stg_current_diags") and self.stg_current_diags):
             return
 
         del self.stg_current_diags[self.current_img_index]
@@ -807,12 +995,15 @@ class SmartQBApp(tk.Tk):
         else:
             q["diagram"] = json.dumps(self.stg_current_diags)
 
-        self.current_img_index = max(0, min(self.current_img_index, len(self.stg_current_diags) - 1))
+        self.current_img_index = max(
+            0, min(self.current_img_index, len(self.stg_current_diags) - 1)
+        )
         self._render_stg_diagram()
 
     def update_staging_vector(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         self.lbl_vector_info.config(text=f"正在为 {len(sel)} 题生成向量...")
         self.update()
 
@@ -840,8 +1031,14 @@ class SmartQBApp(tk.Tk):
 
             def update_ui():
                 if success_count > 0:
-                    preview = str([round(v, 3) for v in last_vec[:3]]) + "..." if last_vec else ""
-                    self.lbl_vector_info.config(text=f"成功: {success_count}, 失败: {fail_count}. {preview}")
+                    preview = (
+                        str([round(v, 3) for v in last_vec[:3]]) + "..."
+                        if last_vec
+                        else ""
+                    )
+                    self.lbl_vector_info.config(
+                        text=f"成功: {success_count}, 失败: {fail_count}. {preview}"
+                    )
                 else:
                     self.lbl_vector_info.config(text="生成失败")
 
@@ -849,11 +1046,12 @@ class SmartQBApp(tk.Tk):
 
         threading.Thread(target=task, daemon=True).start()
 
-
     def merge_staging_items(self):
         sel = self.tree_staging.selection()
         if len(sel) < 2:
-            messagebox.showinfo("提示", "请按住 Ctrl/Cmd 选择至少两道相邻的题目进行合并。")
+            messagebox.showinfo(
+                "提示", "请按住 Ctrl/Cmd 选择至少两道相邻的题目进行合并。"
+            )
             return
 
         indices = sorted([int(s) for s in sel])
@@ -864,7 +1062,12 @@ class SmartQBApp(tk.Tk):
         def task():
             merged = self.ai_service.ai_merge_questions(texts_to_merge)
             if not merged:
-                self.after(0, lambda: messagebox.showerror("错误", "合并失败，AI 未返回有效内容。"))
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "错误", "合并失败，AI 未返回有效内容。"
+                    ),
+                )
                 self.after(0, lambda: self.update_status("合并失败"))
                 return
 
@@ -918,7 +1121,12 @@ class SmartQBApp(tk.Tk):
         def task():
             splits = self.ai_service.ai_split_question(text_to_split)
             if not splits or len(splits) <= 1:
-                self.after(0, lambda: messagebox.showerror("提示", "拆分失败或未发现可拆分的子题。"))
+                self.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "提示", "拆分失败或未发现可拆分的子题。"
+                    ),
+                )
                 self.after(0, lambda: self.update_status("拆分无效"))
                 return
 
@@ -926,7 +1134,9 @@ class SmartQBApp(tk.Tk):
                 self.staging_questions[idx]["content"] = splits[0]
 
                 for i, split_text in enumerate(splits[1:]):
-                    new_q = self.staging_questions[idx].copy() # Ensure deepcopy or dict copy
+                    new_q = self.staging_questions[
+                        idx
+                    ].copy()  # Ensure deepcopy or dict copy
                     new_q["content"] = split_text
                     # Avoid sharing the exact same list of tags in memory
                     new_q["tags"] = list(new_q.get("tags", []))
@@ -958,7 +1168,8 @@ class SmartQBApp(tk.Tk):
         idx = int(sel[0])
         q = self.staging_questions[idx]
         text_to_format = self.txt_stg_content.get("1.0", tk.END).strip()
-        if not text_to_format: return
+        if not text_to_format:
+            return
 
         self.update_status("🚀 AI 正在重新排版格式化题目...")
 
@@ -992,51 +1203,62 @@ class SmartQBApp(tk.Tk):
 
     def update_stg_item(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         idx = int(sel[0])
-        self.staging_questions[idx]["content"] = self.txt_stg_content.get("1.0", tk.END).strip()
-        self.staging_questions[idx]["tags"] = [t.strip() for t in self.ent_stg_tags.get().split(",") if t.strip()]
+        self.staging_questions[idx]["content"] = self.txt_stg_content.get(
+            "1.0", tk.END
+        ).strip()
+        self.staging_questions[idx]["tags"] = [
+            t.strip() for t in self.ent_stg_tags.get().split(",") if t.strip()
+        ]
         self.refresh_staging_tree()
 
     def delete_staging_item(self):
         sel = self.tree_staging.selection()
-        if not sel: return
+        if not sel:
+            return
         if messagebox.askyesno("警告", f"确定要彻底删除选中的 {len(sel)} 道题目吗？"):
             # Delete in reverse order to keep indices valid
             indices = sorted([int(s) for s in sel], reverse=True)
             for idx in indices:
                 item = self.staging_questions.pop(idx)
                 # Cleanup heavy images
-                item.pop('diagram', None)
-                item.pop('image_b64', None)
-                item.pop('page_annotated_b64', None)
+                item.pop("diagram", None)
+                item.pop("image_b64", None)
+                item.pop("page_annotated_b64", None)
             self.refresh_staging_tree()
             self.txt_stg_content.delete("1.0", tk.END)
             self.ent_stg_tags.delete(0, tk.END)
-            if hasattr(self, 'lbl_vector_info'):
+            if hasattr(self, "lbl_vector_info"):
                 self.lbl_vector_info.config(text="未生成向量")
-            self.lbl_stg_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_stg_diagram, 'image'):
+            self.lbl_stg_diagram.config(image="", text="无图样")
+            if hasattr(self.lbl_stg_diagram, "image"):
                 del self.lbl_stg_diagram.image
-            if hasattr(self, 'lbl_stg_diag_info'):
+            if hasattr(self, "lbl_stg_diag_info"):
                 self.lbl_stg_diag_info.config(text="")
             gc.collect()
 
     def apply_batch_tags(self):
         batch_tag = self.ent_batch_tag.get().strip()
-        if not batch_tag: return
+        if not batch_tag:
+            return
         for q in self.staging_questions:
             if batch_tag not in q["tags"]:
                 q["tags"].append(batch_tag)
         self.refresh_staging_tree()
 
     def save_staging_to_db(self):
-        if not self.staging_questions: return
+        if not self.staging_questions:
+            return
 
         # Check if any items are still being processed by AI
         for q in self.staging_questions:
             if q.get("logic") == "等待 AI 处理...":
-                messagebox.showwarning("无法入库", "部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再入库！")
+                messagebox.showwarning(
+                    "无法入库",
+                    "部分题目还在等待 AI 处理，请等全部识别并格式化完毕后再入库！",
+                )
                 return
 
         self.update_status("正在保存入库...")
@@ -1049,22 +1271,34 @@ class SmartQBApp(tk.Tk):
             try:
                 adapter = LanceDBAdapter()
                 for q in self.staging_questions:
-                    vec = q.get("embedding") or self.ai_service.get_embedding(q["logic"] or q["content"])
-                    q_id = adapter.execute_insert_question(q["content"], q["logic"], vec, q["diagram"])
+                    vec = q.get("embedding") or self.ai_service.get_embedding(
+                        q["logic"] or q["content"]
+                    )
+                    q_id = adapter.execute_insert_question(
+                        q["content"], q["logic"], vec, q["diagram"]
+                    )
                     for t in q["tags"]:
-                        if not t: continue
+                        if not t:
+                            continue
                         t_id = adapter.execute_insert_tag(t)
                         adapter.execute_insert_question_tag(q_id, t_id)
                     successful_count += 1
             except Exception as e:
                 logger.error(f"DB Insert Error: {e}", exc_info=True)
-                self.after(0, lambda err=e: messagebox.showerror("错误", f"数据库保存失败: {err}"))
+                self.after(
+                    0,
+                    lambda err=e: messagebox.showerror(
+                        "错误", f"数据库保存失败: {err}"
+                    ),
+                )
                 return
 
             def update_ui():
                 self._clear_staging_ui()
                 self.refresh_staging_tree()
-                self.update_status(f"成功直接入库 {successful_count} 题！您可以前往题库查看。")
+                self.update_status(
+                    f"成功直接入库 {successful_count} 题！您可以前往题库查看。"
+                )
                 messagebox.showinfo("成功", f"已直接保存 {successful_count} 题至题库！")
 
             self.after(0, update_ui)
@@ -1084,36 +1318,56 @@ class SmartQBApp(tk.Tk):
 
         btn_frame = ttk.Frame(frame)
         btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="✨ 呼叫 AI 自动排版纠错并生成标签", command=self.on_manual_ai).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            btn_frame,
+            text="✨ 呼叫 AI 自动排版纠错并生成标签",
+            command=self.on_manual_ai,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector
+        ).pack(side=tk.LEFT, padx=5)
 
         self.lbl_manual_status = ttk.Label(btn_frame, text="", foreground="blue")
         self.lbl_manual_status.pack(side=tk.LEFT, padx=10)
 
         # Vectorization preview during AI generation
-        self.lbl_manual_vector_status = ttk.Label(btn_frame, text="未生成向量", foreground="gray")
+        self.lbl_manual_vector_status = ttk.Label(
+            btn_frame, text="未生成向量", foreground="gray"
+        )
         self.lbl_manual_vector_status.pack(side=tk.RIGHT, padx=10)
 
-        ttk.Label(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10,0))
+        ttk.Label(frame, text="知识点标签 (逗号分隔):").pack(anchor=tk.W, pady=(10, 0))
         self.ent_manual_tags = ttk.Entry(frame)
         self.ent_manual_tags.pack(fill=tk.X, pady=5)
 
         # Companion Diagram Selection
         diagram_frame = ttk.Frame(frame)
         diagram_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram).pack(side=tk.LEFT)
-        self.lbl_manual_diagram_status = ttk.Label(diagram_frame, text="未选择图片", foreground="gray")
+        ttk.Button(
+            diagram_frame, text="🖼️ 选择配套图样", command=self.on_select_manual_diagram
+        ).pack(side=tk.LEFT)
+        self.lbl_manual_diagram_status = ttk.Label(
+            diagram_frame, text="未选择图片", foreground="gray"
+        )
         self.lbl_manual_diagram_status.pack(side=tk.LEFT, padx=10)
 
         self.manual_diagram_b64 = None
         self.manual_vector = None
 
-        ttk.Button(frame, text="💾 保存并直接入库", command=self.save_manual).pack(anchor=tk.E, pady=20)
+        ttk.Button(frame, text="💾 保存并直接入库", command=self.save_manual).pack(
+            anchor=tk.E, pady=20
+        )
 
     def on_select_manual_diagram(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")])
+        file_path = filedialog.askopenfilename(
+            filetypes=[("Image files", "*.png *.jpg *.jpeg *.bmp")]
+        )
         if not file_path:
             return
 
@@ -1122,67 +1376,113 @@ class SmartQBApp(tk.Tk):
             img = Image.open(file_path)
             buf = io.BytesIO()
             img.save(buf, format="PNG")
-            self.manual_diagram_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+            self.manual_diagram_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
             filename = os.path.basename(file_path)
-            self.lbl_manual_diagram_status.config(text=f"已选择: {filename}", foreground="green")
+            self.lbl_manual_diagram_status.config(
+                text=f"已选择: {filename}", foreground="green"
+            )
         except Exception as e:
-            self.lbl_manual_diagram_status.config(text=f"图片读取失败: {e}", foreground="red")
+            self.lbl_manual_diagram_status.config(
+                text=f"图片读取失败: {e}", foreground="red"
+            )
             self.manual_diagram_b64 = None
-
 
     def on_manual_reformat(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
+        if not text:
+            return
         self.lbl_manual_status.config(text="正在重新排版...")
+
         def task():
             formatted = self.ai_service.ai_format_question(text)
             if formatted:
                 self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
                 self.after(0, lambda: self.txt_manual.insert(tk.END, formatted))
-                self.after(0, lambda: self.lbl_manual_status.config(text="重新排版完成"))
+                self.after(
+                    0, lambda: self.lbl_manual_status.config(text="重新排版完成")
+                )
             else:
-                self.after(0, lambda: self.lbl_manual_status.config(text="排版失败", foreground="red"))
+                self.after(
+                    0,
+                    lambda: self.lbl_manual_status.config(
+                        text="排版失败", foreground="red"
+                    ),
+                )
+
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_retag(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
+        if not text:
+            return
         self.lbl_manual_status.config(text="正在生成标签...")
+
         def task():
             try:
                 res = self.ai_service.process_text_with_correction(text)
                 tags = res.get("Tags", [])
                 if tags:
                     self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
-                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(tags)))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="标签生成完成"))
+                    self.after(
+                        0, lambda: self.ent_manual_tags.insert(0, ",".join(tags))
+                    )
+                    self.after(
+                        0, lambda: self.lbl_manual_status.config(text="标签生成完成")
+                    )
                 else:
-                    self.after(0, lambda: self.lbl_manual_status.config(text="生成标签失败", foreground="red"))
+                    self.after(
+                        0,
+                        lambda: self.lbl_manual_status.config(
+                            text="生成标签失败", foreground="red"
+                        ),
+                    )
             except Exception as e:
                 logger.error(f"Manual Retag Error: {e}", exc_info=True)
-                self.after(0, lambda: self.lbl_manual_status.config(text=f"生成标签失败: {e}", foreground="red"))
+                self.after(
+                    0,
+                    lambda: self.lbl_manual_status.config(
+                        text=f"生成标签失败: {e}", foreground="red"
+                    ),
+                )
+
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_preview_vector(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
+        if not text:
+            return
         self.lbl_manual_vector_status.config(text="正在生成...", foreground="blue")
+
         def task():
             vec = self.ai_service.get_embedding(text)
             if vec:
                 self.manual_vector = vec
                 self.manual_vector_text_hash = hash(text)
                 preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+                self.after(
+                    0,
+                    lambda: self.lbl_manual_vector_status.config(
+                        text=f"已生成向量 (维度: {len(vec)}) {preview}",
+                        foreground="green",
+                    ),
+                )
             else:
-                self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+                self.after(
+                    0,
+                    lambda: self.lbl_manual_vector_status.config(
+                        text="向量生成失败", foreground="red"
+                    ),
+                )
+
         threading.Thread(target=task, daemon=True).start()
 
     def on_manual_ai(self):
         text = self.txt_manual.get("1.0", tk.END).strip()
-        if not text: return
+        if not text:
+            return
         self.lbl_manual_status.config(text="AI 分析与向量化中...")
+
         def task():
             while True:
                 try:
@@ -1190,10 +1490,22 @@ class SmartQBApp(tk.Tk):
                     self.after(0, lambda: self.txt_manual.delete("1.0", tk.END))
 
                     content_result = res.get("Content", "")
-                    self.after(0, lambda: self.txt_manual.insert(tk.END, content_result))
+                    self.after(
+                        0, lambda: self.txt_manual.insert(tk.END, content_result)
+                    )
                     self.after(0, lambda: self.ent_manual_tags.delete(0, tk.END))
-                    self.after(0, lambda: self.ent_manual_tags.insert(0, ",".join(res.get("Tags", []))))
-                    self.after(0, lambda: self.lbl_manual_status.config(text="AI 处理完成！请核对后保存。"))
+                    self.after(
+                        0,
+                        lambda: self.ent_manual_tags.insert(
+                            0, ",".join(res.get("Tags", []))
+                        ),
+                    )
+                    self.after(
+                        0,
+                        lambda: self.lbl_manual_status.config(
+                            text="AI 处理完成！请核对后保存。"
+                        ),
+                    )
 
                     # Generate embedding in the background immediately
                     vector_text = content_result
@@ -1203,38 +1515,61 @@ class SmartQBApp(tk.Tk):
                             self.manual_vector = vec
                             self.manual_vector_text_hash = hash(vector_text)
                             preview = str([round(v, 3) for v in vec[:3]]) + "..."
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text=f"已生成向量 (维度: {len(vec)}) {preview}", foreground="green"))
+                            self.after(
+                                0,
+                                lambda: self.lbl_manual_vector_status.config(
+                                    text=f"已生成向量 (维度: {len(vec)}) {preview}",
+                                    foreground="green",
+                                ),
+                            )
                         else:
-                            self.after(0, lambda: self.lbl_manual_vector_status.config(text="向量生成失败", foreground="red"))
+                            self.after(
+                                0,
+                                lambda: self.lbl_manual_vector_status.config(
+                                    text="向量生成失败", foreground="red"
+                                ),
+                            )
 
                     break
                 except Exception as e:
                     if self.ask_api_retry_sync(str(e)):
                         continue
                     else:
-                        self.after(0, lambda: self.lbl_manual_status.config(text=f"AI 处理已取消。"))
+                        self.after(
+                            0,
+                            lambda: self.lbl_manual_status.config(
+                                text=f"AI 处理已取消。"
+                            ),
+                        )
                         break
+
         threading.Thread(target=task, daemon=True).start()
 
     def save_manual(self):
         content = self.txt_manual.get("1.0", tk.END).strip()
-        if not content: return
+        if not content:
+            return
         tags = [t.strip() for t in self.ent_manual_tags.get().split(",") if t.strip()]
 
         def bg_save():
             conn = None
             try:
                 from db_adapter import LanceDBAdapter
+
                 db = LanceDBAdapter()
                 # Invalidate cached vector if user edited the content after AI generation
                 vec = self.manual_vector
-                if hasattr(self, 'manual_vector_text_hash') and self.manual_vector_text_hash != hash(content):
+                if hasattr(
+                    self, "manual_vector_text_hash"
+                ) and self.manual_vector_text_hash != hash(content):
                     vec = None
 
                 if not vec:
                     vec = self.ai_service.get_embedding(content)
 
-                q_id = db.execute_insert_question(content, "", vec if vec else None, self.manual_diagram_b64)
+                q_id = db.execute_insert_question(
+                    content, "", vec if vec else None, self.manual_diagram_b64
+                )
 
                 for t in tags:
                     t_id = db.execute_insert_tag(t)
@@ -1245,10 +1580,14 @@ class SmartQBApp(tk.Tk):
                     self.ent_manual_tags.delete(0, tk.END)
                     self.manual_diagram_b64 = None
                     self.manual_vector = None
-                    if hasattr(self, 'manual_vector_text_hash'):
-                        delattr(self, 'manual_vector_text_hash')
-                    self.lbl_manual_diagram_status.config(text="未选择图片", foreground="gray")
-                    self.lbl_manual_vector_status.config(text="未生成向量", foreground="gray")
+                    if hasattr(self, "manual_vector_text_hash"):
+                        delattr(self, "manual_vector_text_hash")
+                    self.lbl_manual_diagram_status.config(
+                        text="未选择图片", foreground="gray"
+                    )
+                    self.lbl_manual_vector_status.config(
+                        text="未生成向量", foreground="gray"
+                    )
                     self.lbl_manual_status.config(text="")
                     logger.info("Manual question saved to DB successfully.")
                     messagebox.showinfo("成功", "手工录入成功，已存入题库！")
@@ -1256,9 +1595,13 @@ class SmartQBApp(tk.Tk):
                 self.after(0, on_saved)
             except Exception as e:
                 err_msg = str(e)
+
                 def on_error():
-                    self.lbl_manual_status.config(text=f"保存失败: {err_msg}", foreground="red")
+                    self.lbl_manual_status.config(
+                        text=f"保存失败: {err_msg}", foreground="red"
+                    )
                     messagebox.showerror("错误", f"保存入库时发生异常:\n{err_msg}")
+
                 self.after(0, on_error)
             finally:
                 self.after(0, lambda: setattr(self, "_manual_save_inflight", False))
@@ -1278,7 +1621,9 @@ class SmartQBApp(tk.Tk):
         top_frame.pack(fill=tk.X, pady=5, padx=5)
         self.ent_lib_search = ttk.Entry(top_frame, width=30)
         self.ent_lib_search.pack(side=tk.LEFT, padx=5)
-        ttk.Button(top_frame, text="🔍 搜索题库 (硬匹配)", command=self.on_hard_search).pack(side=tk.LEFT)
+        ttk.Button(
+            top_frame, text="🔍 搜索题库 (硬匹配)", command=self.on_hard_search
+        ).pack(side=tk.LEFT)
 
         main_paned = ttk.PanedWindow(self.tab_library, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -1286,11 +1631,18 @@ class SmartQBApp(tk.Tk):
         left_frame = ttk.Frame(main_paned)
         main_paned.add(left_frame, weight=3)
 
-        self.tree_lib = ttk.Treeview(left_frame, columns=("id", "content"), show="headings", height=8, selectmode="extended")
-        self.tree_lib.heading("id", text="ID"); self.tree_lib.column("id", width=40)
+        self.tree_lib = ttk.Treeview(
+            left_frame,
+            columns=("id", "content"),
+            show="headings",
+            height=8,
+            selectmode="extended",
+        )
+        self.tree_lib.heading("id", text="ID")
+        self.tree_lib.column("id", width=40)
         self.tree_lib.heading("content", text="题目内容")
         self.tree_lib.pack(fill=tk.BOTH, expand=True)
-        self.tree_lib.bind('<<TreeviewSelect>>', self.on_lib_select)
+        self.tree_lib.bind("<<TreeviewSelect>>", self.on_lib_select)
 
         det_frame = ttk.LabelFrame(left_frame, text="题目详情与修改")
         det_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -1304,13 +1656,21 @@ class SmartQBApp(tk.Tk):
         ttk.Label(action_frame, text="当前标签:").pack(side=tk.LEFT)
         self.ent_lib_tags = ttk.Entry(action_frame, width=30)
         self.ent_lib_tags.pack(side=tk.LEFT, padx=5)
-        ttk.Button(action_frame, text="更新标签", command=self.update_lib_tags).pack(side=tk.LEFT)
+        ttk.Button(action_frame, text="更新标签", command=self.update_lib_tags).pack(
+            side=tk.LEFT
+        )
 
-        ttk.Button(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(side=tk.LEFT, padx=10)
-        ttk.Button(action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question).pack(side=tk.RIGHT)
+        ttk.Button(action_frame, text="🛍️ 加入题目袋", command=self.add_to_bag).pack(
+            side=tk.LEFT, padx=10
+        )
+        ttk.Button(
+            action_frame, text="🗑️ 彻底删除", command=self.delete_lib_question
+        ).pack(side=tk.RIGHT)
 
         # New diagram UI missing from previous
-        self.lbl_lib_diagram = ttk.Label(det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER)
+        self.lbl_lib_diagram = ttk.Label(
+            det_frame, text="无图样", background="#e0e0e0", anchor=tk.CENTER
+        )
         self.lbl_lib_diagram.pack(fill=tk.BOTH, expand=True, pady=5)
 
         self.lbl_lib_diag_info = ttk.Label(det_frame, text="", anchor=tk.CENTER)
@@ -1318,13 +1678,19 @@ class SmartQBApp(tk.Tk):
 
         lib_btn_frame = ttk.Frame(det_frame)
         lib_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(lib_btn_frame, text="⬅️ 上一图", command=self.lib_prev_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
+        ttk.Button(lib_btn_frame, text="下一图 ➡️", command=self.lib_next_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
 
         right_frame = ttk.LabelFrame(main_paned, text="AI 软搜索助手 (MCP)")
         main_paned.add(right_frame, weight=2)
 
-        self.txt_chat = tk.Text(right_frame, wrap=tk.WORD, font=("微软雅黑", 10), state=tk.DISABLED)
+        self.txt_chat = tk.Text(
+            right_frame, wrap=tk.WORD, font=("微软雅黑", 10), state=tk.DISABLED
+        )
         self.txt_chat.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
         chat_bot_frame = ttk.Frame(right_frame)
@@ -1333,12 +1699,20 @@ class SmartQBApp(tk.Tk):
         self.ent_chat = ttk.Entry(chat_bot_frame)
         self.ent_chat.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.ent_chat.bind("<Return>", lambda e: self.on_ai_chat())
-        ttk.Button(chat_bot_frame, text="发送", command=self.on_ai_chat).pack(side=tk.RIGHT)
+        ttk.Button(chat_bot_frame, text="发送", command=self.on_ai_chat).pack(
+            side=tk.RIGHT
+        )
 
         self.chat_history = [
-            {"role": "system", "content": "你是 SmartQB 的寻题助手。你可以理解用户的寻题需求，调用 search_database 工具查询题库向量。如果用户要求将某些题加入题目袋/试卷，请调用 add_to_bag 工具。"}
+            {
+                "role": "system",
+                "content": "你是 SmartQB 的寻题助手。你可以理解用户的寻题需求，调用 search_database 工具查询题库向量。如果用户要求将某些题加入题目袋/试卷，请调用 add_to_bag 工具。",
+            }
         ]
-        self.append_chat("🤖 助手", "您好！想找什么样的题目？(例如：帮我找两道关于导数极值的题，并加入题目袋)")
+        self.append_chat(
+            "🤖 助手",
+            "您好！想找什么样的题目？(例如：帮我找两道关于导数极值的题，并加入题目袋)",
+        )
 
     def append_chat(self, sender, text):
         self.txt_chat.config(state=tk.NORMAL)
@@ -1348,7 +1722,8 @@ class SmartQBApp(tk.Tk):
 
     def on_ai_chat(self):
         user_text = self.ent_chat.get().strip()
-        if not user_text: return
+        if not user_text:
+            return
 
         if getattr(self, "_chat_inflight", False):
             messagebox.showinfo("提示", "助手正在处理中，请稍候再发送下一条消息。")
@@ -1363,19 +1738,25 @@ class SmartQBApp(tk.Tk):
         def task():
             try:
                 callbacks = {
-                    "search_database": lambda query: vector_search_db(self.ai_service, query),
-                    "add_to_bag": self.ai_add_to_bag
+                    "search_database": lambda query: vector_search_db(
+                        self.ai_service, query
+                    ),
+                    "add_to_bag": self.ai_add_to_bag,
                 }
                 res_text, updated_history = self.ai_service.chat_with_tools(
-                    self.chat_history,
-                    callbacks=callbacks
+                    self.chat_history, callbacks=callbacks
                 )
                 self.chat_history = updated_history
                 self.chat_history.append({"role": "assistant", "content": res_text})
                 self.after(0, lambda: self.append_chat("🤖 助手", res_text))
             except Exception as e:
                 err_msg = str(e)
-                self.after(0, lambda e_msg=err_msg: self.append_chat("⚠️ 系统", f"请求出错: {e_msg}"))
+                self.after(
+                    0,
+                    lambda e_msg=err_msg: self.append_chat(
+                        "⚠️ 系统", f"请求出错: {e_msg}"
+                    ),
+                )
             finally:
                 self.after(0, lambda: setattr(self, "_chat_inflight", False))
 
@@ -1384,19 +1765,23 @@ class SmartQBApp(tk.Tk):
     def on_hard_search(self):
         kw = self.ent_lib_search.get().strip()
         from db_adapter import LanceDBAdapter
+
         adapter = LanceDBAdapter()
         rows = adapter.search_questions(kw)
         for item in self.tree_lib.get_children():
             self.tree_lib.delete(item)
         for r in rows:
-            short_c = r[1][:30].replace('\n', ' ')
-            self.tree_lib.insert('', 'end', values=(r[0], short_c))
+            short_c = r[1][:30].replace("\n", " ")
+            self.tree_lib.insert("", "end", values=(r[0], short_c))
+
     def on_lib_select(self, event):
         sel = self.tree_lib.selection()
-        if not sel: return
+        if not sel:
+            return
         self.current_lib_q_id = self.tree_lib.item(sel[0])["values"][0]
         try:
             from db_adapter import LanceDBAdapter
+
             adapter = LanceDBAdapter()
             content_text, diagram_base64 = adapter.get_question(self.current_lib_q_id)
             self.txt_lib_det.delete("1.0", tk.END)
@@ -1406,7 +1791,7 @@ class SmartQBApp(tk.Tk):
             self.ent_lib_tags.delete(0, tk.END)
             self.ent_lib_tags.insert(0, ",".join([r[0] for r in tags_rows]))
 
-            if hasattr(self, 'lbl_lib_diagram'):
+            if hasattr(self, "lbl_lib_diagram"):
                 self.lib_current_diags = self._parse_diagram_json(diagram_base64)
                 self.lib_img_index = 0
                 self._render_lib_diagram()
@@ -1415,9 +1800,9 @@ class SmartQBApp(tk.Tk):
             logger.error(f"DB Load Question Error: {e}", exc_info=True)
 
     def _render_lib_diagram(self):
-        if not hasattr(self, 'lib_current_diags') or not self.lib_current_diags:
-            self.lbl_lib_diagram.config(image='', text="无图样")
-            if hasattr(self.lbl_lib_diagram, 'image'):
+        if not hasattr(self, "lib_current_diags") or not self.lib_current_diags:
+            self.lbl_lib_diagram.config(image="", text="无图样")
+            if hasattr(self.lbl_lib_diagram, "image"):
                 del self.lbl_lib_diagram.image
             self.lbl_lib_diag_info.config(text="")
             return
@@ -1425,84 +1810,106 @@ class SmartQBApp(tk.Tk):
         display_img_b64 = self.lib_current_diags[self.lib_img_index]
         if display_img_b64:
             try:
-                img_data = base64.b64decode(display_img_b64.split(",")[-1] if "," in display_img_b64 else display_img_b64)
+                img_data = base64.b64decode(
+                    display_img_b64.split(",")[-1]
+                    if "," in display_img_b64
+                    else display_img_b64
+                )
                 img = Image.open(io.BytesIO(img_data)).copy()
                 img.thumbnail((400, 200))
                 photo = ImageTk.PhotoImage(img)
                 self.lbl_lib_diagram.config(image=photo, text="")
                 self.lbl_lib_diagram.image = photo
-                info_text = f"图样 {self.lib_img_index + 1} / {len(self.lib_current_diags)}"
+                info_text = (
+                    f"图样 {self.lib_img_index + 1} / {len(self.lib_current_diags)}"
+                )
                 self.lbl_lib_diag_info.config(text=info_text)
             except Exception as e:
-                self.lbl_lib_diagram.config(image='', text=f"图样加载失败: {e}")
+                self.lbl_lib_diagram.config(image="", text=f"图样加载失败: {e}")
                 self.lbl_lib_diag_info.config(text="")
         else:
-            self.lbl_lib_diagram.config(image='', text="无图样")
+            self.lbl_lib_diagram.config(image="", text="无图样")
             self.lbl_lib_diag_info.config(text="")
 
     def lib_prev_diagram(self):
-        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
+        if hasattr(self, "lib_current_diags") and self.lib_current_diags:
             self.lib_img_index = (self.lib_img_index - 1) % len(self.lib_current_diags)
             self._render_lib_diagram()
 
     def lib_next_diagram(self):
-        if hasattr(self, 'lib_current_diags') and self.lib_current_diags:
+        if hasattr(self, "lib_current_diags") and self.lib_current_diags:
             self.lib_img_index = (self.lib_img_index + 1) % len(self.lib_current_diags)
             self._render_lib_diagram()
+
     def update_lib_tags(self):
-        if getattr(self, 'current_lib_q_id', None) is None: return
-        new_tags = [t.strip() for t in self.ent_lib_tags.get().split(',') if t.strip()]
+        if getattr(self, "current_lib_q_id", None) is None:
+            return
+        new_tags = [t.strip() for t in self.ent_lib_tags.get().split(",") if t.strip()]
         from db_adapter import LanceDBAdapter
+
         adapter = LanceDBAdapter()
         adapter.clear_question_tags(self.current_lib_q_id)
         for tn in new_tags:
             tid = adapter.execute_insert_tag(tn)
             adapter.execute_insert_question_tag(self.current_lib_q_id, tid)
-        messagebox.showinfo('提示', '标签更新成功！')
-
+        messagebox.showinfo("提示", "标签更新成功！")
 
     def delete_lib_question(self):
         sel = self.tree_lib.selection()
-        if not sel: return
+        if not sel:
+            return
         selected_ids = [self.tree_lib.item(item)["values"][0] for item in sel]
-        if messagebox.askyesno("危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"):
+        if messagebox.askyesno(
+            "危险操作", f"确定要彻底删除选中的 {len(selected_ids)} 道题目吗？不可恢复！"
+        ):
             from db_adapter import LanceDBAdapter
+
             adapter = LanceDBAdapter()
             adapter.delete_questions(selected_ids)
 
             selected_id_set = set(selected_ids)
-            self.export_bag = [q for q in self.export_bag if q["id"] not in selected_id_set]
+            self.export_bag = [
+                q for q in self.export_bag if q["id"] not in selected_id_set
+            ]
 
             self.on_hard_search()
             self.txt_lib_det.delete("1.0", tk.END)
             self.ent_lib_tags.delete(0, tk.END)
 
-            if getattr(self, 'current_lib_q_id', None) in selected_id_set:
+            if getattr(self, "current_lib_q_id", None) in selected_id_set:
                 self.current_lib_q_id = None
 
             messagebox.showinfo("成功", "选中题目已彻底删除！")
 
     def add_to_bag(self):
-        if not hasattr(self, 'current_lib_q_id'): return
-        if any(item['id'] == self.current_lib_q_id for item in self.export_bag):
+        if not hasattr(self, "current_lib_q_id"):
+            return
+        if any(item["id"] == self.current_lib_q_id for item in self.export_bag):
             messagebox.showinfo("提示", "该题已在题目袋中。")
             return
         from db_adapter import LanceDBAdapter
+
         adapter = LanceDBAdapter()
         content, diagram = adapter.get_question(self.current_lib_q_id)
         if content:
-            self.export_bag.append({"id": self.current_lib_q_id, "content": content, "diagram": diagram})
+            self.export_bag.append(
+                {"id": self.current_lib_q_id, "content": content, "diagram": diagram}
+            )
             messagebox.showinfo("成功", "已加入题目袋！")
 
     def ai_add_to_bag(self, question_ids):
         added = 0
         from db_adapter import LanceDBAdapter
+
         adapter = LanceDBAdapter()
         for q_id in question_ids:
-            if any(item['id'] == q_id for item in self.export_bag): continue
+            if any(item["id"] == q_id for item in self.export_bag):
+                continue
             content, diagram = adapter.get_question(q_id)
             if content:
-                self.export_bag.append({"id": q_id, "content": content, "diagram": diagram})
+                self.export_bag.append(
+                    {"id": q_id, "content": content, "diagram": diagram}
+                )
                 added += 1
         self.after(0, self.refresh_bag_ui)
         return {"status": "success", "message": f"成功加入了 {added} 道题目到题目袋"}
@@ -1513,7 +1920,11 @@ class SmartQBApp(tk.Tk):
     def build_export_tab(self):
         top_frame = ttk.Frame(self.tab_export)
         top_frame.pack(fill=tk.X, pady=5, padx=10)
-        ttk.Label(top_frame, text="组卷题目袋 (选中题目可上下移动排序):", font=("", 12, "bold")).pack(side=tk.LEFT)
+        ttk.Label(
+            top_frame,
+            text="组卷题目袋 (选中题目可上下移动排序):",
+            font=("", 12, "bold"),
+        ).pack(side=tk.LEFT)
 
         middle_frame = ttk.Frame(self.tab_export)
         middle_frame.pack(fill=tk.BOTH, expand=True, padx=10)
@@ -1533,19 +1944,22 @@ class SmartQBApp(tk.Tk):
 
         self.lbl_export_status = ttk.Label(bottom_frame, text="", foreground="green")
         self.lbl_export_status.pack(side=tk.LEFT, padx=10)
-        ttk.Button(bottom_frame, text="🖨️ 导出试卷并自动编译 PDF", command=self.export_paper).pack(side=tk.RIGHT)
+        ttk.Button(
+            bottom_frame, text="🖨️ 导出试卷并自动编译 PDF", command=self.export_paper
+        ).pack(side=tk.RIGHT)
 
     def refresh_bag_ui(self):
-        if hasattr(self, 'listbox_bag'):
+        if hasattr(self, "listbox_bag"):
             self.listbox_bag.delete(0, tk.END)
             for idx, item in enumerate(self.export_bag):
-                preview = item["content"][:40].replace('\n', '')
+                preview = item["content"][:40].replace("\n", "")
                 has_img = "[含图]" if item["diagram"] else ""
                 self.listbox_bag.insert(tk.END, f"{idx+1}. {has_img} {preview}...")
 
     def bag_move_up(self):
         sel = self.listbox_bag.curselection()
-        if not sel: return
+        if not sel:
+            return
         idx = sel[0]
         if idx > 0:
             self.export_bag.insert(idx - 1, self.export_bag.pop(idx))
@@ -1554,7 +1968,8 @@ class SmartQBApp(tk.Tk):
 
     def bag_move_down(self):
         sel = self.listbox_bag.curselection()
-        if not sel: return
+        if not sel:
+            return
         idx = sel[0]
         if idx < len(self.export_bag) - 1:
             self.export_bag.insert(idx + 1, self.export_bag.pop(idx))
@@ -1563,7 +1978,8 @@ class SmartQBApp(tk.Tk):
 
     def bag_remove(self):
         sel = self.listbox_bag.curselection()
-        if not sel: return
+        if not sel:
+            return
         idx = sel[0]
         self.export_bag.pop(idx)
         self.refresh_bag_ui()
@@ -1576,7 +1992,7 @@ class SmartQBApp(tk.Tk):
         file_path = filedialog.asksaveasfilename(
             title="选择试卷保存位置",
             initialfile="SmartQB_Paper",
-            filetypes=[("PDF 输出目标", "*.*")]
+            filetypes=[("PDF 输出目标", "*.*")],
         )
         if not file_path:
             return
@@ -1602,16 +2018,24 @@ class SmartQBApp(tk.Tk):
             r"\Large\textbf{SmartQB 导出试卷}",
             r"\end{center}",
             r"\vspace{1em}",
-            r"\begin{enumerate}"
+            r"\begin{enumerate}",
         ]
 
         for q in self.export_bag:
             # Clean up dangerous newlines in latex around environments
             tex_content = q["content"].replace("\n", " \\newline ")
-            tex_content = re.sub(r"\\newline\s*\\begin\{center\}", r"\\begin{center}", tex_content)
-            tex_content = re.sub(r"\\newline\s*\\end\{center\}", r"\\end{center}", tex_content)
-            tex_content = re.sub(r"\\end\{center\}\s*\\newline", r"\\end{center}", tex_content)
-            tex_content = re.sub(r"\\newline\s*\\includegraphics", r"\\includegraphics", tex_content)
+            tex_content = re.sub(
+                r"\\newline\s*\\begin\{center\}", r"\\begin{center}", tex_content
+            )
+            tex_content = re.sub(
+                r"\\newline\s*\\end\{center\}", r"\\end{center}", tex_content
+            )
+            tex_content = re.sub(
+                r"\\end\{center\}\s*\\newline", r"\\end{center}", tex_content
+            )
+            tex_content = re.sub(
+                r"\\newline\s*\\includegraphics", r"\\includegraphics", tex_content
+            )
             tex.append(r"\item " + tex_content)
 
             if q.get("diagram"):
@@ -1625,12 +2049,18 @@ class SmartQBApp(tk.Tk):
                         with open(img_filepath, "wb") as f:
                             f.write(img_data)
 
-                        rel_img_path = f"{img_dir_name}/{img_filename}".replace("\\", "/")
+                        rel_img_path = f"{img_dir_name}/{img_filename}".replace(
+                            "\\", "/"
+                        )
                         tex.append(r"\begin{center}")
-                        tex.append(rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}")
+                        tex.append(
+                            rf"\includegraphics[width=0.6\textwidth]{{{rel_img_path}}}"
+                        )
                         tex.append(r"\end{center}")
                     except Exception as e:
-                        logger.error(f"Failed to export diagram {i} for Q {q['id']}: {e}")
+                        logger.error(
+                            f"Failed to export diagram {i} for Q {q['id']}: {e}"
+                        )
 
             tex.append(r"\vspace{0.5em}")
 
@@ -1640,7 +2070,9 @@ class SmartQBApp(tk.Tk):
         with open(export_tex_path, "w", encoding="utf-8") as f:
             f.write("\n".join(tex))
 
-        self.lbl_export_status.config(text="⏳ 正在后台调用 xelatex 编译 PDF，请稍候...", foreground="blue")
+        self.lbl_export_status.config(
+            text="⏳ 正在后台调用 xelatex 编译 PDF，请稍候...", foreground="blue"
+        )
         self.update()
 
         def compile_pdf():
@@ -1648,31 +2080,48 @@ class SmartQBApp(tk.Tk):
             error_msg = ""
             try:
                 result = subprocess.run(
-                    ["xelatex", "-interaction=nonstopmode", "--no-shell-escape", f"-output-directory={export_dir}", export_tex_path],
+                    [
+                        "xelatex",
+                        "-interaction=nonstopmode",
+                        "--no-shell-escape",
+                        f"-output-directory={export_dir}",
+                        export_tex_path,
+                    ],
                     cwd=export_dir,
                     capture_output=True,
                     check=False,
                     encoding="utf-8",
-                    errors="replace"
+                    errors="replace",
                 )
                 if result.returncode != 0:
                     out_str = result.stdout
                     error_msg = f"LaTeX 编译错误，部分符号未被 AI 成功转义导致中断。\n日志片段: {out_str[-500:]}"
-                    raise subprocess.CalledProcessError(result.returncode, result.args, output=result.stdout, stderr=result.stderr)
+                    raise subprocess.CalledProcessError(
+                        result.returncode,
+                        result.args,
+                        output=result.stdout,
+                        stderr=result.stderr,
+                    )
                 pdf_success = True
             except FileNotFoundError:
                 error_msg = "未检测到本地 LaTeX 编译器 (未安装 TeX Live / MiKTeX)。"
             except subprocess.CalledProcessError as e:
-                pass # Handled above
+                pass  # Handled above
             except Exception as e:
                 error_msg = str(e)
 
             def on_finish():
                 self.lbl_export_status.config(text="")
                 if pdf_success:
-                    messagebox.showinfo("✅ 自动编译成功", f"文件已保存: {base_path}.pdf")
+                    messagebox.showinfo(
+                        "✅ 自动编译成功", f"文件已保存: {base_path}.pdf"
+                    )
                 else:
-                    messagebox.showwarning("⚠️ PDF 编译未成功", f"后台转 PDF 失败了。\n\n【失败原因】\n{error_msg}\n\n您可以手动去检查并编译 .tex 文件。")
+                    messagebox.showwarning(
+                        "⚠️ PDF 编译未成功",
+                        f"后台转 PDF 失败了。\n\n【失败原因】\n{error_msg}\n\n您可以手动去检查并编译 .tex 文件。",
+                    )
+
             self.after(0, on_finish)
 
         threading.Thread(target=compile_pdf, daemon=True).start()
@@ -1706,16 +2155,21 @@ class SmartQBApp(tk.Tk):
 
         self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
-        if hasattr(self, 'cbo_ocr_engine'):
+        if hasattr(self, "cbo_ocr_engine"):
             self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
-        if hasattr(self, 'cbo_layout_engine'):
+        if hasattr(self, "cbo_layout_engine"):
             self.settings.layout_engine_type = self.cbo_layout_engine.get()
         try:
-            self.settings.prm_batch_size = max(2, min(15, int(self.ent_prm_batch.get())))
+            self.settings.prm_batch_size = max(
+                2, min(15, int(self.ent_prm_batch.get()))
+            )
         except ValueError:
             self.settings.prm_batch_size = 3
             self.ent_prm_batch.set(self.settings.prm_batch_size)
-            messagebox.showwarning("输入无效", f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}")
+            messagebox.showwarning(
+                "输入无效",
+                f"“单次并发主切片数”的值无效，已重置为默认值: {self.settings.prm_batch_size}",
+            )
 
         try:
             val = int(self.ent_embed_dim.get().strip())
@@ -1724,8 +2178,8 @@ class SmartQBApp(tk.Tk):
             self.settings.embedding_dimension = val
         except ValueError:
             self.settings.embedding_dimension = 1024
-            self.ent_embed_dim.delete(0, 'end')
-            self.ent_embed_dim.insert(0, '1024')
+            self.ent_embed_dim.delete(0, "end")
+            self.ent_embed_dim.insert(0, "1024")
 
         try:
             self.settings.save()
@@ -1743,12 +2197,19 @@ class SmartQBApp(tk.Tk):
         provider_frame = ttk.Frame(container)
         provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
         ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
-        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
+        self.cbo_provider = ttk.Combobox(
+            provider_frame,
+            values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"],
+            width=20,
+            state="readonly",
+        )
         self.cbo_provider.current(0)
         self.cbo_provider.pack(side=tk.LEFT, padx=10)
         self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
 
-        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(anchor=tk.W, pady=5)
+        ttk.Label(container, text="API Key (将通过系统凭证管理器自动加密):").pack(
+            anchor=tk.W, pady=5
+        )
         self.ent_api = ttk.Entry(container, width=50, show="*")
         self.ent_api.insert(0, self.settings.api_key)
         self.ent_api.pack(anchor=tk.W)
@@ -1767,29 +2228,44 @@ class SmartQBApp(tk.Tk):
         adv_api_frame = ttk.LabelFrame(container, text="高级模型参数")
         adv_api_frame.pack(anchor=tk.W, fill=tk.X, pady=(10, 5), padx=20)
 
-        ttk.Label(adv_api_frame, text="Temperature (0-2):").grid(row=0, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(adv_api_frame, text="Temperature (0-2):").grid(
+            row=0, column=0, sticky=tk.W, padx=5, pady=2
+        )
         self.ent_temp = ttk.Entry(adv_api_frame, width=10)
-        self.ent_temp.insert(0, str(getattr(self.settings, 'temperature', 1.0)))
+        self.ent_temp.insert(0, str(getattr(self.settings, "temperature", 1.0)))
         self.ent_temp.grid(row=0, column=1, pady=2)
 
-        ttk.Label(adv_api_frame, text="Top P (0-1):").grid(row=0, column=2, sticky=tk.W, padx=(20, 5), pady=2)
+        ttk.Label(adv_api_frame, text="Top P (0-1):").grid(
+            row=0, column=2, sticky=tk.W, padx=(20, 5), pady=2
+        )
         self.ent_top_p = ttk.Entry(adv_api_frame, width=10)
-        self.ent_top_p.insert(0, str(getattr(self.settings, 'top_p', 1.0)))
+        self.ent_top_p.insert(0, str(getattr(self.settings, "top_p", 1.0)))
         self.ent_top_p.grid(row=0, column=3, pady=2)
 
-        ttk.Label(adv_api_frame, text="Max Tokens:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(adv_api_frame, text="Max Tokens:").grid(
+            row=1, column=0, sticky=tk.W, padx=5, pady=2
+        )
         self.ent_max_tokens = ttk.Entry(adv_api_frame, width=10)
-        self.ent_max_tokens.insert(0, str(getattr(self.settings, 'max_tokens', 4096)))
+        self.ent_max_tokens.insert(0, str(getattr(self.settings, "max_tokens", 4096)))
         self.ent_max_tokens.grid(row=1, column=1, pady=2)
 
-        ttk.Label(adv_api_frame, text="思考强度(Reasoning Effort):").grid(row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2)
-        self.cbo_reasoning = ttk.Combobox(adv_api_frame, values=["low", "medium", "high", "none"], width=8, state="readonly")
-        current_reason = getattr(self.settings, 'reasoning_effort', 'medium')
+        ttk.Label(adv_api_frame, text="思考强度(Reasoning Effort):").grid(
+            row=1, column=2, sticky=tk.W, padx=(20, 5), pady=2
+        )
+        self.cbo_reasoning = ttk.Combobox(
+            adv_api_frame,
+            values=["low", "medium", "high", "none"],
+            width=8,
+            state="readonly",
+        )
+        current_reason = getattr(self.settings, "reasoning_effort", "medium")
         self.cbo_reasoning.set(current_reason)
         self.cbo_reasoning.grid(row=1, column=3, pady=2)
         # ======================================
 
-        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(anchor=tk.W, pady=(15, 5))
+        ttk.Label(container, text="Embedding API Key (系统级加密):").pack(
+            anchor=tk.W, pady=(15, 5)
+        )
         self.ent_embed_api = ttk.Entry(container, width=50, show="*")
         self.ent_embed_api.insert(0, self.settings.embed_api_key)
         self.ent_embed_api.pack(anchor=tk.W)
@@ -1804,53 +2280,99 @@ class SmartQBApp(tk.Tk):
         self.ent_embed_model.insert(0, self.settings.embed_model_id)
         self.ent_embed_model.pack(anchor=tk.W)
 
-        ttk.Label(container, text="Embedding 向量维度 (与模型输出一致，否则报错):").pack(anchor=tk.W, pady=(15, 5))
+        ttk.Label(
+            container, text="Embedding 向量维度 (与模型输出一致，否则报错):"
+        ).pack(anchor=tk.W, pady=(15, 5))
         self.ent_embed_dim = ttk.Entry(container, width=15)
-        self.ent_embed_dim.insert(0, str(getattr(self.settings, 'embedding_dimension', 1024)))
+        self.ent_embed_dim.insert(
+            0, str(getattr(self.settings, "embedding_dimension", 1024))
+        )
         self.ent_embed_dim.pack(anchor=tk.W)
 
-        ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(anchor=tk.W, pady=(20, 5))
+        ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(
+            anchor=tk.W, pady=(20, 5)
+        )
 
         # --- ENGINE TOGGLES ---
         engine_frame = ttk.Frame(container)
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
-        ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
+        ttk.Label(engine_frame, text="版面分析引擎:").grid(
+            row=0, column=0, sticky=tk.W, pady=2
+        )
         layout_vals = ["DocLayout-YOLO"]
-        self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
-        current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
+        self.cbo_layout_engine = ttk.Combobox(
+            engine_frame, values=layout_vals, width=15, state="readonly"
+        )
+        current_layout = getattr(self.settings, "layout_engine_type", "DocLayout-YOLO")
         self.cbo_layout_engine.set("DocLayout-YOLO")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
 
-        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
+        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(
+            row=1, column=0, sticky=tk.W, pady=2
+        )
         ocr_vals = ["Pix2Text"]
-        self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
-        current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
+        self.cbo_ocr_engine = ttk.Combobox(
+            engine_frame, values=ocr_vals, width=15, state="readonly"
+        )
+        current_ocr = getattr(self.settings, "ocr_engine_type", "Pix2Text")
         self.cbo_ocr_engine.set("Pix2Text")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 
         self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)
-        ttk.Radiobutton(container, text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)", variable=self.var_rec_mode, value=1).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)", variable=self.var_rec_mode, value=2).pack(anchor=tk.W, padx=20, pady=2)
-        ttk.Radiobutton(container, text="3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)", variable=self.var_rec_mode, value=3).pack(anchor=tk.W, padx=20, pady=2)
+        ttk.Radiobutton(
+            container,
+            text="1. 仅本地 OCR (最快且免费，但不做任何AI纠错处理)",
+            variable=self.var_rec_mode,
+            value=1,
+        ).pack(anchor=tk.W, padx=20, pady=2)
+        ttk.Radiobutton(
+            container,
+            text="2. 本地 OCR + 纯文字 AI 纠错 (省流推荐，AI 仅根据 OCR 文本脑补排版)",
+            variable=self.var_rec_mode,
+            value=2,
+        ).pack(anchor=tk.W, padx=20, pady=2)
+        ttk.Radiobutton(
+            container,
+            text="3. 本地 OCR + Vision 图片 AI 纠错 (精准推荐，AI 结合原图修正 OCR 错误)",
+            variable=self.var_rec_mode,
+            value=3,
+        ).pack(anchor=tk.W, padx=20, pady=2)
 
         ttk.Label(container, text="🚀 高级选项:").pack(anchor=tk.W, pady=(20, 5))
         prm_frame = ttk.Frame(container)
         prm_frame.pack(anchor=tk.W, padx=20, fill=tk.X)
         self.var_use_prm = tk.BooleanVar(value=self.settings.use_prm_optimization)
-        ttk.Checkbutton(prm_frame, text="启用多切片并发", variable=self.var_use_prm).pack(side=tk.LEFT)
+        ttk.Checkbutton(
+            prm_frame, text="启用多切片并发", variable=self.var_use_prm
+        ).pack(side=tk.LEFT)
 
-        ttk.Label(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(side=tk.LEFT, padx=(30, 5))
+        ttk.Label(prm_frame, text="单次并发主切片数 (大于1即启用 PRM 优化):").pack(
+            side=tk.LEFT, padx=(30, 5)
+        )
         self.ent_prm_batch = ttk.Spinbox(prm_frame, from_=2, to=15, width=5)
         self.ent_prm_batch.set(self.settings.prm_batch_size)
         self.ent_prm_batch.pack(side=tk.LEFT)
 
-        ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(anchor=tk.W, pady=30)
+        ttk.Button(container, text="💾 保存所有设置", command=self.save_settings).pack(
+            anchor=tk.W, pady=30
+        )
+
     def on_provider_changed(self, event):
         provider_presets = {
-            "DeepSeek": {"base": "https://api.deepseek.com", "model": "deepseek-chat", "embed_base": "", "embed_model": ""},
-            "Kimi": {"base": "https://api.moonshot.cn/v1", "model": "kimi-k2.5", "embed_base": "", "embed_model": ""},
+            "DeepSeek": {
+                "base": "https://api.deepseek.com",
+                "model": "deepseek-chat",
+                "embed_base": "",
+                "embed_model": "",
+            },
+            "Kimi": {
+                "base": "https://api.moonshot.cn/v1",
+                "model": "kimi-k2.5",
+                "embed_base": "",
+                "embed_model": "",
+            },
             "GLM (智谱)": {
                 "base": "https://open.bigmodel.cn/api/paas/v4/",
                 "model": "glm-4-plus-0326",
@@ -1882,12 +2404,14 @@ class SmartQBApp(tk.Tk):
         # This clears DeepSeek/Kimi embedding fields, indicating no default embedding model.
         update_entry(self.ent_embed_base, config.get("embed_base"))
         update_entry(self.ent_embed_model, config.get("embed_model"))
+
     def on_tab_changed(self, event):
         current_tab = self.notebook.tab(self.notebook.select(), "text")
         if "Library" in current_tab:
             self.on_hard_search()
         elif "Export" in current_tab:
             self.refresh_bag_ui()
+
 
 if __name__ == "__main__":
     app = SmartQBApp()
