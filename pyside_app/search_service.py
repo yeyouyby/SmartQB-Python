@@ -31,7 +31,7 @@ class HybridSearcher:
             # LanceDB _distance is 'smaller is better'. We convert distance into a similarity
             # bound (1 / (1 + distance)) before RRF to align with BM25 'larger is better' logic.
             # While RRF strictly uses rank position, we can log the similarity or use it for thresholding.
-            similarity = 1.0 / (1.0 + distance)
+            1.0 / (1.0 + distance)
             rrf_scores[doc_id] = rrf_scores.get(doc_id, 0.0) + 1.0 / (k + rank)
 
         # Sort by score descending

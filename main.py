@@ -2,14 +2,11 @@ import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
 
-from settings_manager import SettingsManager
-
 
 import os
 import sys
 import subprocess
 import threading
-from tkinter import messagebox
 
 
 def download_models(raise_errors=False):

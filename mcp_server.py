@@ -1,13 +1,12 @@
 import os
 import json
-import sys
 import sqlite3
 import re
 import threading
 import logging
 import sqlparse
 from sqlparse.sql import Identifier, IdentifierList, Parenthesis
-from sqlparse.tokens import Keyword, DML
+from sqlparse.tokens import Keyword
 from mcp.server.fastmcp import FastMCP
 from pyside_app.search_service import HybridSearcher
 from algorithms.simulated_annealing import SimulatedAnnealingExamBuilder
@@ -146,7 +145,7 @@ def sqb_sql_query(sql_string: str) -> str:
             max_rows = 500
 
             # Normalize SQL
-            sql_upper = sql_string.strip().upper()
+            sql_string.strip().upper()
             stripped_sql = sql_string.rstrip().rstrip(";")
 
             # Replace existing limit with max_rows using regex (handling LIMIT X OFFSET Y, LIMIT Y, X, etc)

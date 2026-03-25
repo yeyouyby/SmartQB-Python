@@ -21,7 +21,6 @@ except Exception as e:
     print(f"Warning: Failed to import Pix2Text: {e}")
 
 
-from config import DB_NAME
 from settings_manager import SettingsManager
 from doclayout_yolo_engine import DocLayoutYOLO
 from ai_service import AIService
@@ -658,8 +657,8 @@ class SmartQBApp(tk.Tk):
                         )
                         self.after(
                             0,
-                            lambda err=e: messagebox.showerror(
-                                "Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"
+                            lambda e=e: messagebox.showerror(
+                                "Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{e}"
                             ),
                         )
                         return
@@ -1166,7 +1165,7 @@ class SmartQBApp(tk.Tk):
             return
 
         idx = int(sel[0])
-        q = self.staging_questions[idx]
+        self.staging_questions[idx]
         text_to_format = self.txt_stg_content.get("1.0", tk.END).strip()
         if not text_to_format:
             return
@@ -1287,9 +1286,7 @@ class SmartQBApp(tk.Tk):
                 logger.error(f"DB Insert Error: {e}", exc_info=True)
                 self.after(
                     0,
-                    lambda err=e: messagebox.showerror(
-                        "错误", f"数据库保存失败: {err}"
-                    ),
+                    lambda e=e: messagebox.showerror("错误", f"数据库保存失败: {e}"),
                 )
                 return
 
@@ -1441,7 +1438,7 @@ class SmartQBApp(tk.Tk):
                 logger.error(f"Manual Retag Error: {e}", exc_info=True)
                 self.after(
                     0,
-                    lambda: self.lbl_manual_status.config(
+                    lambda e=e: self.lbl_manual_status.config(
                         text=f"生成标签失败: {e}", foreground="red"
                     ),
                 )
@@ -1538,7 +1535,7 @@ class SmartQBApp(tk.Tk):
                         self.after(
                             0,
                             lambda: self.lbl_manual_status.config(
-                                text=f"AI 处理已取消。"
+                                text="AI 处理已取消。"
                             ),
                         )
                         break
@@ -1552,7 +1549,6 @@ class SmartQBApp(tk.Tk):
         tags = [t.strip() for t in self.ent_manual_tags.get().split(",") if t.strip()]
 
         def bg_save():
-            conn = None
             try:
                 from db_adapter import LanceDBAdapter
 
@@ -2105,7 +2101,7 @@ class SmartQBApp(tk.Tk):
                 pdf_success = True
             except FileNotFoundError:
                 error_msg = "未检测到本地 LaTeX 编译器 (未安装 TeX Live / MiKTeX)。"
-            except subprocess.CalledProcessError as e:
+            except subprocess.CalledProcessError:
                 pass  # Handled above
             except Exception as e:
                 error_msg = str(e)
@@ -2304,7 +2300,7 @@ class SmartQBApp(tk.Tk):
         self.cbo_layout_engine = ttk.Combobox(
             engine_frame, values=layout_vals, width=15, state="readonly"
         )
-        current_layout = getattr(self.settings, "layout_engine_type", "DocLayout-YOLO")
+        getattr(self.settings, "layout_engine_type", "DocLayout-YOLO")
         self.cbo_layout_engine.set("DocLayout-YOLO")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
 
@@ -2315,7 +2311,7 @@ class SmartQBApp(tk.Tk):
         self.cbo_ocr_engine = ttk.Combobox(
             engine_frame, values=ocr_vals, width=15, state="readonly"
         )
-        current_ocr = getattr(self.settings, "ocr_engine_type", "Pix2Text")
+        getattr(self.settings, "ocr_engine_type", "Pix2Text")
         self.cbo_ocr_engine.set("Pix2Text")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------

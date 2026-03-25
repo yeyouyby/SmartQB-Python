@@ -1,6 +1,5 @@
 import pyarrow as pa
 import logging
-import json
 import time
 import threading
 import uuid
@@ -8,8 +7,8 @@ import zlib
 
 logger = logging.getLogger(__name__)
 
-import lancedb
-from settings_manager import SettingsManager
+import lancedb  # noqa: E402
+from settings_manager import SettingsManager  # noqa: E402
 
 
 def get_db():

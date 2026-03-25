@@ -1,6 +1,5 @@
 import io
 import base64
-import numpy as np
 import fitz  # PyMuPDF
 import docx
 from PIL import Image, ImageDraw

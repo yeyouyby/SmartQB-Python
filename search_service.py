@@ -1,7 +1,4 @@
-import json
-import numpy as np
 import pyarrow as pa
-from config import DB_NAME
 from utils import logger
 from db_adapter import LanceDBAdapter
 

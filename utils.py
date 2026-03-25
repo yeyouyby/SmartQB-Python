@@ -26,9 +26,9 @@ def setup_logger():
 logger = setup_logger()
 
 # utils.py
-import io
-import base64
-from PIL import Image
+import io  # noqa: E402
+import base64  # noqa: E402
+from PIL import Image  # noqa: E402
 
 # ==========================================
 # 图像处理工具
