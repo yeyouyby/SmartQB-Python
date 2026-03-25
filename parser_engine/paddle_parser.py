@@ -1,4 +1,3 @@
-from typing import List, Dict
 import os
 import multiprocessing as mp
 import logging
@@ -50,49 +49,51 @@ def parse_single_image(img, engine, idx_offset=0):
     return md_lines, images_map, idx_offset + len(raw_result)
 
 # This process runs isolated to avoid GIL block and memory leaks in the main PySide6 process.
-def pp_structure_worker(file_path: str, result_queue: mp.Queue):
+def pp_structure_worker(file_paths: list[str], result_queue: mp.Queue):
     try:
         import cv2
         import numpy as _np
         from paddleocr import PPStructure
 
-        # Determine file type
-        is_pdf = file_path.lower().endswith(".pdf")
-        images_to_parse = []
-
-        if is_pdf:
-            import fitz
-            doc = fitz.open(file_path)
-            for page in doc:
-                pix = page.get_pixmap(dpi=150)
-                img_data = pix.tobytes("png")
-                nparr = _np.frombuffer(img_data, _np.uint8)
-                cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                images_to_parse.append(cv_img)
-            doc.close()
-        else:
-            # Assume it's a multi-page tiff or single image
-            ret, imgs = cv2.imreadmulti(file_path)
-            if ret and len(imgs) > 0:
-                images_to_parse = imgs
-            else:
-                img = cv2.imread(file_path)
-                if img is None:
-                    raise FileNotFoundError(f"cv2 could not read image file: {file_path}")
-                images_to_parse = [img]
-
         engine = PPStructure(show_log=True)
         pages = []
-        global_idx = 0
+        global_page_idx = 1
 
-        for page_idx, img_mat in enumerate(images_to_parse, start=1):
-            md_lines, images_map, global_idx = parse_single_image(img_mat, engine, global_idx)
+        for file_path in file_paths:
+            is_pdf = file_path.lower().endswith(".pdf")
+            images_to_parse = []
 
-            pages.append({
-                "markdown_content": "\n\n".join(md_lines),
-                "images": images_map,
-                "page_num": page_idx
-            })
+            if is_pdf:
+                import fitz
+                doc = fitz.open(file_path)
+                for page in doc:
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    nparr = _np.frombuffer(img_data, _np.uint8)
+                    cv_img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    images_to_parse.append(cv_img)
+                doc.close()
+            else:
+                ret, imgs = cv2.imreadmulti(file_path)
+                if ret and len(imgs) > 0:
+                    images_to_parse = imgs
+                else:
+                    img = cv2.imread(file_path)
+                    if img is None:
+                        raise FileNotFoundError(f"cv2 could not read image file: {file_path}")
+                    images_to_parse = [img]
+
+            global_idx = 0
+
+            for img_mat in images_to_parse:
+                md_lines, images_map, global_idx = parse_single_image(img_mat, engine, global_idx)
+
+                pages.append({
+                    "markdown_content": "\n\n".join(md_lines),
+                    "images": images_map,
+                    "page_num": global_page_idx
+                })
+                global_page_idx += 1
 
         result_queue.put({"status": "success", "data": pages})
     except Exception as e:
@@ -106,16 +107,22 @@ class PPStructureParser(BaseParser):
     def __init__(self):
         pass
 
-    def parse(self, file_path: str) -> List[Dict]:
+    def parse(self, file_path: list[str] | str) -> list[dict]:
         """
-        Parses a file synchronously for API simplicity, but uses multiprocessing
-        internally to bypass GIL and prevent blocking.
+        Parses a file or list of files synchronously for API simplicity, but uses
+        multiprocessing internally to bypass GIL and prevent blocking.
         """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"File not found: {file_path}")
+        if isinstance(file_path, str):
+            file_paths = [file_path]
+        else:
+            file_paths = file_path
+
+        for fp in file_paths:
+            if not os.path.exists(fp):
+                raise FileNotFoundError(f"File not found: {fp}")
 
         result_queue = mp.Queue()
-        p = mp.Process(target=pp_structure_worker, args=(file_path, result_queue))
+        p = mp.Process(target=pp_structure_worker, args=(file_paths, result_queue))
         p.start()
 
         res = None
@@ -145,6 +152,10 @@ class PPStructureParser(BaseParser):
 
                     if time.time() - start_time > timeout:
                         raise TimeoutError("PaddleOCR worker process timed out after 300s.")
+        except RuntimeError as err:
+            raise RuntimeError("OCR Processing failed") from err
+        except TimeoutError as err:
+            raise TimeoutError("OCR Processing timed out") from err
         finally:
             p.join(timeout=5)
             if p.is_alive():

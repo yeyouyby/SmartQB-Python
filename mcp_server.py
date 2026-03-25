@@ -126,10 +126,10 @@ def sqb_sql_query(sql_string: str) -> str:
             sql_upper = sql_string.strip().upper()
             stripped_sql = sql_string.rstrip().rstrip(";")
 
-            # Override limit unconditionally for safety
-            if " LIMIT " in sql_upper:
-                # Replace existing limit with max_rows
-                bounded_sql = re.sub(r'(?i)\bLIMIT\s+\d+', f'LIMIT {max_rows}', stripped_sql) + ";"
+            # Replace existing limit with max_rows using regex (handling LIMIT X OFFSET Y, LIMIT Y, X, etc)
+            limit_pattern = r'(?i)\bLIMIT\s+\d+(?:\s*(?:OFFSET|,)\s*\d+)?'
+            if re.search(limit_pattern, stripped_sql):
+                bounded_sql = re.sub(limit_pattern, f'LIMIT {max_rows}', stripped_sql) + ";"
             else:
                 bounded_sql = f"{stripped_sql} LIMIT {max_rows};"
 
@@ -180,8 +180,20 @@ def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/defa
     """
     Export an exam bag to a Word document using the specified template.
     """
+    # Prevent path traversal vulnerabilities by restricting to specific path
+    app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "."))
+    templates_dir = os.path.join(app_root, "resources", "templates")
+
+    base_name = os.path.basename(template_name)
+    if not base_name.endswith('.docx'):
+        base_name += '.docx'
+    resolved_path = os.path.abspath(os.path.join(templates_dir, base_name))
+
+    if not resolved_path.startswith(templates_dir):
+        return "Error: Invalid template path."
+
     try:
-        exporter = ExportService(template_path=template_name)
+        exporter = ExportService(template_path=resolved_path)
 
         # Fetch real exam bag markdown
         db = get_db()
@@ -191,7 +203,7 @@ def sqb_export_paper(bag_id: int, template_name: str = "resources/templates/defa
 
         out_path = f"export_{bag_id}.docx"
         exporter.render_markdown_to_docx(real_content, out_path)
-        return f"Successfully exported Exam Bag {bag_id} using template '{template_name}'. File saved to '{out_path}'."
+        return f"Successfully exported Exam Bag {bag_id} using template '{base_name}'. File saved to '{out_path}'."
     except ValueError as ve:
         return f"Export template error: {str(ve)}"
     except Exception as e:

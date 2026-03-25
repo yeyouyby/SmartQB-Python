@@ -1,56 +1,57 @@
-from docx import Document
-from docx.shared import Pt
 import os
-import markdown
+import logging
+import pypandoc
+
+logger = logging.getLogger(__name__)
 
 class ExportService:
     def __init__(self, template_path="resources/templates/default.docx"):
-        self.template_path = template_path
+        # Resolve the template path relative to the application root
+        app_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+        # Determine if it's an absolute path or relative to root
+        if template_path:
+            if not os.path.isabs(template_path):
+                self.template_path = os.path.abspath(os.path.join(app_root, template_path))
+            else:
+                self.template_path = template_path
+        else:
+            self.template_path = None
+
+        # Download pandoc on startup if not present (Option A)
+        try:
+            pypandoc.get_pandoc_version()
+        except OSError:
+            logger.info("Pandoc not found. Attempting to download pandoc to assets/tools...")
+            tools_dir = os.path.join(app_root, "assets", "tools")
+            os.makedirs(tools_dir, exist_ok=True)
+            pypandoc.download_pandoc(targetfolder=tools_dir)
+            # Add to PATH so pypandoc finds it in subsequent calls
+            os.environ["PATH"] += os.pathsep + tools_dir
 
     def render_markdown_to_docx(self, md_content: str, output_path: str):
         """
-        Takes raw markdown, parses it, and injects it into a Word template.
-        For simplicity in this demonstration, this generates a basic docx,
-        using the template if it exists.
+        Takes raw markdown, converts it via pypandoc, and injects it into a
+        Word template.
         """
-        # Load template if it explicitly exists as a file, and catch potential format errors
-        doc = None
+        extra_args = []
         if self.template_path:
             if os.path.isfile(self.template_path):
-                try:
-                    doc = Document(self.template_path)
-                except Exception as e:
-                    # If explicit template was passed but failed to load (e.g., bad format or not a docx),
-                    # raise an error instead of silently falling back to a blank document.
-                    raise ValueError(f"Failed to load specified template {self.template_path}: {e}") from e
+                extra_args.append(f'--reference-doc={self.template_path}')
             else:
+                # If explicit template was passed but doesn't exist, raise clear error
                 raise ValueError(f"Specified template file does not exist: {self.template_path}")
-        else:
-            doc = Document()
 
-        # Parse markdown into HTML string
-        html_str = markdown.markdown(md_content)
+        # Convert using pypandoc
+        try:
+            pypandoc.convert_text(
+                source=md_content,
+                to='docx',
+                format='md',
+                outputfile=output_path,
+                extra_args=extra_args
+            )
+        except Exception as e:
+            raise ValueError(f"Pandoc conversion failed: {e}") from e
 
-        # A full production implementation would parse HTML AST to docx runs here.
-        # Here we perform basic parsing of markdown headings for demonstration.
-        for line in md_content.split('\n'):
-            line = line.strip()
-            if not line:
-                continue
-            if line.startswith('# '):
-                heading = doc.add_heading(level=1)
-                run = heading.add_run(line[2:])
-                run.font.size = Pt(16)
-            elif line.startswith('## '):
-                heading = doc.add_heading(level=2)
-                run = heading.add_run(line[3:])
-                run.font.size = Pt(14)
-            elif line.startswith('### '):
-                heading = doc.add_heading(level=3)
-                run = heading.add_run(line[4:])
-                run.font.size = Pt(12)
-            else:
-                doc.add_paragraph(line)
-
-        doc.save(output_path)
         return output_path

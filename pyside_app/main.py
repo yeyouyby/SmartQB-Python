@@ -1,6 +1,6 @@
 import sys
 import os
-from PySide6.QtCore import Qt, QUrl, Slot, QObject
+from PySide6.QtCore import Qt, QUrl, Slot, QObject, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -8,7 +8,13 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget, Q
 from qfluentwidgets import (NavigationInterface, NavigationItemPosition,
                             setTheme, Theme, InfoBar, InfoBarPosition,
                             CardWidget, SubtitleLabel, BodyLabel,
-                            PrimaryPushButton, FluentIcon, theme)
+                            PrimaryPushButton, FluentIcon, theme,
+                            Slider, SpinBox, TextEdit)
+
+class GlobalSignals(QObject):
+    db_updated = Signal()
+
+signals = GlobalSignals()
 
 class MarkdownBackend(QObject):
     def __init__(self, parent=None):
@@ -64,6 +70,8 @@ class MainWindow(QMainWindow):
         self.initPages()
         self.initNavigation()
 
+        signals.db_updated.connect(self.on_db_updated)
+
     def initPages(self):
         # 1. Library Page
         self.libraryPage = QWidget()
@@ -76,7 +84,35 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.libraryPage)
         self.routes['Library'] = self.libraryPage
 
-        # 2. Editor Page
+        # 2. Exam Bag (SA Generation) Page
+        self.examBagPage = QWidget()
+        examLayout = QVBoxLayout(self.examBagPage)
+
+        examLayout.addWidget(SubtitleLabel("智能组卷参数设置 (Simulated Annealing)"))
+        examLayout.addWidget(BodyLabel("期望难度系数 (0.0 - 1.0)"))
+        self.diff_slider = Slider(Qt.Horizontal)
+        self.diff_slider.setRange(0, 100)
+        self.diff_slider.setValue(65)
+        examLayout.addWidget(self.diff_slider)
+
+        examLayout.addWidget(BodyLabel("目标总分"))
+        self.score_spinbox = SpinBox()
+        self.score_spinbox.setRange(10, 300)
+        self.score_spinbox.setValue(100)
+        examLayout.addWidget(self.score_spinbox)
+
+        gen_btn = PrimaryPushButton("一键智能组卷")
+        gen_btn.clicked.connect(self.generate_exam)
+        examLayout.addWidget(gen_btn)
+
+        self.exam_result_text = TextEdit()
+        self.exam_result_text.setReadOnly(True)
+        examLayout.addWidget(self.exam_result_text)
+
+        self.stack.addWidget(self.examBagPage)
+        self.routes['ExamBag'] = self.examBagPage
+
+        # 3. Editor Page
         self.editorPage = QWidget()
         editorLayout = QVBoxLayout(self.editorPage)
 
@@ -105,9 +141,15 @@ class MainWindow(QMainWindow):
             onClick=lambda: self.switchTo('Library')
         )
         self.navigationInterface.addItem(
+            routeKey='ExamBag',
+            icon=FluentIcon.DOCUMENT,
+            text='试卷袋',
+            onClick=lambda: self.switchTo('ExamBag')
+        )
+        self.navigationInterface.addItem(
             routeKey='Editor',
             icon=FluentIcon.EDIT,
-            text='试卷袋',
+            text='沉浸草稿',
             onClick=lambda: self.switchTo('Editor')
         )
         self.navigationInterface.addSeparator()
@@ -154,6 +196,41 @@ class MainWindow(QMainWindow):
                 parent=self
             )
 
+    def generate_exam(self):
+        from algorithms.simulated_annealing import SimulatedAnnealingExamBuilder
+        import db_manager
+        try:
+            db = db_manager.dbManager()
+            pool = db.get_all_questions_for_sa()
+
+            if not pool:
+                self.exam_result_text.setText("题库为空，请先录入题目。")
+                return
+
+            target_diff = self.diff_slider.value() / 100.0
+            target_score = self.score_spinbox.value()
+
+            self.exam_result_text.setText(f"开始退火计算：目标分数 {target_score}, 期望难度 {target_diff:.2f}...\n")
+            QApplication.processEvents()
+
+            builder = SimulatedAnnealingExamBuilder(pool, target_score=target_score, target_difficulty=target_diff)
+            best_state = builder.build_exam(initial_temp=50.0, max_iterations=500)
+
+            selected_ids = [q["id"] for q in best_state]
+            final_score = sum(q.get("score", 0) for q in best_state)
+            final_diff = sum(q.get("difficulty", 0.5) for q in best_state) / len(best_state) if best_state else 0
+
+            result_str = (
+                f"✅ 组卷成功！\n"
+                f"选中题目数量: {len(selected_ids)}\n"
+                f"总分: {final_score} (目标: {target_score})\n"
+                f"平均难度: {final_diff:.2f} (目标: {target_diff:.2f})\n"
+                f"题目ID列表: {selected_ids}"
+            )
+            self.exam_result_text.setText(result_str)
+        except Exception as e:
+            self.exam_result_text.setText(f"❌ 组卷失败: {str(e)}")
+
     def showNotification(self):
         InfoBar.success(
             title='操作成功',
@@ -164,6 +241,10 @@ class MainWindow(QMainWindow):
             duration=3000,
             parent=self
         )
+
+    def on_db_updated(self):
+        # Refresh UI lists here when db updates happen in background
+        print("Database changed. UI components will refresh data.")
 
 if __name__ == '__main__':
     # Add flag only for headless Linux environments to prevent breaking native desktop users

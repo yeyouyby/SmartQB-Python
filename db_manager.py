@@ -133,7 +133,12 @@ class dbManager:
             parts = payload.split(b':', 3)
             if len(parts) == 4:
                 version, kdf_id, iterations_str, remaining = parts
-                iterations = int(iterations_str)
+                try:
+                    iterations = int(iterations_str)
+                except ValueError:
+                    logger.error(f"Failed to decrypt setting '{key}': Malformed iteration count '{iterations_str.decode('utf-8', 'ignore')}'.")
+                    return None
+
                 if kdf_id != b"pbkdf2-sha256":
                     logger.error(f"Failed to decrypt setting '{key}': Unknown KDF '{kdf_id.decode('utf-8', 'ignore')}'.")
                     return None
@@ -210,10 +215,11 @@ class dbManager:
             self.cursor.execute("SELECT id, name FROM exam_groups WHERE bag_id = ? ORDER BY sort_order", (bag_id,))
             groups = self.cursor.fetchall()
 
+            table = None
             try:
                 table = self.lance_db.open_table("questions")
-            except Exception:
-                table = None
+            except Exception as e:
+                logger.warning(f"Failed to open 'questions' table in LanceDB for bag {bag_id}: {e}", exc_info=True)
 
             for group_id, group_name in groups:
                 md_lines.append(f"## {group_name}\n")
@@ -221,21 +227,26 @@ class dbManager:
                 self.cursor.execute("SELECT question_id FROM question_map WHERE group_id = ? ORDER BY sort_order", (group_id,))
                 q_ids = [row[0] for row in self.cursor.fetchall()]
 
-                if table and q_ids:
-                    # In a real impl, batch query LanceDB for efficiency using `where(f"id IN {tuple(q_ids)}")`
+                if not q_ids:
+                    continue
+
+                if table:
                     id_filter = ", ".join(str(i) for i in q_ids)
-                    if id_filter:
-                        try:
-                            # LanceDB syntax: table.search().where(f"id IN ({id_filter})").to_list()
-                            q_data = table.search().where(f"id IN ({id_filter})").limit(len(q_ids)).to_list()
-                            # Sort results back to order of q_ids
-                            q_map = {item["id"]: item.get("content_md", f"[Question {item['id']} content]") for item in q_data}
-                            for index, qid in enumerate(q_ids, 1):
-                                md_lines.append(f"{index}. {q_map.get(qid, f'[Question {qid} missing]')}\n")
-                        except Exception as e:
-                            logger.error(f"Error fetching questions {q_ids}: {e}")
-                            for qid in q_ids:
-                                md_lines.append(f"- [Question ID: {qid}]\n")
+                    try:
+                        # LanceDB syntax: table.search().where(f"id IN ({id_filter})").to_list()
+                        q_data = table.search().where(f"id IN ({id_filter})").limit(len(q_ids)).to_list()
+                        # Sort results back to order of q_ids
+                        q_map = {item["id"]: item.get("content_md", f"[Question {item['id']} content]") for item in q_data}
+                        for index, qid in enumerate(q_ids, 1):
+                            md_lines.append(f"{index}. {q_map.get(qid, f'[Question {qid} missing]')}\n")
+                    except Exception as e:
+                        logger.error(f"Error fetching questions {q_ids} for group {group_id}: {e}")
+                        for index, qid in enumerate(q_ids, 1):
+                            md_lines.append(f"{index}. [Question ID: {qid} could not be loaded]\n")
+                else:
+                    # Fallback placeholders when LanceDB is totally inaccessible
+                    for index, qid in enumerate(q_ids, 1):
+                        md_lines.append(f"{index}. [Question ID: {qid} could not be loaded]\n")
 
             return "\n".join(md_lines)
 
