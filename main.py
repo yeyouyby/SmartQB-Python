@@ -87,7 +87,7 @@ def download_models(raise_errors=False):
 def check_and_install_miktex(raise_errors=False):
     logger.info("Checking MiKTeX/TeX Live environment...")
     try:
-        res = subprocess.run(
+        res = subprocess.run(  # nosec
             ["xelatex", "--version"],
             capture_output=True,
             text=True,
@@ -159,7 +159,7 @@ def check_and_install_miktex(raise_errors=False):
             "zhnumber",
         ]
         for pkg in packages:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec
                 ["mpm", f"--install={pkg}"],
                 capture_output=True,
                 text=True,

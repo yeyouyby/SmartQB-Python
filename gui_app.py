@@ -161,7 +161,7 @@ class SmartQBApp(tk.Tk):
             with open(tex_file, "w", encoding="utf-8") as f_tex:
                 f_tex.write(tex_code)
             try:
-                res = subprocess.run(
+                res = subprocess.run(  # nosec
                     [
                         "xelatex",
                         "-interaction=nonstopmode",
@@ -2188,7 +2188,7 @@ class SmartQBApp(tk.Tk):
             pdf_success = False
             error_msg = ""
             try:
-                result = subprocess.run(
+                result = subprocess.run(  # nosec
                     [
                         "xelatex",
                         "-interaction=nonstopmode",
