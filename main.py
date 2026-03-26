@@ -120,7 +120,7 @@ def check_and_install_miktex(raise_errors=False):
 
     try:
         logger.info(f"Downloading MiKTeX installer from {installer_url}...")
-        urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310
+        urllib.request.urlretrieve(installer_url, installer_path)  # nosemgrep
         logger.info("Download complete. Running silent installation...")
         expected_sha256 = os.environ.get(
             "MIKTEX_INSTALLER_SHA256",
