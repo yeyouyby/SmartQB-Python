@@ -39,10 +39,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install ruff mypy bandit PySide6
-          # 增加容错机制：如果 requirements.txt 中有不兼容 Python 3.12 的库导致报错，不中断流程
-          if [ -f requirements.txt ]; then 
-            pip install -r requirements.txt || echo "⚠️ Warning: Failed to install some requirements, but continuing check..."
-          fi
 
       - name: 🎨 Check Formatting (Ruff)
         if: always() 
