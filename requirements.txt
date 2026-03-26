@@ -5,9 +5,11 @@ PySide6
 openai
 pillow
 paddleocr
+onnx==1.21.0rc4
 pix2text
 lancedb
 keyring
 markdown
+rich>=13.8.0
 tkhtmlview
 types-Markdown
