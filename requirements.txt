@@ -1,5 +1,5 @@
 PySide6>=6.5.0
-qfluentwidgets
+PySide6-Fluent-Widgets[full]
 paddlepaddle
 paddleocr
 python-docx
