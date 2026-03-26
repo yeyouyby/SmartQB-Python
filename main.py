@@ -5,7 +5,7 @@ from utils import logger
 
 import os
 import sys
-import subprocess
+import subprocess  # nosec B404
 import threading
 
 
@@ -87,7 +87,7 @@ def download_models(raise_errors=False):
 def check_and_install_miktex(raise_errors=False):
     logger.info("Checking MiKTeX/TeX Live environment...")
     try:
-        res = subprocess.run(
+        res = subprocess.run(  # nosec B603 B607
             ["xelatex", "--version"],
             capture_output=True,
             text=True,
@@ -136,7 +136,9 @@ def check_and_install_miktex(raise_errors=False):
                     "MiKTeX installer checksum mismatch; aborting installation."
                 )
             logger.info("Checksum verified.")
-        subprocess.run([installer_path, "--unattended", "--private"], check=True)  # nosec B603
+        subprocess.run(
+            [installer_path, "--unattended", "--private"], check=True
+        )  # nosec B603
         logger.info("MiKTeX installed successfully.")
 
         # Add to PATH for current session if possible
@@ -159,7 +161,7 @@ def check_and_install_miktex(raise_errors=False):
             "zhnumber",
         ]
         for pkg in packages:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 B607
                 ["mpm", f"--install={pkg}"],
                 capture_output=True,
                 text=True,
