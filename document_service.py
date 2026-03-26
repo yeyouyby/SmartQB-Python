@@ -11,7 +11,6 @@ from utils import logger
 
 
 class DocumentService:
-
     @staticmethod
     def process_doc_with_layout(
         file_path,
@@ -39,7 +38,7 @@ class DocumentService:
             for page_index in range(total_pages):
                 if update_status:
                     update_status(
-                        f"🚀 AI 双擎分析与 OCR 提取中: 第 {page_index+1}/{total_pages} 页..."
+                        f"🚀 AI 双擎分析与 OCR 提取中: 第 {page_index + 1}/{total_pages} 页..."
                     )
 
                 img = None

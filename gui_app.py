@@ -214,7 +214,7 @@ class SmartQBApp(tk.Tk):
                 self.after(
                     0,
                     lambda i=idx, t=total_questions: self.update_status(
-                        f"正在编译检查第 {i+1} 题..."
+                        f"正在编译检查第 {i + 1} 题..."
                     ),
                 )
                 success, err_msg = self._test_compile_latex(q["content"])
@@ -222,7 +222,7 @@ class SmartQBApp(tk.Tk):
                     self.after(
                         0,
                         lambda i=idx: self.update_status(
-                            f"第 {i+1} 题编译失败，AI 正在尝试修复..."
+                            f"第 {i + 1} 题编译失败，AI 正在尝试修复..."
                         ),
                     )
                     fixed_content = self.ai_service.ai_fix_latex(q["content"], err_msg)
@@ -373,9 +373,9 @@ class SmartQBApp(tk.Tk):
         ttk.Button(
             ai_frame, text="🔗 合并选中项", command=self.merge_staging_items
         ).pack(fill=tk.X, pady=2)
-        ttk.Button(
-            ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item
-        ).pack(fill=tk.X, pady=2)
+        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(
+            fill=tk.X, pady=2
+        )
         ttk.Button(
             ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item
         ).pack(fill=tk.X, pady=2)
@@ -413,15 +413,15 @@ class SmartQBApp(tk.Tk):
 
         diag_btn_frame = ttk.Frame(right_frame)
         diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(
-            diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
         ttk.Button(
             diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(
-            diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
 
         move_btn_frame = ttk.Frame(right_frame)
         move_btn_frame.pack(fill=tk.X, pady=2)
@@ -821,7 +821,7 @@ class SmartQBApp(tk.Tk):
 
             desc = "多模态视觉版面合并中" if use_vision else "纯文本版面合并中"
             self.update_status(
-                f"AI {desc}: 窗口 {current_idx} ~ {end_idx-1} / {len(pending_slices)}..."
+                f"AI {desc}: 窗口 {current_idx} ~ {end_idx - 1} / {len(pending_slices)}..."
             )
 
             try:
@@ -1325,9 +1325,9 @@ class SmartQBApp(tk.Tk):
         ttk.Button(
             btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat
         ).pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag
-        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(
+            side=tk.LEFT, padx=5
+        )
         ttk.Button(
             btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector
         ).pack(side=tk.LEFT, padx=5)
@@ -1952,7 +1952,7 @@ class SmartQBApp(tk.Tk):
             for idx, item in enumerate(self.export_bag):
                 preview = item["content"][:40].replace("\n", "")
                 has_img = "[含图]" if item["diagram"] else ""
-                self.listbox_bag.insert(tk.END, f"{idx+1}. {has_img} {preview}...")
+                self.listbox_bag.insert(tk.END, f"{idx + 1}. {has_img} {preview}...")
 
     def bag_move_up(self):
         sel = self.listbox_bag.curselection()

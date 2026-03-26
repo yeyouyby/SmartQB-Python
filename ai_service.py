@@ -243,7 +243,7 @@ class AIService:
 以下是待合并的片段：
 """
         for idx, t in enumerate(texts_to_merge):
-            prompt += f"--- 片段 {idx+1} ---\n{t}\n"
+            prompt += f"--- 片段 {idx + 1} ---\n{t}\n"
 
         messages = [
             {
