@@ -698,7 +698,6 @@ class SmartQBApp(tk.Tk):
 
                 self.after(0, _clear_stg)
 
-
                 if self.ocr_engine is None:
                     self.after(
                         0,
