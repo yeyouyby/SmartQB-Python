@@ -136,9 +136,7 @@ def check_and_install_miktex(raise_errors=False):
                     "MiKTeX installer checksum mismatch; aborting installation."
                 )
             logger.info("Checksum verified.")
-        subprocess.run(
-            [installer_path, "--unattended", "--private"], check=True
-        )  # nosec B603
+        subprocess.run([installer_path, "--unattended", "--private"], check=True)  # nosec B603
         logger.info("MiKTeX installed successfully.")
 
         # Add to PATH for current session if possible

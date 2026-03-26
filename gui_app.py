@@ -373,9 +373,9 @@ class SmartQBApp(tk.Tk):
         ttk.Button(
             ai_frame, text="🔗 合并选中项", command=self.merge_staging_items
         ).pack(fill=tk.X, pady=2)
-        ttk.Button(
-            ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item
-        ).pack(fill=tk.X, pady=2)
+        ttk.Button(ai_frame, text="✂️ 拆分当前项", command=self.split_staging_item).pack(
+            fill=tk.X, pady=2
+        )
         ttk.Button(
             ai_frame, text="✨ 重新排版(修正格式)", command=self.format_staging_item
         ).pack(fill=tk.X, pady=2)
@@ -413,15 +413,15 @@ class SmartQBApp(tk.Tk):
 
         diag_btn_frame = ttk.Frame(right_frame)
         diag_btn_frame.pack(fill=tk.X, pady=2)
-        ttk.Button(
-            diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="⬅️ 上一图", command=self.stg_prev_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
         ttk.Button(
             diag_btn_frame, text="❌ 删除当前图", command=self.stg_delete_diagram
         ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(
-            diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram
-        ).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(diag_btn_frame, text="下一图 ➡️", command=self.stg_next_diagram).pack(
+            side=tk.LEFT, expand=True, fill=tk.X, padx=2
+        )
 
         move_btn_frame = ttk.Frame(right_frame)
         move_btn_frame.pack(fill=tk.X, pady=2)
@@ -1325,9 +1325,9 @@ class SmartQBApp(tk.Tk):
         ttk.Button(
             btn_frame, text="✨ 重新排版(修正格式)", command=self.on_manual_reformat
         ).pack(side=tk.LEFT, padx=5)
-        ttk.Button(
-            btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag
-        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="🏷️ 重新生成标签", command=self.on_manual_retag).pack(
+            side=tk.LEFT, padx=5
+        )
         ttk.Button(
             btn_frame, text="🔄 预览向量化", command=self.on_manual_preview_vector
         ).pack(side=tk.LEFT, padx=5)
