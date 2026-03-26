@@ -144,8 +144,6 @@ class SettingsManager:
                 "embed_base_url": self.embed_base_url,
                 "embed_model_id": self.embed_model_id,
                 "recognition_mode": self.recognition_mode,
-                "ocr_engine_type": self.ocr_engine_type,
-                "layout_engine_type": self.layout_engine_type,
                 "use_prm_optimization": self.use_prm_optimization,
                 "prm_batch_size": self.prm_batch_size,
                 "temperature": self.temperature,

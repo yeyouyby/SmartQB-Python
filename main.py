@@ -1,3 +1,4 @@
+import urllib.request
 import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
@@ -111,7 +112,6 @@ def check_and_install_miktex(raise_errors=False):
         )
         return
 
-    import urllib.request
     import tempfile
 
     installer_url = "https://mirrors.ctan.org/systems/win32/miktex/setup/windows-x64/basic-miktex-24.4-x64.exe"

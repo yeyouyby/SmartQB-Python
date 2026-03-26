@@ -21,11 +21,6 @@ except ImportError:
     tkhtmlview = None
     print("Warning: Failed to import tkhtmlview. Markdown preview will be raw text.")
 
-try:
-    from pix2text import Pix2Text
-except Exception as e:
-    Pix2Text = None
-    print(f"Warning: Failed to import Pix2Text: {e}")
 
 try:
     from paddleocr import PPStructure
@@ -35,7 +30,7 @@ except Exception as e:
 
 
 from settings_manager import SettingsManager
-from doclayout_yolo_engine import DocLayoutYOLO
+
 from ai_service import AIService
 from document_service import DocumentService
 from search_service import vector_search_db
@@ -56,21 +51,6 @@ class SmartQBApp(tk.Tk):
 
         self.settings = SettingsManager()
         self.ai_service = AIService(self.settings)
-
-        logger.info("正在加载 Pix2Text 引擎 (首次启动可能需要下载模型，请耐心等待)...")
-        try:
-            self.ocr_engine = Pix2Text.from_config()
-            logger.info("Pix2Text 引擎加载完成！")
-        except Exception as e:
-            logger.error(f"Failed to load Pix2Text: {e}", exc_info=True)
-            self.ocr_engine = None
-
-        logger.info("正在加载 DocLayout-YOLO 版面分析引擎...")
-        try:
-            self.doclayout_yolo = DocLayoutYOLO()
-        except Exception as e:
-            logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
-            self.doclayout_yolo = None
 
         self.pp_structure = None
 
@@ -718,31 +698,7 @@ class SmartQBApp(tk.Tk):
 
                 self.after(0, _clear_stg)
 
-                # Lazy load DocLayout-YOLO if selected but not loaded
-                if self.doclayout_yolo is None:
-                    self.update_status("正在首次加载 DocLayout-YOLO 引擎，请稍候...")
-                    try:
-                        self.doclayout_yolo = DocLayoutYOLO()
-                    except Exception as e:
-                        logger.error(
-                            f"Failed to lazy load DocLayout-YOLO: {e}", exc_info=True
-                        )
-                        self.after(
-                            0,
-                            lambda err=e: messagebox.showerror(
-                                "Engine Error", f"无法加载 DocLayout-YOLO 引擎:\n{err}"
-                            ),
-                        )
-                        return
 
-                if self.doclayout_yolo is None:
-                    self.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Engine Error", "无可用版面分析引擎。请检查模型配置。"
-                        ),
-                    )
-                    return
                 if self.ocr_engine is None:
                     self.after(
                         0,
@@ -2266,7 +2222,6 @@ class SmartQBApp(tk.Tk):
         self.settings.embed_base_url = self.ent_embed_base.get().strip()
         self.settings.embed_model_id = self.ent_embed_model.get().strip()
 
-        self.settings.recognition_mode = self.var_rec_mode.get()
         self.settings.use_prm_optimization = self.var_use_prm.get()
         if hasattr(self, "cbo_ocr_engine"):
             self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
@@ -2412,31 +2367,6 @@ class SmartQBApp(tk.Tk):
         ttk.Label(container, text="📝 核心图像与文字识别模式:").pack(
             anchor=tk.W, pady=(20, 5)
         )
-
-        # --- ENGINE TOGGLES ---
-        engine_frame = ttk.Frame(container)
-        engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
-
-        ttk.Label(engine_frame, text="版面分析引擎:").grid(
-            row=0, column=0, sticky=tk.W, pady=2
-        )
-        layout_vals = ["DocLayout-YOLO", "PP-StructureV3"]
-        self.cbo_layout_engine = ttk.Combobox(
-            engine_frame, values=layout_vals, width=15, state="readonly"
-        )
-        self.cbo_layout_engine.set("DocLayout-YOLO")
-        self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
-
-        ttk.Label(engine_frame, text="OCR 识别引擎:").grid(
-            row=1, column=0, sticky=tk.W, pady=2
-        )
-        ocr_vals = ["Pix2Text", "PP-StructureV3"]
-        self.cbo_ocr_engine = ttk.Combobox(
-            engine_frame, values=ocr_vals, width=15, state="readonly"
-        )
-        self.cbo_ocr_engine.set("Pix2Text")
-        self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
-        # ----------------------
 
         self.var_rec_mode = tk.IntVar(value=self.settings.recognition_mode)
         ttk.Radiobutton(
