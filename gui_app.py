@@ -13,7 +13,7 @@ import tkinter as tk
 from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
-import markdown
+import markdown  # type: ignore
 
 try:
     import tkhtmlview
