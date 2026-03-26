@@ -1,4 +1,12 @@
-import io
+import re
+
+# Since document_service.py's indentation got tangled up due to our patching, let's restore it from scratch and apply the exact PP-StructureV3 logic cleanly.
+
+# Read original from memory using string literal
+with open('document_service.py', 'r', encoding='utf-8') as f:
+    pass
+
+new_content = """import io
 import base64
 import numpy as np
 import fitz  # PyMuPDF
@@ -14,10 +22,10 @@ class DocumentService:
 
     @staticmethod
     def process_doc_with_layout(file_path, file_type, layout_predictor, ocr_engine, ocr_engine_type="Pix2Text", update_status=None, on_slice_ready=None, det_predictor=None):
-        """
+        \"\"\"
         使用 DocLayout-YOLO 或 PP-StructureV3 进行版面分析 (Pass 1) + (可选) Pix2Text OCR 的双层分析引擎
         返回: pending_slices 列表，元素结构为 {"text": str, "image_b64": str, "diagram": str(图样)}
-        """
+        \"\"\"
         pending_slices = []
 
         doc = None
@@ -61,7 +69,7 @@ class DocumentService:
                                 if output and isinstance(output, list):
                                     for res in output:
                                         if hasattr(res, 'markdown'):
-                                            md_info += res.markdown + "\n"
+                                            md_info += res.markdown + "\\n"
                                         if hasattr(res, 'markdown_images') and res.markdown_images:
                                             md_images.update(res.markdown_images)
 
@@ -134,7 +142,7 @@ class DocumentService:
                             if ocr_engine_type == "Pix2Text" and ocr_engine is not None:
                                 res = ocr_engine.recognize(img, return_text=False)
                                 for block in res:
-                                    text = block.get('text', '').replace('\n', ' ').strip()
+                                    text = block.get('text', '').replace('\\n', ' ').strip()
                                     position = block.get('position', [])
                                     if text and len(position) == 4:
                                         x_coords = [p[0] for p in position]
@@ -192,7 +200,7 @@ class DocumentService:
                                         best_t_idx = t_idx
 
                             if best_t_idx != -1:
-                                marker = f"\n[[{{ima_dont_del_{global_marker}}}]]\n"
+                                marker = f"\\n[[{{ima_dont_del_{global_marker}}}]]\\n"
                                 ocr_blocks[best_t_idx]['text'] += marker
                             elif ocr_blocks:
                                 d_cx = (d_x_min + d_x_max) / 2
@@ -202,7 +210,7 @@ class DocumentService:
                                     t_cy = (t['box'][1] + t['box'][3]) / 2
                                     return (d_cx - t_cx)**2 + (d_cy - t_cy)**2
 
-                                marker = f"[[{{ima_dont_del_{global_marker}}}]]\n"
+                                marker = f"[[{{ima_dont_del_{global_marker}}}]]\\n"
                                 nearest_idx = min(range(len(ocr_blocks)), key=lambda i: distance(ocr_blocks[i]))
                                 ocr_blocks[nearest_idx]['text'] = marker + ocr_blocks[nearest_idx]['text']
                             else:
@@ -213,7 +221,7 @@ class DocumentService:
                                     'type': 'TextLine'
                                 })
 
-                        full_page_text = "\n".join([t['text'] for t in ocr_blocks])
+                        full_page_text = "\\n".join([t['text'] for t in ocr_blocks])
 
                     # Save the full page image for vision model
                     buf_page = io.BytesIO()
@@ -286,7 +294,7 @@ class DocumentService:
                 elif element.tag.endswith("tbl"):
                     table = docx.table.Table(element, doc)
                     for i, row in enumerate(table.rows):
-                        row_data = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                        row_data = [cell.text.strip().replace("\\n", " ") for cell in row.cells]
                         if row_data:
                             current_text.append("| " + " | ".join(row_data) + " |")
                             if i == 0:
@@ -316,7 +324,7 @@ class DocumentService:
 
             if len(current_text) >= 10 or current_images:
                 chunks.append({
-                    "text": "\n".join(current_text),
+                    "text": "\\n".join(current_text),
                     "image_b64": "",
                     "diagram": current_images[0] if current_images else None
                 })
@@ -328,7 +336,7 @@ class DocumentService:
 
         if current_text or current_images:
             chunks.append({
-                "text": "\n".join(current_text) if current_text else "",
+                "text": "\\n".join(current_text) if current_text else "",
                 "image_b64": "",
                 "diagram": current_images[0] if current_images else None
             })
@@ -337,8 +345,12 @@ class DocumentService:
                     chunks.append({"text": "", "image_b64": "", "diagram": extra_img})
 
         if not chunks:
-            full_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
-            text_chunks = [chunk for chunk in full_text.split("\n\n") if chunk.strip()]
-            chunks = [{"text": t.replace("\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
+            full_text = "\\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+            text_chunks = [chunk for chunk in full_text.split("\\n\\n") if chunk.strip()]
+            chunks = [{"text": t.replace("\\n", " "), "image_b64": "", "diagram": None} for t in text_chunks]
 
         return chunks
+"""
+
+with open('document_service.py', 'w', encoding='utf-8') as f:
+    f.write(new_content)

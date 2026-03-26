@@ -13,11 +13,24 @@ import tkinter as tk
 from utils import logger
 from tkinter import ttk, filedialog, messagebox
 from PIL import Image, ImageTk
+import markdown
+try:
+    import tkhtmlview
+except ImportError:
+    tkhtmlview = None
+    print("Warning: Failed to import tkhtmlview. Markdown preview will be raw text.")
+
 try:
     from pix2text import Pix2Text
 except Exception as e:
     Pix2Text = None
     print(f"Warning: Failed to import Pix2Text: {e}")
+
+try:
+    from paddleocr import PPStructure
+except Exception as e:
+    PPStructure = None
+    print(f"Warning: Failed to import PPStructure: {e}")
 
 
 
@@ -64,6 +77,8 @@ class SmartQBApp(tk.Tk):
         except Exception as e:
             logger.error(f"Failed to load DocLayout-YOLO: {e}", exc_info=True)
             self.doclayout_yolo = None
+
+        self.pp_structure = None
 
         self.staging_questions = []
         self.export_bag = []
@@ -168,6 +183,8 @@ class SmartQBApp(tk.Tk):
             q.pop('page_annotated_b64', None)
         self.staging_questions.clear()
         self.txt_stg_content.delete("1.0", tk.END)
+        if hasattr(self, 'preview_mode') and self.preview_mode:
+            self.btn_toggle_preview.invoke() # Switch back to edit mode
         self.ent_stg_tags.delete(0, tk.END)
         if hasattr(self, 'lbl_vector_info'):
             self.lbl_vector_info.config(text="未生成向量")
@@ -326,8 +343,48 @@ class SmartQBApp(tk.Tk):
         paned.add(right_frame, weight=2)
 
         ttk.Label(right_frame, text="AI 优化后文字内容 (可在此纠错):").pack(anchor=tk.W)
-        self.txt_stg_content = tk.Text(right_frame, height=8, font=("Consolas", 10))
-        self.txt_stg_content.pack(fill=tk.X, pady=2)
+
+        self.stg_content_frame = ttk.Frame(right_frame)
+        self.stg_content_frame.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        self.txt_stg_content = tk.Text(self.stg_content_frame, height=8, font=("Consolas", 10))
+        self.txt_stg_content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Markdown preview setup
+        if tkhtmlview:
+            self.html_stg_preview = tkhtmlview.HTMLLabel(self.stg_content_frame, background="white", html="<i>Preview...</i>")
+            # Initially hidden
+            self.preview_mode = False
+
+            def toggle_preview():
+                self.preview_mode = not self.preview_mode
+                if self.preview_mode:
+                    self.txt_stg_content.pack_forget()
+                    self.html_stg_preview.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    self.btn_toggle_preview.config(text="✏️ 编辑源码")
+                    # Render Markdown
+                    md_text = self.txt_stg_content.get("1.0", tk.END)
+
+                    # Convert [[{ima_dont_del_...}]] markers to some visual placeholder or img tag
+                    # for preview purposes
+                    def replacer(match):
+                        marker = match.group(1)
+                        if hasattr(self, 'stg_current_diags') and self.stg_current_diags:
+                            # Try to find the matching base64
+                            return f"<div style='border: 1px dashed blue; padding: 5px; color: blue;'>[图样占位符 {marker}]</div>"
+                        return match.group(0)
+
+                    md_text = re.sub(r'\[\[\{ima_dont_del_(.+?)\}\]\]', replacer, md_text)
+
+                    html_content = markdown.markdown(md_text, extensions=['tables', 'fenced_code'])
+                    self.html_stg_preview.set_html(html_content)
+                else:
+                    self.html_stg_preview.pack_forget()
+                    self.txt_stg_content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    self.btn_toggle_preview.config(text="👁️ 预览 Markdown")
+
+            self.btn_toggle_preview = ttk.Button(right_frame, text="👁️ 预览 Markdown", command=toggle_preview)
+            self.btn_toggle_preview.pack(anchor=tk.E, pady=2)
 
         ttk.Label(right_frame, text="AI 打标 (逗号分隔):").pack(anchor=tk.W)
         self.ent_stg_tags = ttk.Entry(right_frame)
@@ -552,7 +609,7 @@ class SmartQBApp(tk.Tk):
                     file_path, file_type,
                     self.doclayout_yolo,
                     self.ocr_engine,
-                    "Pix2Text",
+                    "Pix2Text", "PP-StructureV3",
                     self.update_status, handle_slice_ready,
                     det_predictor=None
                 )
@@ -1295,8 +1352,38 @@ class SmartQBApp(tk.Tk):
         det_frame = ttk.LabelFrame(left_frame, text="题目详情与修改")
         det_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.txt_lib_det = tk.Text(det_frame, height=5, font=("Consolas", 10))
-        self.txt_lib_det.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.lib_content_frame = ttk.Frame(det_frame)
+        self.lib_content_frame.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        self.txt_lib_det = tk.Text(self.lib_content_frame, height=5, font=("Consolas", 10))
+        self.txt_lib_det.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        if tkhtmlview:
+            self.html_lib_preview = tkhtmlview.HTMLLabel(self.lib_content_frame, background="white", html="<i>Preview...</i>")
+            self.lib_preview_mode = False
+
+            def toggle_lib_preview():
+                self.lib_preview_mode = not self.lib_preview_mode
+                if self.lib_preview_mode:
+                    self.txt_lib_det.pack_forget()
+                    self.html_lib_preview.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    self.btn_lib_toggle_preview.config(text="✏️ 编辑源码")
+
+                    md_text = self.txt_lib_det.get("1.0", tk.END)
+                    def replacer(match):
+                        marker = match.group(1)
+                        return f"<div style='border: 1px dashed blue; padding: 5px; color: blue;'>[图样占位符 {marker}]</div>"
+
+                    md_text = re.sub(r'\[\[\{ima_dont_del_(.+?)\}\]\]', replacer, md_text)
+                    html_content = markdown.markdown(md_text, extensions=['tables', 'fenced_code'])
+                    self.html_lib_preview.set_html(html_content)
+                else:
+                    self.html_lib_preview.pack_forget()
+                    self.txt_lib_det.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    self.btn_lib_toggle_preview.config(text="👁️ 预览 Markdown")
+
+            self.btn_lib_toggle_preview = ttk.Button(det_frame, text="👁️ 预览 Markdown", command=toggle_lib_preview)
+            self.btn_lib_toggle_preview.pack(anchor=tk.E, pady=2)
 
         action_frame = ttk.Frame(det_frame)
         action_frame.pack(fill=tk.X, pady=2)
@@ -1743,7 +1830,7 @@ class SmartQBApp(tk.Tk):
         provider_frame = ttk.Frame(container)
         provider_frame.pack(anchor=tk.W, pady=5, fill=tk.X)
         ttk.Label(provider_frame, text="快捷服务商配置:").pack(side=tk.LEFT)
-        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)"], width=20, state="readonly")
+        self.cbo_provider = ttk.Combobox(provider_frame, values=["自定义", "DeepSeek", "Kimi", "GLM (智谱)", "SiliconFlow (硅基)", "NVIDIA NIM"], width=20, state="readonly")
         self.cbo_provider.current(0)
         self.cbo_provider.pack(side=tk.LEFT, padx=10)
         self.cbo_provider.bind("<<ComboboxSelected>>", self.on_provider_changed)
@@ -1816,17 +1903,17 @@ class SmartQBApp(tk.Tk):
         engine_frame.pack(anchor=tk.W, padx=20, fill=tk.X, pady=2)
 
         ttk.Label(engine_frame, text="版面分析引擎:").grid(row=0, column=0, sticky=tk.W, pady=2)
-        layout_vals = ["DocLayout-YOLO"]
+        layout_vals = ["DocLayout-YOLO", "PP-StructureV3"]
         self.cbo_layout_engine = ttk.Combobox(engine_frame, values=layout_vals, width=15, state="readonly")
         current_layout = getattr(self.settings, 'layout_engine_type', 'DocLayout-YOLO')
-        self.cbo_layout_engine.set("DocLayout-YOLO")
+        self.cbo_layout_engine.set("DocLayout-YOLO", "PP-StructureV3")
         self.cbo_layout_engine.grid(row=0, column=1, padx=10, pady=2)
 
         ttk.Label(engine_frame, text="OCR 识别引擎:").grid(row=1, column=0, sticky=tk.W, pady=2)
-        ocr_vals = ["Pix2Text"]
+        ocr_vals = ["Pix2Text", "PP-StructureV3"]
         self.cbo_ocr_engine = ttk.Combobox(engine_frame, values=ocr_vals, width=15, state="readonly")
         current_ocr = getattr(self.settings, 'ocr_engine_type', 'Pix2Text')
-        self.cbo_ocr_engine.set("Pix2Text")
+        self.cbo_ocr_engine.set("Pix2Text", "PP-StructureV3")
         self.cbo_ocr_engine.grid(row=1, column=1, padx=10, pady=2)
         # ----------------------
 
@@ -1863,6 +1950,13 @@ class SmartQBApp(tk.Tk):
                 "embed_base": "https://api.siliconflow.cn/v1",
                 "embed_model": "BAAI/bge-m3",
             },
+            "NVIDIA NIM": {
+                "base": "https://integrate.api.nvidia.com/v1",
+                "model": "zai-org/glm-4.7",
+                "embed_base": "https://integrate.api.nvidia.com/v1",
+                "embed_model": "nvidia/nv-embedqa-e5-v5",
+            },
+
         }
         provider = self.cbo_provider.get()
         config = provider_presets.get(provider)
