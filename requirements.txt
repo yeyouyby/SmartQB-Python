@@ -1,0 +1,13 @@
+ruff
+mypy
+bandit
+PySide6
+openai
+pillow
+paddleocr
+pix2text
+lancedb
+keyring
+markdown
+tkhtmlview
+types-Markdown

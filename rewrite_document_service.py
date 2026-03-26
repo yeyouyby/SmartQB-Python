@@ -1,9 +1,7 @@
-import re
-
 # Since document_service.py's indentation got tangled up due to our patching, let's restore it from scratch and apply the exact PP-StructureV3 logic cleanly.
 
 # Read original from memory using string literal
-with open('document_service.py', 'r', encoding='utf-8') as f:
+with open("document_service.py", "r", encoding="utf-8") as f:
     pass
 
 new_content = """import io
@@ -352,5 +350,5 @@ class DocumentService:
         return chunks
 """
 
-with open('document_service.py', 'w', encoding='utf-8') as f:
+with open("document_service.py", "w", encoding="utf-8") as f:
     f.write(new_content)
