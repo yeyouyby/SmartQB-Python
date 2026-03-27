@@ -127,12 +127,17 @@ jobs:
   # [第四关] 狙击手模式（带 Kimi K2 智能识别）
   # ==========================================
   ping-jules:
+    # 最外层拦截：排除所有白名单，防止 GitHub Action 空跑浪费资源
     if: >-
-      (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment')
-    name: 🎯 Smart Sniper @google-labs-jules
+      (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+      github.event.comment.user.login != 'yeyouyby' && 
+      github.event.comment.user.login != 'google-labs-jules' && 
+      github.event.comment.user.login != 'jules' && 
+      github.event.comment.user.login != 'github-actions[bot]'
+    name: 🎯 Smart Sniper @jules
     runs-on: ubuntu-latest
     steps:
-      - name: Reply to AI and ping @google-labs-jules
+      - name: Reply to AI and ping @jules
         uses: actions/github-script@v7
         env:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
@@ -145,8 +150,8 @@ jobs:
             const commenter = context.payload.comment.user.login.toLowerCase();
             const nimApiKey = process.env.NVIDIA_API_KEY;
             
-            // 【终极防线】：替换为真实的 google-labs-jules
-            if (['yeyouyby', 'google-labs-jules', 'github-actions[bot]'].includes(commenter)) {
+            // 【终极防线】：排除真实账号 google-labs-jules，避免死循环
+            if (['yeyouyby', 'google-labs-jules', 'jules', 'github-actions[bot]'].includes(commenter)) {
               if (commentBody.includes("Mock AI Review")) {
                 console.log(`[测试模式开启] 检测到包含 "Mock AI Review" 的评论，强制放行白名单人员 ${commenter} 以测试 NIM 模型！`);
               } else {
@@ -159,7 +164,7 @@ jobs:
             if (nimApiKey) {
               console.log(`正在使用 NVIDIA NIM API (Kimi K2) 分析 ${commenter} 的评论内容...`);
               try {
-                // 【已修复】：确保 fetch 调用的 URL 是纯净的字符串，绝不能带有 Markdown 的 [url](url) 格式
+                // 确保 fetch 调用的 URL 是纯净的字符串
                 const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
                   method: 'POST',
                   headers: {
@@ -176,7 +181,7 @@ jobs:
                       { role: "user", content: commentBody }
                     ],
                     temperature: 0.1,
-                    max_tokens: 512
+                    max_tokens: 5120
                   })
                 });
                 
@@ -197,7 +202,7 @@ jobs:
                 console.log(`✅ JSON 解析成功! 判断结果: ${resultObj.is_review}, 理由: ${resultObj.reason}`);
                 
                 if (resultObj.is_review !== true) {
-                  console.log("拦截成功：AI 判定这是一条无意义的占位/通知评论，跳过 @google-labs-jules。");
+                  console.log("拦截成功：AI 判定这是一条无意义的占位/通知评论，跳过 @jules。");
                   return;
                 }
               } catch (err) {
@@ -209,20 +214,20 @@ jobs:
             }
             // --- 智能识别逻辑结束 ---
 
-            // 【呼叫文案】：更新为真实的 @google-labs-jules
-            const replyBody = "@google-labs-jules 代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆";
+            // 【呼叫文案】：发出的文字是 @jules，以触发机器人的关键字监听
+            const replyBody = "@jules 代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆";
             
             if (eventName === 'issue_comment') {
               const issueNumber = context.payload.issue.number;
               await github.rest.issues.createComment({
                 owner: owner, repo: repo, issue_number: issueNumber, body: replyBody
               });
-              console.log(`[狙击成功] 已在 PR #${issueNumber} 的全局评论下 @google-labs-jules`);
+              console.log(`[狙击成功] 已在 PR #${issueNumber} 的全局评论下触发了 @jules`);
             } else if (eventName === 'pull_request_review_comment') {
               const pullNumber = context.payload.pull_request.number;
               const commentId = context.payload.comment.id;
               await github.rest.pulls.createReplyForReviewComment({
                 owner: owner, repo: repo, pull_number: pullNumber, comment_id: commentId, body: replyBody
               });
-              console.log(`[狙击成功] 已在代码行内评论下 @google-labs-jules`);
+              console.log(`[狙击成功] 已在代码行内评论下触发了 @jules`);
             }
