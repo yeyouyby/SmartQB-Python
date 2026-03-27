@@ -80,10 +80,28 @@ class DocumentService:
 
                             diagram_map[global_marker] = d_b64
 
-                            marker_str = f"[[{{ima_dont_del_{global_marker}}}]]"
+                            marker_str = f"\n\n[[{{ima_dont_del_{global_marker}}}]]\n\n"
+
+                            import re as regex
+
+                            escaped_name = regex.escape(img_name)
+                            # Remove ![img](path) or similar markdown
+                            full_page_markdown = regex.sub(
+                                r"!\[.*?\]\(" + escaped_name + r"\)",
+                                marker_str,
+                                full_page_markdown,
+                            )
+                            # Remove <img src="path">
+                            full_page_markdown = regex.sub(
+                                r'<img[^>]*?src=["\']' + escaped_name + r'["\'][^>]*?>',
+                                marker_str,
+                                full_page_markdown,
+                            )
+                            # Fallback
                             full_page_markdown = full_page_markdown.replace(
                                 img_name, marker_str
                             )
+
                             d_idx += 1
 
                     # Save the full page image for vision model
