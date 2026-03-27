@@ -488,7 +488,7 @@ class SmartQBApp(tk.Tk):
 
         ttk.Button(
             right_frame,
-            text="👁️ 查看完整版面分析图 (Pix2Text/Surya)",
+            text="👁️ 查看完整版面分析图 (PP-Structure)",
             command=self.show_page_layout_view,
         ).pack(anchor=tk.E, pady=2)
 
@@ -698,25 +698,12 @@ class SmartQBApp(tk.Tk):
 
                 self.after(0, _clear_stg)
 
-                if self.ocr_engine is None:
-                    self.after(
-                        0,
-                        lambda: messagebox.showerror(
-                            "Engine Error", "无可用 OCR 引擎。请检查环境依赖。"
-                        ),
-                    )
-                    return
-
                 pending_slices = DocumentService.process_doc_with_layout(
                     file_path,
                     file_type,
-                    self.doclayout_yolo,
-                    self.ocr_engine,
-                    "Pix2Text",
-                    "PP-StructureV3",
+                    self.pp_structure,
                     self.update_status,
                     handle_slice_ready,
-                    det_predictor=None,
                 )
             elif file_type == "word":
 
@@ -2222,10 +2209,6 @@ class SmartQBApp(tk.Tk):
         self.settings.embed_model_id = self.ent_embed_model.get().strip()
 
         self.settings.use_prm_optimization = self.var_use_prm.get()
-        if hasattr(self, "cbo_ocr_engine"):
-            self.settings.ocr_engine_type = self.cbo_ocr_engine.get()
-        if hasattr(self, "cbo_layout_engine"):
-            self.settings.layout_engine_type = self.cbo_layout_engine.get()
         try:
             self.settings.prm_batch_size = max(
                 2, min(15, int(self.ent_prm_batch.get()))
