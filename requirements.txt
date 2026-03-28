@@ -5,7 +5,7 @@ PySide6
 openai
 pillow
 paddleocr
-onnx==1.21.0rc4
+onnx>=1.21.0
 lancedb
 keyring
 markdown

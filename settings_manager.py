@@ -54,8 +54,18 @@ class SettingsManager:
                 self.embed_model_id = d.get("embed_model_id", "text-embedding-3-small")
 
                 self.recognition_mode = d.get("recognition_mode", 2)
-                self.ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
-                self.layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
+                ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
+                self.ocr_engine_type = (
+                    ocr_engine_type
+                    if ocr_engine_type in {"PP-StructureV3", "Pix2Text"}
+                    else "PP-StructureV3"
+                )
+                layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
+                self.layout_engine_type = (
+                    layout_engine_type
+                    if layout_engine_type in {"PP-StructureV3", "DocLayout-YOLO"}
+                    else "PP-StructureV3"
+                )
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
                 self.temperature = d.get("temperature", 1.0)
