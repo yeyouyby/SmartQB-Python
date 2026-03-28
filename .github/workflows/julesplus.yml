@@ -127,12 +127,14 @@ jobs:
   # [第四关] 狙击手模式（带 Kimi K2 智能识别）
   # ==========================================
   ping-jules:
-    # 最外层拦截：排除所有白名单，防止 GitHub Action 空跑浪费资源
+    # 最外层拦截：排除所有白名单，新增对 [bot] 后缀的精准拦截
     if: >-
       (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
       github.event.comment.user.login != 'yeyouyby' && 
       github.event.comment.user.login != 'google-labs-jules' && 
+      github.event.comment.user.login != 'google-labs-jules[bot]' && 
       github.event.comment.user.login != 'jules' && 
+      github.event.comment.user.login != 'jules[bot]' && 
       github.event.comment.user.login != 'github-actions[bot]'
     name: 🎯 Smart Sniper @jules
     runs-on: ubuntu-latest
@@ -150,11 +152,20 @@ jobs:
             const commenter = context.payload.comment.user.login.toLowerCase();
             const nimApiKey = process.env.NVIDIA_API_KEY;
             
-            // 设置默认的呼叫文案，防止 AI 生成失败时为空
-            let aiGeneratedMsg = "代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆";
+            // 纯本地的话术库，用 JS 随机提取，绝对不让大模型“自由发挥”代你写代码回复
+            const friendlyMessages = [
+              "代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆",
+              "前置检查已顺利通过，请来看看 AI 刚刚指出的这些细节建议哦 👆",
+              "测试与规范扫描全绿！请参阅上方 AI 提供的代码改进指南 👆",
+              "自动化门禁已放行，以上是 AI 给出的审查建议，请评估是否需要采纳 👆",
+              "基础检查均已通过，请查收这份新鲜出炉的 AI 代码审查报告 👆"
+            ];
+            const safeMsg = friendlyMessages[Math.floor(Math.random() * friendlyMessages.length)];
             
-            // 【终极防线】：排除真实账号 google-labs-jules，避免死循环
-            if (['yeyouyby', 'google-labs-jules', 'jules', 'github-actions[bot]'].includes(commenter)) {
+            // 【终极防线】：排除真实账号及其 [bot] 变体，彻底封死死循环的可能
+            const whiteList = ['yeyouyby', 'google-labs-jules', 'google-labs-jules[bot]', 'jules', 'jules[bot]', 'github-actions[bot]'];
+            
+            if (whiteList.includes(commenter)) {
               if (commentBody.includes("Mock AI Review")) {
                 console.log(`[测试模式开启] 检测到包含 "Mock AI Review" 的评论，强制放行白名单人员 ${commenter} 以测试 NIM 模型！`);
               } else {
@@ -167,7 +178,6 @@ jobs:
             if (nimApiKey) {
               console.log(`正在使用 NVIDIA NIM API (Kimi K2) 分析 ${commenter} 的评论内容...`);
               try {
-                // 确保 fetch 调用的 URL 是纯净的字符串
                 const response = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
                   method: 'POST',
                   headers: {
@@ -179,11 +189,12 @@ jobs:
                     messages: [
                       {
                         role: "system",
-                        content: "你是一个极其精准的文本分类器。你需要判断以下的 GitHub PR 评论是否包含了实质性的代码审查意见（Code Review）、改进建议或开发指南。\n\n请严格以 JSON 格式输出你的分析结果。格式必须为：\n{\n  \"is_review\": true/false,\n  \"reason\": \"简短的一句话说明判断理由\",\n  \"reply_msg\": \"如果判断为true，请生成一句简短友好的中文提示，告知开发者代码已通过检查并请其处理这部分审查/指南意见（不带@人名，只需后半句，例如：'代码检查已顺利通过，请看看这些 AI 给出的代码建议哦👆'）\"\n}\n\n规则如下：\n1. 如果评论中包含具体的代码分析、修改建议、找出的 bug 或开发指导，\"is_review\" 设为 true。\n2. 如果评论仅仅是收到指令的回应（例如'正在为您审阅'）、系统通知或空洞的确认，\"is_review\" 设为 false。\n必须且只能返回合法的 JSON 对象，不要输出任何额外的标记或文字。"
+                        // 剥夺它生成文字的权限，严密锁定它的输出边界
+                        content: "你是一个极其精准的文本分类器。你需要判断以下的 GitHub PR 评论是否包含了实质性的代码审查意见（Code Review）、改进建议或开发指南。\n\n请严格以 JSON 格式输出你的分析结果。格式必须为：\n{\n  \"is_review\": true/false,\n  \"reason\": \"简短的一句话说明判断理由\"\n}\n\n规则如下：\n1. 如果评论中包含具体的代码分析、修改建议、找出的 bug 或开发指导，\"is_review\" 设为 true。\n2. 如果评论仅仅是收到指令的回应（例如'正在为您审阅'）、系统通知或空洞的确认，\"is_review\" 设为 false。\n必须且只能返回合法的 JSON 对象，绝对不要输出任何额外的标记或文字。"
                       },
                       { role: "user", content: commentBody }
                     ],
-                    temperature: 0.2, // 微调温度以允许一定的创造性，让生成的话术更生动
+                    temperature: 0.1, // 恢复冷静，不要做任何联想
                     max_tokens: 512
                   })
                 });
@@ -208,11 +219,6 @@ jobs:
                   console.log("拦截成功：AI 判定这是一条无意义的占位/通知评论，跳过 @jules。");
                   return;
                 }
-                
-                // 成功提取 AI 生成的话术
-                if (resultObj.reply_msg) {
-                  aiGeneratedMsg = resultObj.reply_msg;
-                }
               } catch (err) {
                 console.error("NVIDIA NIM API 调用或 JSON 解析失败，终止本次任务以免误发通知:", err.message);
                 return; 
@@ -226,8 +232,8 @@ jobs:
             const quotedComment = commentBody.split('\n').map(line => `> ${line}`).join('\n');
             const targetNumber = context.payload.issue ? context.payload.issue.number : context.payload.pull_request.number;
             
-            // 将 Quote 部分拼接在你需要发送的话术之上（这里应用 AI 动态生成的话术）
-            const replyBody = `${quotedComment}\n\n@jules ${aiGeneratedMsg}`;
+            // 将 Quote 部分拼接在你需要发送的话术之上（这里使用 JS 本地绝对安全的随机话术）
+            const replyBody = `${quotedComment}\n\n@jules ${safeMsg}`;
             
             // 【模拟真人操作】：生成 1000 到 10000 毫秒（1~10秒）的随机延时
             const delayMs = Math.floor(Math.random() * 9000) + 1000;
