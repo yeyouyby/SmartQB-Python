@@ -1,4 +1,4 @@
-import urllib.request
+import requests  # type: ignore
 import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
@@ -120,7 +120,11 @@ def check_and_install_miktex(raise_errors=False):
 
     try:
         logger.info(f"Downloading MiKTeX installer from {installer_url}...")
-        urllib.request.urlretrieve(installer_url, installer_path)  # nosec B310 # nosemgrep
+        response = requests.get(installer_url, stream=True, timeout=30)
+        response.raise_for_status()
+        with open(installer_path, "wb") as f_out:
+            for chunk in response.iter_content(chunk_size=8192):
+                f_out.write(chunk)
         logger.info("Download complete. Running silent installation...")
         expected_sha256 = os.environ.get(
             "MIKTEX_INSTALLER_SHA256",
