@@ -150,6 +150,9 @@ jobs:
             const commenter = context.payload.comment.user.login.toLowerCase();
             const nimApiKey = process.env.NVIDIA_API_KEY;
             
+            // 设置默认的呼叫文案，防止 AI 生成失败时为空
+            let aiGeneratedMsg = "代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆";
+            
             // 【终极防线】：排除真实账号 google-labs-jules，避免死循环
             if (['yeyouyby', 'google-labs-jules', 'jules', 'github-actions[bot]'].includes(commenter)) {
               if (commentBody.includes("Mock AI Review")) {
@@ -176,12 +179,12 @@ jobs:
                     messages: [
                       {
                         role: "system",
-                        content: "你是一个极其精准的文本分类器。你需要判断以下的 GitHub PR 评论是否包含了实质性的代码审查意见（Code Review）、改进建议或开发指南。\n\n请严格以 JSON 格式输出你的分析结果。格式必须为：\n{\n  \"is_review\": true/false,\n  \"reason\": \"简短的一句话说明判断理由\"\n}\n\n规则如下：\n1. 如果评论中包含具体的代码分析、修改建议、找出的 bug 或开发指导，\"is_review\" 设为 true。\n2. 如果评论仅仅是收到指令的回应（例如'正在为您审阅'）、系统通知或空洞的确认，\"is_review\" 设为 false。\n必须且只能返回合法的 JSON 对象，不要输出任何额外的标记或文字。"
+                        content: "你是一个极其精准的文本分类器。你需要判断以下的 GitHub PR 评论是否包含了实质性的代码审查意见（Code Review）、改进建议或开发指南。\n\n请严格以 JSON 格式输出你的分析结果。格式必须为：\n{\n  \"is_review\": true/false,\n  \"reason\": \"简短的一句话说明判断理由\",\n  \"reply_msg\": \"如果判断为true，请生成一句简短友好的中文提示，告知开发者代码已通过检查并请其处理这部分审查/指南意见（不带@人名，只需后半句，例如：'代码检查已顺利通过，请看看这些 AI 给出的代码建议哦👆'）\"\n}\n\n规则如下：\n1. 如果评论中包含具体的代码分析、修改建议、找出的 bug 或开发指导，\"is_review\" 设为 true。\n2. 如果评论仅仅是收到指令的回应（例如'正在为您审阅'）、系统通知或空洞的确认，\"is_review\" 设为 false。\n必须且只能返回合法的 JSON 对象，不要输出任何额外的标记或文字。"
                       },
                       { role: "user", content: commentBody }
                     ],
-                    temperature: 0.1,
-                    max_tokens: 5120
+                    temperature: 0.2, // 微调温度以允许一定的创造性，让生成的话术更生动
+                    max_tokens: 512
                   })
                 });
                 
@@ -205,6 +208,11 @@ jobs:
                   console.log("拦截成功：AI 判定这是一条无意义的占位/通知评论，跳过 @jules。");
                   return;
                 }
+                
+                // 成功提取 AI 生成的话术
+                if (resultObj.reply_msg) {
+                  aiGeneratedMsg = resultObj.reply_msg;
+                }
               } catch (err) {
                 console.error("NVIDIA NIM API 调用或 JSON 解析失败，终止本次任务以免误发通知:", err.message);
                 return; 
@@ -214,20 +222,24 @@ jobs:
             }
             // --- 智能识别逻辑结束 ---
 
-            // 【呼叫文案】：发出的文字是 @jules，以触发机器人的关键字监听
-            const replyBody = "@jules 代码质量检查已通过，请注意查看并处理这部分 AI 审查/指南意见 👆";
+            // 【完全复刻 GitHub 原生 Quote 机制】：在原文每一行前添加 "> "
+            const quotedComment = commentBody.split('\n').map(line => `> ${line}`).join('\n');
+            const targetNumber = context.payload.issue ? context.payload.issue.number : context.payload.pull_request.number;
             
-            if (eventName === 'issue_comment') {
-              const issueNumber = context.payload.issue.number;
-              await github.rest.issues.createComment({
-                owner: owner, repo: repo, issue_number: issueNumber, body: replyBody
-              });
-              console.log(`[狙击成功] 已在 PR #${issueNumber} 的全局评论下触发了 @jules`);
-            } else if (eventName === 'pull_request_review_comment') {
-              const pullNumber = context.payload.pull_request.number;
-              const commentId = context.payload.comment.id;
-              await github.rest.pulls.createReplyForReviewComment({
-                owner: owner, repo: repo, pull_number: pullNumber, comment_id: commentId, body: replyBody
-              });
-              console.log(`[狙击成功] 已在代码行内评论下触发了 @jules`);
-            }
+            // 将 Quote 部分拼接在你需要发送的话术之上（这里应用 AI 动态生成的话术）
+            const replyBody = `${quotedComment}\n\n@jules ${aiGeneratedMsg}`;
+            
+            // 【模拟真人操作】：生成 1000 到 10000 毫秒（1~10秒）的随机延时
+            const delayMs = Math.floor(Math.random() * 9000) + 1000;
+            console.log(`[随机延时] 等待 ${delayMs} 毫秒后发送通知，模拟真实操作...`);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            
+            // 无论刚才 AI 是在文件里评论，还是在外层评论，我们都在最外层 (Conversation页) 新建一条带 Quote 样式的评论
+            await github.rest.issues.createComment({
+              owner: owner, 
+              repo: repo, 
+              issue_number: targetNumber, 
+              body: replyBody
+            });
+            
+            console.log(`[狙击成功] 已在 PR #${targetNumber} 的最外层进行原生 Quote 引用并触发了 @jules`);
