@@ -24,8 +24,8 @@ class SettingsManager:
         self.embed_model_id = "text-embedding-3-small"
 
         self.recognition_mode = 2
-        self.ocr_engine_type = "Pix2Text"
-        self.layout_engine_type = "DocLayout-YOLO"
+        self.ocr_engine_type = "PP-StructureV3"
+        self.layout_engine_type = "PP-StructureV3"
         self.use_prm_optimization = False
         self.prm_batch_size = 3
         self.temperature = 1.0
@@ -54,17 +54,8 @@ class SettingsManager:
                 self.embed_model_id = d.get("embed_model_id", "text-embedding-3-small")
 
                 self.recognition_mode = d.get("recognition_mode", 2)
-                engine_type = d.get("ocr_engine_type", "Pix2Text")
-                self.ocr_engine_type = (
-                    engine_type if engine_type in {"Pix2Text", "Surya"} else "Pix2Text"
-                )
-                layout_type = d.get("layout_engine_type", "DocLayout-YOLO")
-                self.layout_engine_type = (
-                    layout_type
-                    if isinstance(layout_type, str)
-                    and layout_type in {"DocLayout-YOLO", "Surya"}
-                    else "DocLayout-YOLO"
-                )
+                self.ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
+                self.layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
                 self.temperature = d.get("temperature", 1.0)
@@ -144,6 +135,8 @@ class SettingsManager:
                 "embed_base_url": self.embed_base_url,
                 "embed_model_id": self.embed_model_id,
                 "recognition_mode": self.recognition_mode,
+                "ocr_engine_type": self.ocr_engine_type,
+                "layout_engine_type": self.layout_engine_type,
                 "use_prm_optimization": self.use_prm_optimization,
                 "prm_batch_size": self.prm_batch_size,
                 "temperature": self.temperature,

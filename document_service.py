@@ -1,3 +1,4 @@
+import re
 import io
 import base64
 import numpy as np
@@ -82,17 +83,15 @@ class DocumentService:
 
                             marker_str = f"\n\n[[{{ima_dont_del_{global_marker}}}]]\n\n"
 
-                            import re as regex
-
-                            escaped_name = regex.escape(img_name)
+                            escaped_name = re.escape(img_name)
                             # Remove ![img](path) or similar markdown
-                            full_page_markdown = regex.sub(
+                            full_page_markdown = re.sub(
                                 r"!\[.*?\]\(" + escaped_name + r"\)",
                                 marker_str,
                                 full_page_markdown,
                             )
                             # Remove <img src="path">
-                            full_page_markdown = regex.sub(
+                            full_page_markdown = re.sub(
                                 r'<img[^>]*?src=["\']' + escaped_name + r'["\'][^>]*?>',
                                 marker_str,
                                 full_page_markdown,
