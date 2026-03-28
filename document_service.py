@@ -97,8 +97,10 @@ class DocumentService:
                                 full_page_markdown,
                             )
                             # Fallback
-                            full_page_markdown = full_page_markdown.replace(
-                                img_name, marker_str
+                            full_page_markdown = re.sub(
+                                r"\b" + escaped_name + r"\b",
+                                marker_str,
+                                full_page_markdown,
                             )
 
                             d_idx += 1
