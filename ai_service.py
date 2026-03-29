@@ -249,10 +249,11 @@ class AIService:
             return json.loads(raw_content)
         except json.JSONDecodeError:
             try:
-                clean = re.sub(
-                    r"^```json\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE
-                )
-                return json.loads(clean)
+                # 提取第一个完整的 JSON 对象，防止 AI 加入废话
+                match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+                if match:
+                    return json.loads(match.group(0))
+                return {}
             except json.JSONDecodeError:
                 logger.error("Failed to parse JSON response completely.", exc_info=True)
                 return {}
