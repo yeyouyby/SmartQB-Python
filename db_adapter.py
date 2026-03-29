@@ -205,24 +205,13 @@ class LanceDBAdapter:
                 )
                 if res:
                     return int(res[0]["id"])
-            except ValueError as e:
+            except Exception as e:
                 # Fallback only for query parsing/filter errors; don't hide real DB failures
-                err = str(e).lower()
-                if (
-                    "syntax" not in err
-                    and "parse" not in err
-                    and "datafusion" not in err
-                    and "lanceerror" not in err
-                    and "invalid user input" not in err
-                ):
-                    raise
-                logger.warning(
-                    f"LanceDB search failed for tag '{tag_name}', falling back to pandas. Error: {e}",
+                logger.error(
+                    f"LanceDB search failed for tag '{tag_name}'. Error: {e}",
                     exc_info=True,
                 )
-                t_df = self.t_table.to_pandas()
-                if not t_df.empty and tag_name in t_df["name"].values:
-                    return int(t_df[t_df["name"] == tag_name].iloc[0]["id"])
+                raise
 
             new_t_id = self.next_id()
             self.t_table.add([{"id": new_t_id, "name": tag_name}])
@@ -246,45 +235,57 @@ class LanceDBAdapter:
 
     def search_questions(self, kw):
         if not kw:
-            q_df = self.q_table.to_pandas()
-            if q_df.empty:
+            # Native lancedb to retrieve all, sorting in memory is usually fine for a reasonable number of rows
+            # but for true scale we might need limit/offset.
+            res = self.q_table.search().limit(1000).to_list()  # Adding a safety limit
+            res = sorted(res, key=lambda x: x["id"], reverse=True)
+            return [(int(r["id"]), r["content"]) for r in res]
+
+        try:
+            safe_kw = kw.replace("'", "''")
+            # 1. Search in questions using LanceDB where
+            q_res = (
+                self.q_table.search()
+                .where(f"content LIKE '%{safe_kw}%'")
+                .limit(1000)
+                .to_list()
+            )
+            content_matches = [r["id"] for r in q_res]
+
+            # 2. Search in tags
+            t_res = (
+                self.t_table.search()
+                .where(f"name LIKE '%{safe_kw}%'")
+                .limit(1000)
+                .to_list()
+            )
+            tag_matches = []
+            if t_res:
+                tag_ids = [r["id"] for r in t_res]
+                tag_id_str = ",".join(map(str, tag_ids))
+                qt_res = (
+                    self.qt_table.search()
+                    .where(f"tag_id IN ({tag_id_str})")
+                    .limit(1000)
+                    .to_list()
+                )
+                tag_matches = [r["question_id"] for r in qt_res]
+
+            all_match_ids = list(set(content_matches + tag_matches))
+            if not all_match_ids:
                 return []
-            q_df = q_df.sort_values(by="id", ascending=False)
-            return [(int(r["id"]), r["content"]) for _, r in q_df.iterrows()]
 
-        # SQL equivalent: LIKE %kw%
-        q_df = self.q_table.to_pandas()
-        t_df = self.t_table.to_pandas()
-        qt_df = self.qt_table.to_pandas()
+            # 3. Fetch final questions
+            id_str = ",".join(map(str, all_match_ids))
+            final_res = (
+                self.q_table.search().where(f"id IN ({id_str})").limit(1000).to_list()
+            )
+            final_res = sorted(final_res, key=lambda x: x["id"], reverse=True)
+            return [(int(r["id"]), r["content"]) for r in final_res]
 
-        if q_df.empty:
+        except Exception as e:
+            logger.error(f"LanceDB search_questions failed: {e}", exc_info=True)
             return []
-
-        # Match content
-        content_matches = q_df[q_df["content"].str.contains(kw, case=False, na=False)][
-            "id"
-        ].tolist()
-
-        # Match tags
-        tag_matches = []
-        if not t_df.empty and not qt_df.empty:
-            matching_tags = t_df[t_df["name"].str.contains(kw, case=False, na=False)][
-                "id"
-            ].tolist()
-            if matching_tags:
-                tag_matches = qt_df[qt_df["tag_id"].isin(matching_tags)][
-                    "question_id"
-                ].tolist()
-
-        all_matches = set(content_matches + tag_matches)
-
-        if not all_matches:
-            return []
-
-        res_df = q_df[q_df["id"].isin(all_matches)].sort_values(
-            by="id", ascending=False
-        )
-        return [(int(r["id"]), r["content"]) for _, r in res_df.iterrows()]
 
     def get_question(self, q_id):
         try:

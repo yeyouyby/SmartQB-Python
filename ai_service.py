@@ -1,6 +1,5 @@
 # ai_service.py
 import json
-import re
 from openai import OpenAI
 from utils import logger
 
@@ -245,18 +244,22 @@ class AIService:
         if not isinstance(raw_content, str):
             logger.warning(f"Content not a string: {type(raw_content)}")
             return {}
+        text = raw_content.strip()
+
+        # Find the first '{' and the last '}' to extract the JSON object
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end > start:
+            text = text[start : end + 1]
+
         try:
-            return json.loads(raw_content)
+            return json.loads(text)
         except json.JSONDecodeError:
-            try:
-                # 提取第一个完整的 JSON 对象，防止 AI 加入废话
-                match = re.search(r"\{.*\}", raw_content, re.DOTALL)
-                if match:
-                    return json.loads(match.group(0))
-                return {}
-            except json.JSONDecodeError:
-                logger.error("Failed to parse JSON response completely.", exc_info=True)
-                return {}
+            logger.error(
+                f"Failed to parse JSON response after cleaning: {raw_content}",
+                exc_info=True,
+            )
+            return {}
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。

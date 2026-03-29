@@ -8,6 +8,9 @@ except ImportError:
     keyring = None
 from config import SETTINGS_FILE
 
+SUPPORTED_OCR_ENGINES = {"PP-StructureV3"}
+SUPPORTED_LAYOUT_ENGINES = {"PP-StructureV3"}
+
 # ==========================================
 # 设置服务
 # ==========================================
@@ -55,7 +58,7 @@ class SettingsManager:
 
                 self.recognition_mode = d.get("recognition_mode", 2)
                 ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
-                if ocr_engine_type not in {"PP-StructureV3"}:
+                if ocr_engine_type not in SUPPORTED_OCR_ENGINES:
                     logger.warning(
                         f"发现不支持的 OCR 引擎 '{ocr_engine_type}'，将回退到 'PP-StructureV3'。"
                     )
@@ -63,7 +66,7 @@ class SettingsManager:
                 self.ocr_engine_type = ocr_engine_type
 
                 layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
-                if layout_engine_type not in {"PP-StructureV3"}:
+                if layout_engine_type not in SUPPORTED_LAYOUT_ENGINES:
                     logger.warning(
                         f"发现不支持的布局引擎 '{layout_engine_type}'，将回退到 'PP-StructureV3'。"
                     )
