@@ -309,11 +309,9 @@ class LanceDBAdapter:
             if not tag_ids:
                 return []
 
-            # Filter tags by id. We can load to pandas since it's smaller, or use where IN equivalent (LanceDB might lack IN)
-            t_df = self.t_table.to_pandas()
-            if t_df.empty:
-                return []
-            names = t_df[t_df["id"].isin(tag_ids)]["name"].tolist()
+            tag_id_str = ",".join(map(str, tag_ids))
+            t_res = self.t_table.search().where(f"id IN ({tag_id_str})").to_list()
+            names = [r["name"] for r in t_res]
             return [(n,) for n in names]
         except Exception as e:
             logger.error(f"Error getting question tags: {e}")
