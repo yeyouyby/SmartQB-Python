@@ -55,17 +55,20 @@ class SettingsManager:
 
                 self.recognition_mode = d.get("recognition_mode", 2)
                 ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
-                self.ocr_engine_type = (
-                    ocr_engine_type
-                    if ocr_engine_type in {"PP-StructureV3", "Pix2Text"}
-                    else "PP-StructureV3"
-                )
+                if ocr_engine_type not in {"PP-StructureV3"}:
+                    logger.warning(
+                        f"发现不支持的 OCR 引擎 '{ocr_engine_type}'，将回退到 'PP-StructureV3'。"
+                    )
+                    ocr_engine_type = "PP-StructureV3"
+                self.ocr_engine_type = ocr_engine_type
+
                 layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
-                self.layout_engine_type = (
-                    layout_engine_type
-                    if layout_engine_type in {"PP-StructureV3", "DocLayout-YOLO"}
-                    else "PP-StructureV3"
-                )
+                if layout_engine_type not in {"PP-StructureV3"}:
+                    logger.warning(
+                        f"发现不支持的布局引擎 '{layout_engine_type}'，将回退到 'PP-StructureV3'。"
+                    )
+                    layout_engine_type = "PP-StructureV3"
+                self.layout_engine_type = layout_engine_type
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
                 self.temperature = d.get("temperature", 1.0)
