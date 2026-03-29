@@ -117,7 +117,17 @@ class AIService:
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         )
-        return self._parse_json(response.choices[0].message.content)
+        response_data = self._parse_json(response.choices[0].message.content)
+        if not response_data:
+            logger.error(
+                "AI response for manual correction was empty or unparseable, returning a safe default."
+            )
+            return {
+                "Content": raw_text,
+                "LogicDescriptor": "AI 解析失败，请手动检查。",
+                "Tags": ["解析失败"],
+            }
+        return response_data
 
     def process_slices_with_context(
         self, slices_batch, use_vision=False, pending_fragment="", is_last_batch=False
@@ -218,7 +228,17 @@ class AIService:
             messages=[{"role": "user", "content": messages_content}],
             response_format={"type": "json_object"},
         )
-        return self._parse_json(response.choices[0].message.content)
+        response_data = self._parse_json(response.choices[0].message.content)
+        if not response_data:
+            logger.error(
+                "AI response for slices was empty or unparseable, returning a safe default to continue."
+            )
+            return {
+                "Questions": [],
+                "PendingFragment": pending_fragment,
+                "NextIndex": last_index_plus_one if not has_aux else aux_slice_index,
+            }
+        return response_data
 
     def _parse_json(self, raw_content):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
