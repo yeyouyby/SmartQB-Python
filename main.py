@@ -119,7 +119,7 @@ def check_and_install_miktex(raise_errors=False):
 
     import tempfile
 
-    installer_url = "https://mirrors.ctan.org/systems/win32/miktex/setup/windows-x64/basic-miktex-24.4-x64.exe"
+    installer_url = MIKTEX_INSTALLER_URL
     temp_dir = tempfile.gettempdir()
     installer_path = os.path.join(temp_dir, "miktex-setup.exe")
 
@@ -133,7 +133,7 @@ def check_and_install_miktex(raise_errors=False):
         logger.info("Download complete. Running silent installation...")
         expected_sha256 = os.environ.get(
             "MIKTEX_INSTALLER_SHA256",
-            "3f2fb7c34606117bdc03ea3d2fce1d0ebbbfe1da584da25eb488a75e3f3ab8b2",
+            MIKTEX_EXPECTED_SHA256,
         )
         if expected_sha256:
             import hashlib

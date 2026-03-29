@@ -84,21 +84,13 @@ class DocumentService:
                             marker_str = f"\n\n[[{{ima_dont_del_{global_marker}}}]]\n\n"
 
                             escaped_name = re.escape(img_name)
-                            # Remove ![img](path) or similar markdown
-                            full_page_markdown = re.sub(
-                                r"!\[.*?\]\(" + escaped_name + r"\)",
-                                marker_str,
-                                full_page_markdown,
+                            pattern = (
+                                r"!\[.*?\]\(" + escaped_name + r"\)|"
+                                r'<img[^>]*?src=["\']' + escaped_name + r'["\'][^>]*?>|'
+                                r"\b" + escaped_name + r"\b"
                             )
-                            # Remove <img src="path">
                             full_page_markdown = re.sub(
-                                r'<img[^>]*?src=["\']' + escaped_name + r'["\'][^>]*?>',
-                                marker_str,
-                                full_page_markdown,
-                            )
-                            # Fallback
-                            full_page_markdown = re.sub(
-                                r"\b" + escaped_name + r"\b",
+                                pattern,
                                 marker_str,
                                 full_page_markdown,
                             )
