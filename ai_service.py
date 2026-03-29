@@ -224,11 +224,15 @@ class AIService:
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
         try:
             return json.loads(raw_content)
-        except Exception:
-            clean = re.sub(
-                r"^```json\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE
-            )
-            return json.loads(clean)
+        except json.JSONDecodeError:
+            try:
+                clean = re.sub(
+                    r"^```json\s*|\s*```$", "", raw_content.strip(), flags=re.MULTILINE
+                )
+                return json.loads(clean)
+            except json.JSONDecodeError:
+                logger.error("Failed to parse JSON response completely.", exc_info=True)
+                return {}
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。

@@ -9,6 +9,11 @@ import sys
 import subprocess
 import threading
 
+MIKTEX_INSTALLER_URL = "https://mirrors.rit.edu/CTAN/systems/win32/miktex/setup/windows-x64/basic-miktex-24.1-x64.exe"
+MIKTEX_EXPECTED_SHA256 = (
+    "3f2fb7c34606117bdc03ea3d2fce1d0ebbbfe1da584da25eb488a75e3f3ab8b2"
+)
+
 
 def download_models(raise_errors=False):
     logger.info("Checking and downloading models...")

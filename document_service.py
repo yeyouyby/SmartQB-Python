@@ -73,10 +73,10 @@ class DocumentService:
 
                             buf = io.BytesIO()
                             if isinstance(img_data, np.ndarray):
-                                pil_img = Image.fromarray(img_data)
+                                with Image.fromarray(img_data) as pil_img:
+                                    pil_img.save(buf, format="PNG")
                             else:
-                                pil_img = img_data
-                            pil_img.save(buf, format="PNG")
+                                img_data.save(buf, format="PNG")
                             d_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
                             diagram_map[global_marker] = d_b64
