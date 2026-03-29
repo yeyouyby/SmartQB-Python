@@ -1,5 +1,5 @@
 import pyarrow as pa
-from utils import logger
+from utils import logger, pad_or_truncate_vector
 from db_adapter import LanceDBAdapter
 
 # ==========================================
@@ -37,19 +37,7 @@ def vector_search_db(ai_service, query_text, limit=10):
                 f"Could not get target vector dimension from schema: {e}", exc_info=True
             )
 
-        if len(query_vec) != target_dim:
-            if len(query_vec) == 0:
-                query_vec = [0.0] * target_dim
-            elif len(query_vec) > target_dim:
-                logger.warning(
-                    f"Search query vector dimension mismatch. Truncating vector from {len(query_vec)} to {target_dim}."
-                )
-                query_vec = query_vec[:target_dim]
-            else:
-                logger.warning(
-                    f"Search query vector dimension mismatch. Padding vector from {len(query_vec)} to {target_dim}."
-                )
-                query_vec.extend([0.0] * (target_dim - len(query_vec)))
+        query_vec = pad_or_truncate_vector(query_vec, target_dim)
 
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")

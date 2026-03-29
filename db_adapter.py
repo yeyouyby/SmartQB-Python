@@ -1,3 +1,4 @@
+from utils import pad_or_truncate_vector
 import pyarrow as pa
 import logging
 import time
@@ -162,19 +163,7 @@ class LanceDBAdapter:
                 f"Could not get target vector dimension from schema: {e}", exc_info=True
             )
 
-        if len(vec) != target_dim:
-            if len(vec) == 0:
-                vec = [0.0] * target_dim
-            elif len(vec) > target_dim:
-                logger.warning(
-                    f"Vector dimension mismatch. Truncating vector from {len(vec)} to {target_dim}."
-                )
-                vec = vec[:target_dim]
-            else:
-                logger.warning(
-                    f"Vector dimension mismatch. Padding vector from {len(vec)} to {target_dim}."
-                )
-                vec.extend([0.0] * (target_dim - len(vec)))
+        vec = pad_or_truncate_vector(vec, target_dim)
 
         new_q_id = self.next_id()
         self.q_table.add(
@@ -206,12 +195,36 @@ class LanceDBAdapter:
                 if res:
                     return int(res[0]["id"])
             except Exception as e:
-                # Fallback only for query parsing/filter errors; don't hide real DB failures
-                logger.error(
-                    f"LanceDB search failed for tag '{tag_name}'. Error: {e}",
-                    exc_info=True,
+                # If the error is related to query parsing, fall back to a safer method.
+                err_str = str(e).lower()
+                is_query_error = any(
+                    keyword in err_str
+                    for keyword in [
+                        "syntax",
+                        "parse",
+                        "datafusion",
+                        "lanceerror",
+                        "invalid user input",
+                    ]
                 )
-                raise
+
+                if is_query_error:
+                    logger.warning(
+                        f"LanceDB search failed for tag '{tag_name}', falling back to pandas due to query error. Error: {e}"
+                    )
+                    # Using pandas as a fallback for complex tag names
+                    t_df = self.t_table.to_pandas()
+                    if not t_df.empty:
+                        matching_rows = t_df[t_df["name"] == tag_name]
+                        if not matching_rows.empty:
+                            return int(matching_rows.iloc[0]["id"])
+                else:
+                    # For other errors, log and re-raise.
+                    logger.error(
+                        f"LanceDB search failed for tag '{tag_name}'. Error: {e}",
+                        exc_info=True,
+                    )
+                    raise
 
             new_t_id = self.next_id()
             self.t_table.add([{"id": new_t_id, "name": tag_name}])

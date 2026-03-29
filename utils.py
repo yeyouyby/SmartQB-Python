@@ -50,3 +50,24 @@ def optimize_diagram_to_base64(img_bytes):
     except Exception as e:
         logger.error(f"图样转换失败: {e}")
         return base64.b64encode(img_bytes).decode("utf-8")
+
+
+def pad_or_truncate_vector(vec, target_dim):
+    """
+    Pads or truncates a list to exactly match the target_dim.
+    Logs a warning if modification is necessary.
+    """
+    if len(vec) != target_dim:
+        if len(vec) == 0:
+            vec = [0.0] * target_dim
+        elif len(vec) > target_dim:
+            logger.warning(
+                f"Vector dimension mismatch. Truncating vector from {len(vec)} to {target_dim}."
+            )
+            vec = vec[:target_dim]
+        else:
+            logger.warning(
+                f"Vector dimension mismatch. Padding vector from {len(vec)} to {target_dim}."
+            )
+            vec.extend([0.0] * (target_dim - len(vec)))
+    return vec
