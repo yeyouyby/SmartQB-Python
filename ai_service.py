@@ -242,6 +242,9 @@ class AIService:
 
     def _parse_json(self, raw_content):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
+        if not isinstance(raw_content, str):
+            logger.warning(f"Content not a string: {type(raw_content)}")
+            return {}
         try:
             return json.loads(raw_content)
         except json.JSONDecodeError:
