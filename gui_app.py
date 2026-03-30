@@ -68,7 +68,7 @@ class SmartQBApp(tk.Tk):
 
         self.notebook.add(self.tab_import, text="1. 文件导入与审阅 (Markdown版)")
         self.notebook.add(self.tab_manual, text="➕ 手动单题录入")
-        self.notebook.add(self.tab_library, text="2. 题库维护 (Library)")
+        self.notebook.add(self.tab_library, text="2. 题库维护 (Markdown版)")
         self.notebook.add(self.tab_export, text="3. 题目袋组卷 (Export)")
         self.notebook.add(self.tab_settings, text="设置 (Settings)")
 
@@ -1863,6 +1863,30 @@ class SmartQBApp(tk.Tk):
             content_text, diagram_base64 = adapter.get_question(self.current_lib_q_id)
             self.txt_lib_det.delete("1.0", tk.END)
             self.txt_lib_det.insert(tk.END, content_text if content_text else "")
+
+            if (
+                hasattr(self, "lib_preview_mode")
+                and self.lib_preview_mode
+                and tkhtmlview is not None
+            ):
+                md_text = self.txt_lib_det.get("1.0", tk.END)
+
+                def replacer(match):
+                    marker = match.group(1)
+                    return f"<div style='border: 1px dashed blue; padding: 5px; color: blue;'>[图样占位符 {marker}]</div>"
+
+                try:
+                    import markdown
+
+                    html_text = markdown.markdown(
+                        re.sub(
+                            r"\[\[\{ima_dont_del_(\d+_\d+)\}\]\]", replacer, md_text
+                        ),
+                        extensions=["fenced_code", "tables"],
+                    )
+                    self.html_lib_preview.set_html(html_text)
+                except ImportError:
+                    pass
 
             tags_rows = adapter.get_question_tags(self.current_lib_q_id)
             self.ent_lib_tags.delete(0, tk.END)

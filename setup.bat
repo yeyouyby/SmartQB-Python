@@ -7,7 +7,7 @@ echo ========================================================
 echo        SmartQB Pro V3 (Ultimate) Environment Setup
 echo ========================================================
 echo.
-echo Note 1: Pix2Text and PP-StructureV3 contain deep learning models (PyTorch/ONNX).
+echo Note 1: PP-StructureV3 contain deep learning models (PyTorch/ONNX).
 echo Note 2: We will also install MiKTeX for automatic PDF compilation.
 echo [!] MiKTeX install typically takes 5-10 minutes.
 echo     It will run silently in the background. Please BE PATIENT.

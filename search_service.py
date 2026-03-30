@@ -41,14 +41,14 @@ def vector_search_db(ai_service, query_text, limit=10):
 
         # LanceDB native vector search
         logger.info("Executing native LanceDB vector search...")
-        results = table.search(query_vec).limit(limit).to_pandas()
+        results = table.search(query_vec).limit(limit).to_list()
 
-        if results.empty:
+        if not results:
             logger.info("No matching questions found in vector search.")
             return []
 
         ret = []
-        for _, row in results.iterrows():
+        for row in results:
             sim = 1.0 - row["_distance"] if "_distance" in row else 0.0
             content = row["content"]
             ret.append(
