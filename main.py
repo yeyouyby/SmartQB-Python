@@ -23,71 +23,10 @@ def download_models(raise_errors=False):
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "model")
-
-    p2t_dir = os.path.join(model_dir, "pix2text")
-    yolo_dir = os.path.join(model_dir, "doclayoutyolo")
-
-    os.makedirs(p2t_dir, exist_ok=True)
-    os.makedirs(yolo_dir, exist_ok=True)
-
-    # Set home directories so that pix2text loads from our bundled models directory
-    os.environ["PIX2TEXT_HOME"] = p2t_dir
-    os.environ["CNSTD_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
-    os.environ["CNOCR_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
-
-    try:
-        from huggingface_hub import snapshot_download
-
-        logger.info("Checking Pix2Text Layout Model...")
-        snapshot_download(
-            repo_id="breezedeus/pix2text-layout",
-            local_dir=os.path.join(p2t_dir, "layout-parser"),
-            revision="main",
-        )  # nosec B615
-        logger.info("Checking Pix2Text Table-Rec Model...")
-        snapshot_download(
-            repo_id="breezedeus/pix2text-table-rec",
-            local_dir=os.path.join(p2t_dir, "table-rec"),
-            revision="main",
-        )  # nosec B615
-        logger.info("Checking Pix2Text MFD Model...")
-        snapshot_download(
-            repo_id="breezedeus/pix2text-mfd",
-            local_dir=os.path.join(p2t_dir, "mfd"),
-            revision="main",
-        )  # nosec B615
-        logger.info("Checking Pix2Text MFR Model...")
-        snapshot_download(
-            repo_id="breezedeus/pix2text-mfr",
-            local_dir=os.path.join(p2t_dir, "mfr-1.5-onnx"),
-            revision="main",
-        )  # nosec B615
-        logger.info("Checking CnSTD/CnOCR Models...")
-        snapshot_download(
-            repo_id="breezedeus/cnstd-cnocr-models",
-            local_dir=os.path.join(p2t_dir, "cnstd-cnocr-models"),
-            revision="main",
-        )  # nosec B615
-        logger.info("Pix2Text models downloaded successfully.")
-    except Exception as e:
-        logger.error(f"Failed to download Pix2Text models: {e}")
-        if raise_errors:
-            raise
-
-    try:
-        from modelscope.hub.snapshot_download import snapshot_download as ms_download
-
-        logger.info("Checking DocLayout-YOLO Model...")
-        ms_download(
-            model_id="AI-ModelScope/DocLayout-YOLO-DocStructBench-onnx",
-            local_dir=yolo_dir,
-            revision="master",
-        )
-        logger.info("DocLayout-YOLO models downloaded successfully.")
-    except Exception as e:
-        logger.error(f"Failed to download DocLayout-YOLO models: {e}")
-        if raise_errors:
-            raise
+    os.makedirs(model_dir, exist_ok=True)
+    logger.info(
+        "Models download routine completed (PaddleOCR handles its own downloads)."
+    )
 
 
 def check_and_install_miktex(raise_errors=False):
@@ -276,10 +215,6 @@ if __name__ == "__main__":
     else:
         base_dir = os.path.dirname(os.path.abspath(__file__))
     model_dir = os.path.join(base_dir, "model")
-    p2t_dir = os.path.join(model_dir, "pix2text")
-    os.environ["PIX2TEXT_HOME"] = p2t_dir
-    os.environ["CNSTD_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
-    os.environ["CNOCR_HOME"] = os.path.join(p2t_dir, "cnstd-cnocr-models")
 
     if args.setup_only:
         download_models(raise_errors=True)

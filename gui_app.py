@@ -66,7 +66,7 @@ class SmartQBApp(tk.Tk):
         self.tab_export = ttk.Frame(self.notebook)
         self.tab_settings = ttk.Frame(self.notebook)
 
-        self.notebook.add(self.tab_import, text="1. 文件导入与审阅 (Import)")
+        self.notebook.add(self.tab_import, text="1. 文件导入与审阅 (Markdown版)")
         self.notebook.add(self.tab_manual, text="➕ 手动单题录入")
         self.notebook.add(self.tab_library, text="2. 题库维护 (Library)")
         self.notebook.add(self.tab_export, text="3. 题目袋组卷 (Export)")
@@ -929,6 +929,28 @@ class SmartQBApp(tk.Tk):
         self.txt_stg_content.insert(tk.END, q["content"])
         self.ent_stg_tags.delete(0, tk.END)
         self.ent_stg_tags.insert(0, ",".join(q.get("tags", [])))
+
+        if (
+            hasattr(self, "preview_mode")
+            and self.preview_mode
+            and tkhtmlview is not None
+        ):
+            md_text = self.txt_stg_content.get("1.0", tk.END)
+
+            def replacer(match):
+                marker = match.group(1)
+                return f"<div style='border: 1px dashed blue; padding: 5px; color: blue;'>[图样占位符 {marker}]</div>"
+
+            try:
+                import markdown
+
+                html_text = markdown.markdown(
+                    re.sub(r"\[\[\{ima_dont_del_(\d+_\d+)\}\]\]", replacer, md_text),
+                    extensions=["fenced_code", "tables"],
+                )
+                self.html_stg_preview.set_html(html_text)
+            except ImportError:
+                pass
 
         # Determine what to display (diagram if present)
         display_img_b64 = q.get("diagram")

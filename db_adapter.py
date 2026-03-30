@@ -231,20 +231,26 @@ class LanceDBAdapter:
             return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
-        qt_df = self.qt_table.to_pandas()
-        exists = (
-            not qt_df.empty
-            and len(qt_df[(qt_df["question_id"] == q_id) & (qt_df["tag_id"] == t_id)])
-            > 0
-        )
-        if not exists:
-            self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
+        # Prevent check-then-insert race
+        with _id_lock:
+            res = (
+                self.qt_table.search()
+                .where(f"question_id = {q_id} AND tag_id = {t_id}")
+                .limit(1)
+                .to_list()
+            )
+            if not res:
+                self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
 
     def get_all_tags(self):
-        t_df = self.t_table.to_pandas()
-        if t_df.empty:
+        try:
+            # For a moderate number of tags, grabbing all via limit(10000) is fine
+            # For scale, pagination or autocomplete is preferred
+            res = self.t_table.search().limit(10000).to_list()
+            return [(int(r["id"]), r["name"]) for r in res]
+        except Exception as e:
+            logger.error(f"LanceDB get_all_tags failed: {e}", exc_info=True)
             return []
-        return [(int(r["id"]), r["name"]) for _, r in t_df.iterrows()]
 
     def search_questions(self, kw):
         if not kw:
