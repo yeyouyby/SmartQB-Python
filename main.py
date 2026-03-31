@@ -220,8 +220,12 @@ if __name__ == "__main__":
     model_dir = os.path.join(base_dir, "model")
 
     if args.setup_only:
-        download_models(raise_errors=True)
-        check_and_install_miktex(raise_errors=True)
+        try:
+            download_models(raise_errors=True)
+            check_and_install_miktex(raise_errors=True)
+        except Exception as e:
+            logger.error(f"Setup failed: {e}", exc_info=True)
+            sys.exit(1)
         sys.exit(0)
 
     threading.Thread(target=download_models).start()
