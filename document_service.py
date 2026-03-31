@@ -46,6 +46,7 @@ class DocumentService:
                 try:
                     full_page_markdown = ""
                     diagram_map = {}
+                    annotated_img = None
 
                     if layout_predictor is not None:
                         # --- PP-StructureV3 逻辑 ---
@@ -120,8 +121,9 @@ class DocumentService:
 
                     # Package the entire page as ONE slice
                     annotated_buf = io.BytesIO()
-                    if "annotated_img" in locals() and annotated_img is not None:
+                    if annotated_img is not None:
                         annotated_img.save(annotated_buf, format="PNG")
+                        annotated_img.close()
                     else:
                         img.save(annotated_buf, format="PNG")
                     page_annotated_b64 = base64.b64encode(
