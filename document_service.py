@@ -71,7 +71,11 @@ class DocumentService:
                                 if "text_region" in res:
                                     pts = res["text_region"]
                                     if len(pts) == 4:
-                                        draw.polygon([tuple(p) for p in pts], outline="red", width=2)
+                                        draw.polygon(
+                                            [tuple(p) for p in pts],
+                                            outline="red",
+                                            width=2,
+                                        )
                                 elif "bbox" in res:
                                     box = res["bbox"]
                                     if len(box) == 4:
@@ -116,11 +120,13 @@ class DocumentService:
 
                     # Package the entire page as ONE slice
                     annotated_buf = io.BytesIO()
-                    if 'annotated_img' in locals() and annotated_img is not None:
+                    if "annotated_img" in locals() and annotated_img is not None:
                         annotated_img.save(annotated_buf, format="PNG")
                     else:
                         img.save(annotated_buf, format="PNG")
-                    page_annotated_b64 = base64.b64encode(annotated_buf.getvalue()).decode("utf-8")
+                    page_annotated_b64 = base64.b64encode(
+                        annotated_buf.getvalue()
+                    ).decode("utf-8")
 
                     slice_obj = {
                         "text": full_page_markdown,
