@@ -4,7 +4,7 @@ import base64
 import numpy as np
 import fitz  # PyMuPDF
 import docx
-from PIL import Image
+from PIL import Image, ImageDraw
 from utils import logger
 
 # ==========================================
@@ -64,6 +64,19 @@ class DocumentService:
 
                         full_page_markdown = md_info
 
+                        annotated_img = img.copy()
+                        if output and isinstance(output, list):
+                            draw = ImageDraw.Draw(annotated_img)
+                            for res in output:
+                                if "text_region" in res:
+                                    pts = res["text_region"]
+                                    if len(pts) == 4:
+                                        draw.polygon([tuple(p) for p in pts], outline="red", width=2)
+                                elif "bbox" in res:
+                                    box = res["bbox"]
+                                    if len(box) == 4:
+                                        draw.rectangle(box, outline="red", width=2)
+
                         d_idx = 0
                         for img_name, img_data in md_images.items():
                             global_marker = f"{page_index}_{d_idx}"
@@ -102,12 +115,19 @@ class DocumentService:
                     )
 
                     # Package the entire page as ONE slice
+                    annotated_buf = io.BytesIO()
+                    if 'annotated_img' in locals() and annotated_img is not None:
+                        annotated_img.save(annotated_buf, format="PNG")
+                    else:
+                        img.save(annotated_buf, format="PNG")
+                    page_annotated_b64 = base64.b64encode(annotated_buf.getvalue()).decode("utf-8")
+
                     slice_obj = {
                         "text": full_page_markdown,
                         "image_b64": page_image_b64,
                         "diagram": next(iter(diagram_map.values()), None),
                         "diagram_map": diagram_map,
-                        "page_annotated_b64": page_image_b64,  # Fallback to original image since we removed draw boxes
+                        "page_annotated_b64": page_annotated_b64,
                     }
 
                     pending_slices.append(slice_obj)
