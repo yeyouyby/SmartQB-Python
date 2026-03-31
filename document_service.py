@@ -57,13 +57,10 @@ class DocumentService:
 
                         if output and isinstance(output, list):
                             for res in output:
-                                if hasattr(res, "markdown"):
-                                    md_info += res.markdown + "\n"
-                                if (
-                                    hasattr(res, "markdown_images")
-                                    and res.markdown_images
-                                ):
-                                    md_images.update(res.markdown_images)
+                                if "markdown" in res:
+                                    md_info += res["markdown"] + "\n"
+                                if res.get("markdown_images"):
+                                    md_images.update(res["markdown_images"])
 
                         full_page_markdown = md_info
 

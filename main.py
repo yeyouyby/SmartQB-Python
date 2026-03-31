@@ -78,7 +78,10 @@ def check_and_install_miktex(raise_errors=False):
             import hashlib
 
             with open(installer_path, "rb") as f_sha:
-                actual_sha256 = hashlib.sha256(f_sha.read()).hexdigest()
+                sha256_hash = hashlib.sha256()
+                for chunk in iter(lambda: f_sha.read(8192), b""):
+                    sha256_hash.update(chunk)
+                actual_sha256 = sha256_hash.hexdigest()
             if actual_sha256.lower() != expected_sha256.lower():
                 raise RuntimeError(
                     "MiKTeX installer checksum mismatch; aborting installation."

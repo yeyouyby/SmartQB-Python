@@ -35,6 +35,7 @@ class SettingsManager:
         self.top_p = 1.0
         self.max_tokens = 4096
         self.reasoning_effort = "medium"
+        self.embedding_dimension = 1536
 
         self.keyring_service_name = "SmartQB_Pro_V3"
         self.keyring_username_api = "default_api_key"
@@ -78,6 +79,7 @@ class SettingsManager:
                 self.top_p = d.get("top_p", 1.0)
                 self.max_tokens = d.get("max_tokens", 4096)
                 self.reasoning_effort = d.get("reasoning_effort", "medium")
+                self.embedding_dimension = int(d.get("embedding_dimension", 1536))
 
                 if allow_plaintext_fallback:
                     self.api_key = d.get("api_key", "")
@@ -159,6 +161,7 @@ class SettingsManager:
                 "top_p": self.top_p,
                 "max_tokens": self.max_tokens,
                 "reasoning_effort": self.reasoning_effort,
+                "embedding_dimension": getattr(self, "embedding_dimension", 1536),
             }
             if not keyring_success and allow_plaintext_fallback:
                 payload["api_key"] = self.api_key
