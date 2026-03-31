@@ -12,3 +12,4 @@ markdown
 rich>=13.8.0
 tkhtmlview
 types-Markdown
+PySide6-Fluent-Widgets[full]
