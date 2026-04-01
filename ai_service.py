@@ -1,3 +1,4 @@
+import re
 # ai_service.py
 import json
 from openai import OpenAI
@@ -246,11 +247,18 @@ class AIService:
             return {}
         text = raw_content.strip()
 
-        # Find the first '{' and the last '}' to extract the JSON object
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            text = text[start : end + 1]
+        # 1. Try to extract from a markdown code block first
+        md_match = re.search(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        if md_match:
+            try:
+                return json.loads(md_match.group(1))
+            except json.JSONDecodeError:
+                pass
+
+        # 2. Try to find the outermost JSON structure using regex to handle extra preamble
+        obj_match = re.search(r"\{.*\}|\[.*\]", text, re.DOTALL)
+        if obj_match:
+            text = obj_match.group(0)
 
         try:
             return json.loads(text)

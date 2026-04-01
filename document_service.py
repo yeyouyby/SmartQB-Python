@@ -123,7 +123,6 @@ class DocumentService:
                     annotated_buf = io.BytesIO()
                     if annotated_img is not None:
                         annotated_img.save(annotated_buf, format="PNG")
-                        annotated_img.close()
                     else:
                         img.save(annotated_buf, format="PNG")
                     page_annotated_b64 = base64.b64encode(
@@ -148,6 +147,8 @@ class DocumentService:
                             )
 
                 finally:
+                    if annotated_img:
+                        annotated_img.close()
                     if img:
                         img.close()
 

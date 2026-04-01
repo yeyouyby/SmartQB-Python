@@ -27,11 +27,11 @@ class LanceDBAdapter:
         self.db = get_db()
 
         self.settings = SettingsManager()
-        embedding_dim_str = getattr(self.settings, "embedding_dimension", "1024")
+        embedding_dim_str = getattr(self.settings, "embedding_dimension", "1536")
         try:
             self.embedding_dimension = int(embedding_dim_str)
         except (ValueError, TypeError):
-            self.embedding_dimension = 1024
+            self.embedding_dimension = 1536
 
         if machine_id is None:
             mac_address = str(uuid.getnode())
