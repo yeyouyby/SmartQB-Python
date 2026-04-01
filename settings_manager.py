@@ -1,14 +1,20 @@
+from utils import logger
 import os
 import json
+
 try:
     import keyring
 except ImportError:
     keyring = None
 from config import SETTINGS_FILE
 
+SUPPORTED_OCR_ENGINES = {"PP-StructureV3"}
+SUPPORTED_LAYOUT_ENGINES = {"PP-StructureV3"}
+
 # ==========================================
 # 设置服务
 # ==========================================
+
 
 class SettingsManager:
     def __init__(self):
@@ -21,14 +27,15 @@ class SettingsManager:
         self.embed_model_id = "text-embedding-3-small"
 
         self.recognition_mode = 2
-        self.ocr_engine_type = 'Pix2Text'
-        self.layout_engine_type = 'DocLayout-YOLO'
+        self.ocr_engine_type = "PP-StructureV3"
+        self.layout_engine_type = "PP-StructureV3"
         self.use_prm_optimization = False
         self.prm_batch_size = 3
         self.temperature = 1.0
         self.top_p = 1.0
         self.max_tokens = 4096
-        self.reasoning_effort = 'medium'
+        self.reasoning_effort = "medium"
+        self.embedding_dimension = 1536
 
         self.keyring_service_name = "SmartQB_Pro_V3"
         self.keyring_username_api = "default_api_key"
@@ -42,7 +49,8 @@ class SettingsManager:
             try:
                 with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
                     d = json.load(f)
-                if not isinstance(d, dict): return
+                if not isinstance(d, dict):
+                    return
 
                 self.base_url = d.get("base_url", "")
                 self.model_id = d.get("model_id", "gpt-4o-mini")
@@ -50,16 +58,28 @@ class SettingsManager:
                 self.embed_model_id = d.get("embed_model_id", "text-embedding-3-small")
 
                 self.recognition_mode = d.get("recognition_mode", 2)
-                engine_type = d.get("ocr_engine_type", "Pix2Text")
-                self.ocr_engine_type = engine_type if engine_type in {"Pix2Text", "Surya"} else "Pix2Text"
-                layout_type = d.get("layout_engine_type", "DocLayout-YOLO")
-                self.layout_engine_type = layout_type if isinstance(layout_type, str) and layout_type in {"DocLayout-YOLO", "Surya"} else "DocLayout-YOLO"
+                ocr_engine_type = d.get("ocr_engine_type", "PP-StructureV3")
+                if ocr_engine_type not in SUPPORTED_OCR_ENGINES:
+                    logger.warning(
+                        f"发现不支持的 OCR 引擎 '{ocr_engine_type}'，将回退到 'PP-StructureV3'。"
+                    )
+                    ocr_engine_type = "PP-StructureV3"
+                self.ocr_engine_type = ocr_engine_type
+
+                layout_engine_type = d.get("layout_engine_type", "PP-StructureV3")
+                if layout_engine_type not in SUPPORTED_LAYOUT_ENGINES:
+                    logger.warning(
+                        f"发现不支持的布局引擎 '{layout_engine_type}'，将回退到 'PP-StructureV3'。"
+                    )
+                    layout_engine_type = "PP-StructureV3"
+                self.layout_engine_type = layout_engine_type
                 self.use_prm_optimization = d.get("use_prm_optimization", False)
                 self.prm_batch_size = d.get("prm_batch_size", 3)
                 self.temperature = d.get("temperature", 1.0)
                 self.top_p = d.get("top_p", 1.0)
                 self.max_tokens = d.get("max_tokens", 4096)
                 self.reasoning_effort = d.get("reasoning_effort", "medium")
+                self.embedding_dimension = int(d.get("embedding_dimension", 1536))
 
                 if allow_plaintext_fallback:
                     self.api_key = d.get("api_key", "")
@@ -70,42 +90,58 @@ class SettingsManager:
 
         if keyring is not None:
             try:
-                secure_api_key = keyring.get_password(self.keyring_service_name, self.keyring_username_api)
+                secure_api_key = keyring.get_password(
+                    self.keyring_service_name, self.keyring_username_api
+                )
                 if secure_api_key:
                     self.api_key = secure_api_key
 
-                secure_embed_key = keyring.get_password(self.keyring_service_name, self.keyring_username_embed)
+                secure_embed_key = keyring.get_password(
+                    self.keyring_service_name, self.keyring_username_embed
+                )
                 if secure_embed_key:
                     self.embed_api_key = secure_embed_key
             except Exception as e:
                 logger.warning(f"Failed to load keys from keyring: {e}")
                 # We do not swallow error if the caller prefers strict keyring failure
-                pass # Never crash
+                pass  # Never crash
 
     def save(self, allow_plaintext_fallback=False):
         keyring_success = False
         if keyring is not None:
             try:
                 if self.api_key:
-                    keyring.set_password(self.keyring_service_name, self.keyring_username_api, self.api_key)
+                    keyring.set_password(
+                        self.keyring_service_name,
+                        self.keyring_username_api,
+                        self.api_key,
+                    )
                 else:
-                    keyring.delete_password(self.keyring_service_name, self.keyring_username_api)
+                    keyring.delete_password(
+                        self.keyring_service_name, self.keyring_username_api
+                    )
             except keyring.errors.PasswordDeleteError:
                 pass
             except Exception as e:
                 logger.warning(f"Keyring save api_key failed: {e}")
-                pass # Never crash, fallback to plaintext
+                pass  # Never crash, fallback to plaintext
 
             try:
                 if self.embed_api_key:
-                    keyring.set_password(self.keyring_service_name, self.keyring_username_embed, self.embed_api_key)
+                    keyring.set_password(
+                        self.keyring_service_name,
+                        self.keyring_username_embed,
+                        self.embed_api_key,
+                    )
                 else:
-                    keyring.delete_password(self.keyring_service_name, self.keyring_username_embed)
+                    keyring.delete_password(
+                        self.keyring_service_name, self.keyring_username_embed
+                    )
             except keyring.errors.PasswordDeleteError:
                 pass
             except Exception as e:
                 logger.warning(f"Keyring save embed_api_key failed: {e}")
-                pass # Never crash, fallback to plaintext
+                pass  # Never crash, fallback to plaintext
 
             keyring_success = True
 
@@ -124,7 +160,8 @@ class SettingsManager:
                 "temperature": self.temperature,
                 "top_p": self.top_p,
                 "max_tokens": self.max_tokens,
-                "reasoning_effort": self.reasoning_effort
+                "reasoning_effort": self.reasoning_effort,
+                "embedding_dimension": getattr(self, "embedding_dimension", 1536),
             }
             if not keyring_success and allow_plaintext_fallback:
                 payload["api_key"] = self.api_key

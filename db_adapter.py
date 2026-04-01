@@ -1,28 +1,33 @@
+from utils import pad_or_truncate_vector
 import pyarrow as pa
 import logging
-import json
 import time
 import threading
 import uuid
 import zlib
-logger = logging.getLogger(__name__)
 
 import lancedb
 from settings_manager import SettingsManager
+
+logger = logging.getLogger(__name__)
+
+
 def get_db():
     logger.info("Connecting to LanceDB database: 'smartqb_lancedb'")
-    return lancedb.connect('smartqb_lancedb')
+    return lancedb.connect("smartqb_lancedb")
+
 
 _id_lock = threading.RLock()
 _last_timestamp = -1
 _sequence = 0
+
 
 class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
 
         self.settings = SettingsManager()
-        embedding_dim_str = getattr(self.settings, 'embedding_dimension', '1024')
+        embedding_dim_str = getattr(self.settings, "embedding_dimension", "1024")
         try:
             self.embedding_dimension = int(embedding_dim_str)
         except (ValueError, TypeError):
@@ -30,7 +35,7 @@ class LanceDBAdapter:
 
         if machine_id is None:
             mac_address = str(uuid.getnode())
-            machine_id = zlib.crc32(mac_address.encode('utf-8')) % 1024
+            machine_id = zlib.crc32(mac_address.encode("utf-8")) % 1024
 
         self.machine_id = machine_id
 
@@ -54,17 +59,24 @@ class LanceDBAdapter:
         except FileNotFoundError:
             pass
         except Exception:
-            logger.warning("Failed to open 'questions' table, attempting to create it.", exc_info=True)
+            logger.warning(
+                "Failed to open 'questions' table, attempting to create it.",
+                exc_info=True,
+            )
             self.q_table = self.db.create_table(
                 "questions",
-                schema=pa.schema([
-                    pa.field("id", pa.int64()),
-                    pa.field("content", pa.string()),
-                    pa.field("logic_descriptor", pa.string()),
-                    pa.field("difficulty", pa.float64()),
-                    pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
-                    pa.field("diagram_base64", pa.string()),
-                ]),
+                schema=pa.schema(
+                    [
+                        pa.field("id", pa.int64()),
+                        pa.field("content", pa.string()),
+                        pa.field("logic_descriptor", pa.string()),
+                        pa.field("difficulty", pa.float64()),
+                        pa.field(
+                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
+                        ),
+                        pa.field("diagram_base64", pa.string()),
+                    ]
+                ),
             )
 
         try:
@@ -72,13 +84,17 @@ class LanceDBAdapter:
         except FileNotFoundError:
             pass
         except Exception:
-            logger.warning("Failed to open 'tags' table, attempting to create it.", exc_info=True)
+            logger.warning(
+                "Failed to open 'tags' table, attempting to create it.", exc_info=True
+            )
             self.t_table = self.db.create_table(
                 "tags",
-                schema=pa.schema([
-                    pa.field("id", pa.int64()),
-                    pa.field("name", pa.string()),
-                ]),
+                schema=pa.schema(
+                    [
+                        pa.field("id", pa.int64()),
+                        pa.field("name", pa.string()),
+                    ]
+                ),
             )
 
         try:
@@ -86,13 +102,18 @@ class LanceDBAdapter:
         except FileNotFoundError:
             pass
         except Exception:
-            logger.warning("Failed to open 'question_tags' table, attempting to create it.", exc_info=True)
+            logger.warning(
+                "Failed to open 'question_tags' table, attempting to create it.",
+                exc_info=True,
+            )
             self.qt_table = self.db.create_table(
                 "question_tags",
-                schema=pa.schema([
-                    pa.field("question_id", pa.int64()),
-                    pa.field("tag_id", pa.int64()),
-                ]),
+                schema=pa.schema(
+                    [
+                        pa.field("question_id", pa.int64()),
+                        pa.field("tag_id", pa.int64()),
+                    ]
+                ),
             )
 
     def _gen_timestamp(self):
@@ -103,7 +124,9 @@ class LanceDBAdapter:
         with _id_lock:
             timestamp = self._gen_timestamp()
             if timestamp < _last_timestamp:
-                raise RuntimeError(f"Clock moved backwards. Refusing to generate id for {_last_timestamp - timestamp} milliseconds")
+                raise RuntimeError(
+                    f"Clock moved backwards. Refusing to generate id for {_last_timestamp - timestamp} milliseconds"
+                )
             if timestamp == _last_timestamp:
                 _sequence = (_sequence + 1) & self.sequence_mask
                 if _sequence == 0:
@@ -111,7 +134,11 @@ class LanceDBAdapter:
             else:
                 _sequence = 0
             _last_timestamp = timestamp
-            return ((timestamp - self.twepoch) << self.timestamp_left_shift) | (self.machine_id << self.machine_id_shift) | _sequence
+            return (
+                ((timestamp - self.twepoch) << self.timestamp_left_shift)
+                | (self.machine_id << self.machine_id_shift)
+                | _sequence
+            )
 
     def _wait_next_millis(self, last_timestamp):
         timestamp = self._gen_timestamp()
@@ -132,27 +159,25 @@ class LanceDBAdapter:
                 if pa.types.is_fixed_size_list(vector_type):
                     target_dim = vector_type.list_size
         except Exception as e:
-            logger.warning(f"Could not get target vector dimension from schema: {e}", exc_info=True)
+            logger.warning(
+                f"Could not get target vector dimension from schema: {e}", exc_info=True
+            )
 
-        if len(vec) != target_dim:
-            if len(vec) == 0:
-                vec = [0.0] * target_dim
-            elif len(vec) > target_dim:
-                logger.warning(f"Vector dimension mismatch. Truncating vector from {len(vec)} to {target_dim}.")
-                vec = vec[:target_dim]
-            else:
-                logger.warning(f"Vector dimension mismatch. Padding vector from {len(vec)} to {target_dim}.")
-                vec.extend([0.0] * (target_dim - len(vec)))
+        vec = pad_or_truncate_vector(vec, target_dim)
 
         new_q_id = self.next_id()
-        self.q_table.add([{
-            "id": new_q_id,
-            "content": content,
-            "logic_descriptor": logic or "",
-            "difficulty": 0.0,
-            "vector": vec,
-            "diagram_base64": diagram_b64 or ""
-        }])
+        self.q_table.add(
+            [
+                {
+                    "id": new_q_id,
+                    "content": content,
+                    "logic_descriptor": logic or "",
+                    "difficulty": 0.0,
+                    "vector": vec,
+                    "diagram_base64": diagram_b64 or "",
+                }
+            ]
+        )
         return new_q_id
 
     def execute_insert_tag(self, tag_name):
@@ -161,64 +186,125 @@ class LanceDBAdapter:
             try:
                 # Escape single quotes for DataFusion SQL parser
                 safe_tag_name = tag_name.replace("'", "''")
-                res = self.t_table.search().where(f"name = '{safe_tag_name}'").limit(1).to_list()
+                res = (
+                    self.t_table.search()
+                    .where(f"name = '{safe_tag_name}'")
+                    .limit(1)
+                    .to_list()
+                )
                 if res:
-                    return int(res[0]['id'])
-            except ValueError as e:
-                # Fallback only for query parsing/filter errors; don't hide real DB failures
-                err = str(e).lower()
-                if "syntax" not in err and "parse" not in err and "datafusion" not in err and "lanceerror" not in err and "invalid user input" not in err:
+                    return int(res[0]["id"])
+            except Exception as e:
+                # If the error is related to query parsing, fall back to a safer method.
+                err_str = str(e).lower()
+                is_query_error = any(
+                    keyword in err_str
+                    for keyword in [
+                        "syntax",
+                        "parse",
+                        "datafusion",
+                        "lanceerror",
+                        "invalid user input",
+                    ]
+                )
+
+                if is_query_error:
+                    logger.warning(
+                        f"LanceDB search failed for tag '{tag_name}', falling back to pandas due to query error. Error: {e}"
+                    )
+                    # Using pandas as a fallback for complex tag names
+                    t_df = self.t_table.to_pandas()
+                    if not t_df.empty:
+                        matching_rows = t_df[t_df["name"] == tag_name]
+                        if not matching_rows.empty:
+                            return int(matching_rows.iloc[0]["id"])
+                else:
+                    # For other errors, log and re-raise.
+                    logger.error(
+                        f"LanceDB search failed for tag '{tag_name}'. Error: {e}",
+                        exc_info=True,
+                    )
                     raise
-                logger.warning(f"LanceDB search failed for tag '{tag_name}', falling back to pandas. Error: {e}", exc_info=True)
-                t_df = self.t_table.to_pandas()
-                if not t_df.empty and tag_name in t_df['name'].values:
-                    return int(t_df[t_df['name'] == tag_name].iloc[0]['id'])
 
             new_t_id = self.next_id()
             self.t_table.add([{"id": new_t_id, "name": tag_name}])
             return new_t_id
 
     def execute_insert_question_tag(self, q_id, t_id):
-        qt_df = self.qt_table.to_pandas()
-        exists = not qt_df.empty and len(qt_df[(qt_df['question_id'] == q_id) & (qt_df['tag_id'] == t_id)]) > 0
-        if not exists:
-            self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
+        # Prevent check-then-insert race
+        with _id_lock:
+            res = (
+                self.qt_table.search()
+                .where(f"question_id = {int(q_id)} AND tag_id = {int(t_id)}")
+                .limit(1)
+                .to_list()
+            )
+            if not res:
+                self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
 
     def get_all_tags(self):
-        t_df = self.t_table.to_pandas()
-        if t_df.empty: return []
-        return [(int(r['id']), r['name']) for _, r in t_df.iterrows()]
+        try:
+            # For a moderate number of tags, grabbing all via limit(10000) is fine
+            # For scale, pagination or autocomplete is preferred
+            res = self.t_table.search().limit(10000).to_list()
+            return [(int(r["id"]), r["name"]) for r in res]
+        except Exception as e:
+            logger.error(f"LanceDB get_all_tags failed: {e}", exc_info=True)
+            return []
 
     def search_questions(self, kw):
         if not kw:
-            q_df = self.q_table.to_pandas()
-            if q_df.empty: return []
-            q_df = q_df.sort_values(by="id", ascending=False)
-            return [(int(r['id']), r['content']) for _, r in q_df.iterrows()]
+            # Native lancedb to retrieve all, sorting in memory is usually fine for a reasonable number of rows
+            # but for true scale we might need limit/offset.
+            res = self.q_table.search().limit(1000).to_list()  # Adding a safety limit
+            res = sorted(res, key=lambda x: x["id"], reverse=True)
+            return [(int(r["id"]), r["content"]) for r in res]
 
-        # SQL equivalent: LIKE %kw%
-        q_df = self.q_table.to_pandas()
-        t_df = self.t_table.to_pandas()
-        qt_df = self.qt_table.to_pandas()
+        try:
+            safe_kw = kw.replace("'", "''")
+            # 1. Search in questions using LanceDB where
+            q_res = (
+                self.q_table.search()
+                .where(f"content LIKE '%{safe_kw}%'")
+                .limit(1000)
+                .to_list()
+            )
+            content_matches = [r["id"] for r in q_res]
 
-        if q_df.empty: return []
+            # 2. Search in tags
+            t_res = (
+                self.t_table.search()
+                .where(f"name LIKE '%{safe_kw}%'")
+                .limit(1000)
+                .to_list()
+            )
+            tag_matches = []
+            if t_res:
+                tag_ids = [r["id"] for r in t_res]
+                tag_id_str = ",".join(map(str, tag_ids))
+                qt_res = (
+                    self.qt_table.search()
+                    .where(f"tag_id IN ({tag_id_str})")
+                    .limit(1000)
+                    .to_list()
+                )
+                tag_matches = [r["question_id"] for r in qt_res]
 
-        # Match content
-        content_matches = q_df[q_df['content'].str.contains(kw, case=False, na=False)]['id'].tolist()
+            all_match_ids = list(set(content_matches + tag_matches))
+            if not all_match_ids:
+                return []
 
-        # Match tags
-        tag_matches = []
-        if not t_df.empty and not qt_df.empty:
-            matching_tags = t_df[t_df['name'].str.contains(kw, case=False, na=False)]['id'].tolist()
-            if matching_tags:
-                tag_matches = qt_df[qt_df['tag_id'].isin(matching_tags)]['question_id'].tolist()
+            # 3. Fetch final questions
+            id_str = ",".join(map(str, all_match_ids))
+            final_res = (
+                self.q_table.search().where(f"id IN ({id_str})").limit(1000).to_list()
+            )
+            final_res = sorted(final_res, key=lambda x: x["id"], reverse=True)
+            return [(int(r["id"]), r["content"]) for r in final_res]
 
-        all_matches = set(content_matches + tag_matches)
-
-        if not all_matches: return []
-
-        res_df = q_df[q_df['id'].isin(all_matches)].sort_values(by="id", ascending=False)
-        return [(int(r['id']), r['content']) for _, r in res_df.iterrows()]
+        except Exception as e:
+            logger.error(f"LanceDB search_questions failed: {e}", exc_info=True)
+            return []
 
     def get_question(self, q_id):
         try:
@@ -226,7 +312,7 @@ class LanceDBAdapter:
             res = self.q_table.search().where(f"id = {q_id}").limit(1).to_list()
             if not res:
                 return None, None
-            return res[0]['content'], res[0].get('diagram_base64', '')
+            return res[0]["content"], res[0].get("diagram_base64", "")
         except Exception as e:
             logger.error(f"Error getting question: {e}")
             return None, None
@@ -238,15 +324,13 @@ class LanceDBAdapter:
             if not qt_res:
                 return []
 
-            tag_ids = [r['tag_id'] for r in qt_res]
+            tag_ids = [r["tag_id"] for r in qt_res]
             if not tag_ids:
                 return []
 
-            # Filter tags by id. We can load to pandas since it's smaller, or use where IN equivalent (LanceDB might lack IN)
-            t_df = self.t_table.to_pandas()
-            if t_df.empty:
-                return []
-            names = t_df[t_df['id'].isin(tag_ids)]['name'].tolist()
+            tag_id_str = ",".join(map(str, tag_ids))
+            t_res = self.t_table.search().where(f"id IN ({tag_id_str})").to_list()
+            names = [r["name"] for r in t_res]
             return [(n,) for n in names]
         except Exception as e:
             logger.error(f"Error getting question tags: {e}")

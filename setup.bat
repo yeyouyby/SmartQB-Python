@@ -7,7 +7,7 @@ echo ========================================================
 echo        SmartQB Pro V3 (Ultimate) Environment Setup
 echo ========================================================
 echo.
-echo Note 1: Pix2Text and DocLayout-YOLO contain deep learning models (PyTorch/ONNX).
+echo Note 1: PP-StructureV3 contain deep learning models (PyTorch/ONNX).
 echo Note 2: We will also install MiKTeX for automatic PDF compilation.
 echo [!] MiKTeX install typically takes 5-10 minutes.
 echo     It will run silently in the background. Please BE PATIENT.
@@ -179,7 +179,7 @@ if "!GPU_VENDOR!"=="NVIDIA" (
     echo [INFO] No dedicated GPU vendor recognized. Will install !ONNX_PKG!
 )
 
-pip install numpy Pillow openai PyMuPDF pix2text python-docx keyring httpx !ONNX_PKG! opencv-python-headless lancedb pyarrow ultralytics psutil pyinstaller huggingface_hub modelscope -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt !ONNX_PKG! PyMuPDF python-docx httpx opencv-python-headless pyarrow psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo [ERROR] Python dependency installation failed.
     set "EXIT_CODE=1"
