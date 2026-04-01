@@ -235,7 +235,7 @@ class LanceDBAdapter:
         with _id_lock:
             res = (
                 self.qt_table.search()
-                .where(f"question_id = {q_id} AND tag_id = {t_id}")
+                .where(f"question_id = {int(q_id)} AND tag_id = {int(t_id)}")
                 .limit(1)
                 .to_list()
             )
