@@ -3,6 +3,7 @@ import logging
 
 logger = logging.getLogger("SmartQB")
 
+
 class WorkerSignals:
     """
     A pseudo-signal class mimicking PySide6's Signal mechanism.
@@ -23,36 +24,16 @@ class WorkerSignals:
                 logger.error(f"Error in {signal_name} callback: {e}", exc_info=True)
 
     def emit_started(self, *args, **kwargs):
-        for callback in self.started:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_started callback: {e}", exc_info=True)
+        self._emit(self.started, "emit_started", *args, **kwargs)
 
     def emit_progress(self, *args, **kwargs):
-        for callback in self.progress:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_progress callback: {e}", exc_info=True)
+        self._emit(self.progress, "emit_progress", *args, **kwargs)
 
     def emit_finished(self, *args, **kwargs):
-        for callback in self.finished:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_finished callback: {e}", exc_info=True)
+        self._emit(self.finished, "emit_finished", *args, **kwargs)
 
     def emit_error(self, *args, **kwargs):
-        for callback in self.error:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_error callback: {e}", exc_info=True)
+        self._emit(self.error, "emit_error", *args, **kwargs)
 
 
 class GenericWorker(threading.Thread):

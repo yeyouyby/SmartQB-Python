@@ -147,9 +147,9 @@ class DocumentService:
                             )
 
                 finally:
-                    if annotated_img:
+                    if annotated_img is not None:
                         annotated_img.close()
-                    if img:
+                    if img is not None:
                         img.close()
 
         finally:
