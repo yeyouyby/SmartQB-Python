@@ -269,22 +269,17 @@ class AIService:
             if next_obj == -1 and next_arr == -1:
                 break
 
-            if next_obj != -1 and (next_arr == -1 or next_obj < next_arr):
-                curr_start = next_obj
-                end_char = "}"
-            else:
-                curr_start = next_arr
-                end_char = "]"
-
-            curr_end = text.rfind(end_char, curr_start)
-            while curr_end > curr_start:
-                try:
-                    res = json.loads(text[curr_start : curr_end + 1])
-                    if isinstance(res, dict):
-                        return res
-                    break
-                except json.JSONDecodeError:
-                    curr_end = text.rfind(end_char, curr_start, curr_end)
+            curr_start = (
+                next_obj
+                if (next_obj != -1 and (next_arr == -1 or next_obj < next_arr))
+                else next_arr
+            )
+            try:
+                res, _ = json.JSONDecoder().raw_decode(text[curr_start:])
+                if isinstance(res, dict):
+                    return res
+            except json.JSONDecodeError:
+                pass
 
             # Move forward to search the next `{` or `[`
             start_idx = curr_start + 1
