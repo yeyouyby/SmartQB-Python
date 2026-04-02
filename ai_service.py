@@ -255,7 +255,7 @@ class AIService:
         for md_match in reversed(matches):
             try:
                 res = json.loads(md_match.group(1))
-                if isinstance(res, dict):
+                if isinstance(res, (dict, list)):
                     return res
             except json.JSONDecodeError:
                 pass
@@ -279,7 +279,7 @@ class AIService:
             try:
                 # Use the decoder's raw_decode with an index to avoid string slicing/copying
                 res, _ = decoder.raw_decode(text, curr_start)
-                if isinstance(res, dict):
+                if isinstance(res, (dict, list)):
                     return res
             except json.JSONDecodeError:
                 pass
@@ -290,7 +290,7 @@ class AIService:
         # Fallback if nothing works
         try:
             res = json.loads(text)
-            if isinstance(res, dict):
+            if isinstance(res, (dict, list)):
                 return res
         except json.JSONDecodeError:
             logger.error(
