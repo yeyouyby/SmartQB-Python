@@ -254,7 +254,9 @@ class AIService:
         )
         if md_match:
             try:
-                return json.loads(md_match.group(1))
+                res = json.loads(md_match.group(1))
+                if isinstance(res, dict):
+                    return res
             except json.JSONDecodeError:
                 pass
 
@@ -278,7 +280,10 @@ class AIService:
             curr_end = text.rfind(end_char)
             while curr_end > curr_start:
                 try:
-                    return json.loads(text[curr_start : curr_end + 1])
+                    res = json.loads(text[curr_start : curr_end + 1])
+                    if isinstance(res, dict):
+                        return res
+                    break
                 except json.JSONDecodeError:
                     curr_end = text.rfind(end_char, curr_start, curr_end)
 
@@ -287,13 +292,15 @@ class AIService:
 
         # Fallback if nothing works
         try:
-            return json.loads(text)
+            res = json.loads(text)
+            if isinstance(res, dict):
+                return res
         except json.JSONDecodeError:
             logger.error(
                 f"Failed to parse JSON response after cleaning: {raw_content}",
                 exc_info=True,
             )
-            return {}
+        return {}
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。

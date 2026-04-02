@@ -1,7 +1,5 @@
 import threading
-import logging
-
-logger = logging.getLogger("SmartQB")
+from utils import logger
 
 
 class WorkerSignals:
@@ -17,7 +15,7 @@ class WorkerSignals:
         self.error = []
 
     def _emit(self, callbacks, signal_name, *args, **kwargs):
-        for callback in callbacks:
+        for callback in list(callbacks):
             try:
                 callback(*args, **kwargs)
             except Exception as e:
