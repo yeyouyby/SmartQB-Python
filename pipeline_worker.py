@@ -1,5 +1,7 @@
 import threading
+import logging
 
+logger = logging.getLogger("SmartQB")
 
 class WorkerSignals:
     """
@@ -13,21 +15,24 @@ class WorkerSignals:
         self.finished = []
         self.error = []
 
+    def _emit(self, callbacks, signal_name, *args, **kwargs):
+        for callback in callbacks:
+            try:
+                callback(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error in {signal_name} callback: {e}", exc_info=True)
+
     def emit_started(self, *args, **kwargs):
-        for callback in self.started:
-            callback(*args, **kwargs)
+        self._emit(self.started, "emit_started", *args, **kwargs)
 
     def emit_progress(self, *args, **kwargs):
-        for callback in self.progress:
-            callback(*args, **kwargs)
+        self._emit(self.progress, "emit_progress", *args, **kwargs)
 
     def emit_finished(self, *args, **kwargs):
-        for callback in self.finished:
-            callback(*args, **kwargs)
+        self._emit(self.finished, "emit_finished", *args, **kwargs)
 
     def emit_error(self, *args, **kwargs):
-        for callback in self.error:
-            callback(*args, **kwargs)
+        self._emit(self.error, "emit_error", *args, **kwargs)
 
 
 class GenericWorker(threading.Thread):

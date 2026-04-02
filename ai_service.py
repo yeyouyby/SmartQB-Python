@@ -1,3 +1,4 @@
+import re
 # ai_service.py
 import json
 from openai import OpenAI
@@ -246,12 +247,41 @@ class AIService:
             return {}
         text = raw_content.strip()
 
-        # Find the first '{' and the last '}' to extract the JSON object
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end > start:
-            text = text[start : end + 1]
+        # 1. Try to extract from a markdown code block first
+        md_match = re.search(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        if md_match:
+            try:
+                return json.loads(md_match.group(1))
+            except json.JSONDecodeError:
+                pass
 
+        # 2. Try to extract JSON starting from the first `{` or `[` to avoid greedy matching issues.
+        start_idx = 0
+        while start_idx < len(text):
+            # Find the next possible start of a JSON object or array
+            next_obj = text.find("{", start_idx)
+            next_arr = text.find("[", start_idx)
+
+            if next_obj == -1 and next_arr == -1:
+                break
+
+            if next_obj != -1 and (next_arr == -1 or next_obj < next_arr):
+                curr_start = next_obj
+                curr_end = text.rfind("}")
+            else:
+                curr_start = next_arr
+                curr_end = text.rfind("]")
+
+            if curr_end > curr_start:
+                try:
+                    return json.loads(text[curr_start:curr_end + 1])
+                except json.JSONDecodeError:
+                    pass  # Keep searching if this wasn't valid JSON
+
+            # Move forward to search the next `{` or `[`
+            start_idx = curr_start + 1
+
+        # Fallback if nothing works
         try:
             return json.loads(text)
         except json.JSONDecodeError:
