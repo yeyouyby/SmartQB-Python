@@ -119,7 +119,7 @@ class AIService:
             response_format={"type": "json_object"},
         )
         response_data = self._parse_json(response.choices[0].message.content)
-        if not response_data:
+        if not response_data or not isinstance(response_data, dict):
             logger.error(
                 "AI response for manual correction was empty or unparseable, returning a safe default."
             )
@@ -230,7 +230,7 @@ class AIService:
             response_format={"type": "json_object"},
         )
         response_data = self._parse_json(response.choices[0].message.content)
-        if not response_data:
+        if not response_data or not isinstance(response_data, dict):
             logger.error(
                 "AI response for slices was empty or unparseable, returning a safe default to continue."
             )
@@ -321,7 +321,9 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            merged_content = data.get("merged_content", "")
+            merged_content = (
+                data.get("merged_content", "") if isinstance(data, dict) else ""
+            )
             return merged_content if isinstance(merged_content, str) else ""
         except Exception as e:
             logger.error(f"Merge error: {e}")
@@ -353,7 +355,13 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            split_questions = data.get("split_questions", [])
+            split_questions = (
+                data
+                if isinstance(data, list)
+                else data.get("split_questions", [])
+                if isinstance(data, dict)
+                else []
+            )
             if not isinstance(split_questions, list):
                 return []
             return [q for q in split_questions if isinstance(q, str)]
@@ -389,7 +397,9 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            formatted_content = data.get("formatted_content", "")
+            formatted_content = (
+                data.get("formatted_content", "") if isinstance(data, dict) else ""
+            )
             return formatted_content if isinstance(formatted_content, str) else ""
         except Exception as e:
             logger.error(f"Format error: {e}")
@@ -422,7 +432,7 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            return data.get("fixed_content", "")
+            return data.get("fixed_content", "") if isinstance(data, dict) else ""
         except Exception as e:
             logger.error(f"LaTeX fix error: {e}")
             return ""
