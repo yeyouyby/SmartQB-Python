@@ -270,16 +270,17 @@ class AIService:
 
             if next_obj != -1 and (next_arr == -1 or next_obj < next_arr):
                 curr_start = next_obj
-                curr_end = text.rfind("}")
+                end_char = "}"
             else:
                 curr_start = next_arr
-                curr_end = text.rfind("]")
+                end_char = "]"
 
-            if curr_end > curr_start:
+            curr_end = text.rfind(end_char)
+            while curr_end > curr_start:
                 try:
                     return json.loads(text[curr_start : curr_end + 1])
                 except json.JSONDecodeError:
-                    pass  # Keep searching if this wasn't valid JSON
+                    curr_end = text.rfind(end_char, curr_start, curr_end)
 
             # Move forward to search the next `{` or `[`
             start_idx = curr_start + 1
