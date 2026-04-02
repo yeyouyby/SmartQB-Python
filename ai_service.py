@@ -277,7 +277,7 @@ class AIService:
                 curr_start = next_arr
                 end_char = "]"
 
-            curr_end = text.rfind(end_char)
+            curr_end = text.rfind(end_char, curr_start)
             while curr_end > curr_start:
                 try:
                     res = json.loads(text[curr_start : curr_end + 1])
