@@ -43,10 +43,10 @@ class DocumentService:
                 else:
                     img = Image.open(file_path).convert("RGB")
 
+                annotated_img = None
                 try:
                     full_page_markdown = ""
                     diagram_map = {}
-                    annotated_img = None
 
                     if layout_predictor is not None:
                         # --- PP-StructureV3 逻辑 ---

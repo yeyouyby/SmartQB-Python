@@ -248,10 +248,11 @@ class AIService:
             return {}
         text = raw_content.strip()
 
-        # 1. Try to extract from markdown code blocks first
-        for md_match in re.finditer(
-            r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
-        ):
+        # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
+        matches = list(
+            re.finditer(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
+        )
+        for md_match in reversed(matches):
             try:
                 res = json.loads(md_match.group(1))
                 if isinstance(res, dict):
