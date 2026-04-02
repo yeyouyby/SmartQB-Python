@@ -261,6 +261,7 @@ class AIService:
 
         # 2. Try to extract JSON starting from the first `{` or `[` to avoid greedy matching issues.
         start_idx = 0
+        decoder = json.JSONDecoder()
         while start_idx < len(text):
             # Find the next possible start of a JSON object or array
             next_obj = text.find("{", start_idx)
@@ -275,7 +276,8 @@ class AIService:
                 else next_arr
             )
             try:
-                res, _ = json.JSONDecoder().raw_decode(text[curr_start:])
+                # Use the decoder's raw_decode with an index to avoid string slicing/copying
+                res, _ = decoder.raw_decode(text, curr_start)
                 if isinstance(res, dict):
                     return res
             except json.JSONDecodeError:
