@@ -37,14 +37,13 @@ class DocumentService:
                     )
 
                 img = None
-                if file_type == "pdf":
-                    pix = doc[page_index].get_pixmap(dpi=150)
-                    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-                else:
-                    img = Image.open(file_path).convert("RGB")
-
                 annotated_img = None
                 try:
+                    if file_type == "pdf":
+                        pix = doc[page_index].get_pixmap(dpi=150)
+                        img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+                    else:
+                        img = Image.open(file_path).convert("RGB")
                     full_page_markdown = ""
                     diagram_map = {}
 

@@ -271,11 +271,7 @@ class AIService:
             if next_obj == -1 and next_arr == -1:
                 break
 
-            curr_start = (
-                next_obj
-                if (next_obj != -1 and (next_arr == -1 or next_obj < next_arr))
-                else next_arr
-            )
+            curr_start = min(i for i in (next_obj, next_arr) if i != -1)
             try:
                 # Use the decoder's raw_decode with an index to avoid string slicing/copying
                 res, _ = decoder.raw_decode(text, curr_start)
@@ -352,13 +348,12 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            split_questions = (
-                data
-                if isinstance(data, list)
-                else data.get("split_questions", [])
-                if isinstance(data, dict)
-                else []
-            )
+            if isinstance(data, list):
+                split_questions = data
+            elif isinstance(data, dict):
+                split_questions = data.get("split_questions", [])
+            else:
+                split_questions = []
             if not isinstance(split_questions, list):
                 return []
             return [q for q in split_questions if isinstance(q, str)]
