@@ -287,10 +287,7 @@ class AIService:
             # Move forward to search the next `{` or `[`
             start_idx = curr_start + 1
 
-        logger.error(
-            f"Failed to parse JSON response after cleaning: {raw_content}",
-            exc_info=True,
-        )
+        logger.error(f"Failed to parse JSON response after cleaning: {raw_content}")
         return {}
 
     def ai_merge_questions(self, texts_to_merge):
