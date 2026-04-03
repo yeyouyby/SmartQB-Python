@@ -258,11 +258,15 @@ class AIService:
                 if isinstance(res, (dict, list)):
                     return res
             except json.JSONDecodeError:
-                pass
+                logger.debug(
+                    "JSON parsing from markdown block failed, trying next.",
+                    exc_info=True,
+                )
 
         # 2. Try to extract JSON starting from the first `{` or `[` to avoid greedy matching issues.
         start_idx = 0
         decoder = json.JSONDecoder()
+        valid_results = []
         while start_idx < len(text):
             # Find the next possible start of a JSON object or array
             next_obj = text.find("{", start_idx)
@@ -274,16 +278,26 @@ class AIService:
             curr_start = min(i for i in (next_obj, next_arr) if i != -1)
             try:
                 # Use the decoder's raw_decode with an index to avoid string slicing/copying
-                res, _ = decoder.raw_decode(text, curr_start)
+                res, end_idx = decoder.raw_decode(text, curr_start)
                 if isinstance(res, (dict, list)):
-                    return res
+                    valid_results.append(res)
+                # Skip the entire parsed JSON to continue searching for multiple blocks
+                start_idx = end_idx
+                continue
             except json.JSONDecodeError:
-                pass
+                logger.debug(
+                    "Raw JSON parsing attempt failed, trying next.", exc_info=True
+                )
 
             # Move forward to search the next `{` or `[`
             start_idx = curr_start + 1
 
-        logger.error(f"Failed to parse JSON response after cleaning: {raw_content}")
+        if valid_results:
+            return valid_results[-1]
+
+        logger.error(
+            f"Failed to parse JSON response after cleaning. Content preview: {raw_content[:500]}..."
+        )
         return {}
 
     def ai_merge_questions(self, texts_to_merge):
