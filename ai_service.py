@@ -249,19 +249,22 @@ class AIService:
         text = raw_content.strip()
 
         # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
-        matches = list(
-            re.finditer(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-        )
-        for md_match in reversed(matches):
+        last_valid_md_res = None
+        for md_match in re.finditer(
+            r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
+        ):
             try:
                 res = json.loads(md_match.group(1))
                 if isinstance(res, (dict, list)):
-                    return res
+                    last_valid_md_res = res
             except json.JSONDecodeError:
                 logger.debug(
                     "JSON parsing from markdown block failed, trying next.",
                     exc_info=True,
                 )
+
+        if last_valid_md_res is not None:
+            return last_valid_md_res
 
         # 2. Try to extract JSON starting from the first `{` or `[` to avoid greedy matching issues.
         start_idx = 0
