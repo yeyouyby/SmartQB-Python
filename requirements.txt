@@ -17,3 +17,7 @@ requests
 httpx
 PyMuPDF
 python-docx
+pyarrow
+numpy
+opencv-python-headless
+psutil
