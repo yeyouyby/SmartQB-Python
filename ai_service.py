@@ -119,7 +119,7 @@ class AIService:
             response_format={"type": "json_object"},
         )
         response_data = self._parse_json(response.choices[0].message.content)
-        if not response_data or not isinstance(response_data, dict):
+        if not response_data:
             logger.error(
                 "AI response for manual correction was empty or unparseable, returning a safe default."
             )
@@ -230,7 +230,7 @@ class AIService:
             response_format={"type": "json_object"},
         )
         response_data = self._parse_json(response.choices[0].message.content)
-        if not response_data or not isinstance(response_data, dict):
+        if not response_data:
             logger.error(
                 "AI response for slices was empty or unparseable, returning a safe default to continue."
             )
@@ -241,11 +241,15 @@ class AIService:
             }
         return response_data
 
-    def _parse_json(self, raw_content):
+    def _parse_json(self, raw_content, expected_type=dict):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
         if not isinstance(raw_content, str):
             logger.warning(f"Content not a string: {type(raw_content)}")
-            return {}
+            return (
+                expected_type[0]()
+                if isinstance(expected_type, tuple)
+                else expected_type()
+            )
         text = raw_content.strip()
 
         # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
@@ -255,7 +259,7 @@ class AIService:
         ):
             try:
                 res = json.loads(md_match.group(1))
-                if isinstance(res, (dict, list)):
+                if isinstance(res, expected_type):
                     last_valid_md_res = res
             except json.JSONDecodeError:
                 logger.debug(
@@ -282,7 +286,7 @@ class AIService:
             try:
                 # Use the decoder's raw_decode with an index to avoid string slicing/copying
                 res, end_idx = decoder.raw_decode(text, curr_start)
-                if isinstance(res, (dict, list)):
+                if isinstance(res, expected_type):
                     valid_results.append(res)
                 # Skip the entire parsed JSON to continue searching for multiple blocks
                 start_idx = end_idx
@@ -301,7 +305,9 @@ class AIService:
         logger.error(
             f"Failed to parse JSON response after cleaning. Content preview: {raw_content[:500]}..."
         )
-        return {}
+        return (
+            expected_type[0]() if isinstance(expected_type, tuple) else expected_type()
+        )
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。
@@ -364,7 +370,9 @@ class AIService:
             res = self.get_client().chat.completions.create(
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
-            data = self._parse_json(res.choices[0].message.content)
+            data = self._parse_json(
+                res.choices[0].message.content, expected_type=(dict, list)
+            )
             if isinstance(data, list):
                 split_questions = data
             elif isinstance(data, dict):
