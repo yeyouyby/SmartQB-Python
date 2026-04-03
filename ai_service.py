@@ -250,7 +250,7 @@ class AIService:
                 if isinstance(expected_type, tuple) and expected_type
                 else expected_type()
                 if callable(expected_type)
-                else dict()
+                else {}
             )
         text = raw_content.strip()
 
@@ -312,7 +312,7 @@ class AIService:
             if isinstance(expected_type, tuple) and expected_type
             else expected_type()
             if callable(expected_type)
-            else dict()
+            else {}
         )
 
     def ai_merge_questions(self, texts_to_merge):
