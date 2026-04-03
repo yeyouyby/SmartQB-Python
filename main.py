@@ -7,26 +7,11 @@ from utils import logger
 import os
 import sys
 import subprocess
-import threading
 
 MIKTEX_INSTALLER_URL = "https://mirrors.rit.edu/CTAN/systems/win32/miktex/setup/windows-x64/basic-miktex-24.1-x64.exe"
 MIKTEX_EXPECTED_SHA256 = (
     "3f2fb7c34606117bdc03ea3d2fce1d0ebbbfe1da584da25eb488a75e3f3ab8b2"
 )
-
-
-def download_models(raise_errors=False):
-    logger.info("Checking and downloading models...")
-    os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
-    if getattr(sys, "frozen", False):
-        base_dir = os.path.dirname(sys.executable)
-    else:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-    model_dir = os.path.join(base_dir, "model")
-    os.makedirs(model_dir, exist_ok=True)
-    logger.info(
-        "Models download routine completed (PaddleOCR handles its own downloads)."
-    )
 
 
 def check_and_install_miktex(raise_errors=False):
@@ -221,21 +206,18 @@ if __name__ == "__main__":
 
     if args.setup_only:
         try:
-            download_models(raise_errors=True)
             check_and_install_miktex(raise_errors=True)
         except Exception as e:
             logger.error(f"Setup failed: {e}", exc_info=True)
             sys.exit(1)
         sys.exit(0)
 
-    threading.Thread(target=download_models).start()
     # 启动 GUI 主程序
 
     ensure_lancedb_tables()
 
-    from gui_app import SmartQBApp
+    from gui_pyside import main as start_pyside_gui
 
-    logger.info("Starting GUI main loop...")
-    app = SmartQBApp()
-    app.mainloop()
+    logger.info("Starting PySide GUI main loop...")
+    start_pyside_gui()
     logger.info("SmartQB Pro V3 stopped.")
