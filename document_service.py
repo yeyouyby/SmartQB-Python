@@ -41,9 +41,11 @@ class DocumentService:
                 try:
                     if file_type == "pdf":
                         pix = doc[page_index].get_pixmap(dpi=150)
-                        img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+                        with Image.open(io.BytesIO(pix.tobytes("png"))) as tmp_img:
+                            img = tmp_img.convert("RGB")
                     else:
-                        img = Image.open(file_path).convert("RGB")
+                        with Image.open(file_path) as tmp_img:
+                            img = tmp_img.convert("RGB")
                     full_page_markdown = ""
                     diagram_map = {}
 
