@@ -247,8 +247,10 @@ class AIService:
             logger.warning(f"Content not a string: {type(raw_content)}")
             return (
                 expected_type[0]()
-                if isinstance(expected_type, tuple)
+                if isinstance(expected_type, tuple) and expected_type
                 else expected_type()
+                if callable(expected_type)
+                else dict()
             )
         text = raw_content.strip()
 
@@ -306,7 +308,11 @@ class AIService:
             f"Failed to parse JSON response after cleaning. Content preview: {raw_content[:500]}..."
         )
         return (
-            expected_type[0]() if isinstance(expected_type, tuple) else expected_type()
+            expected_type[0]()
+            if isinstance(expected_type, tuple) and expected_type
+            else expected_type()
+            if callable(expected_type)
+            else dict()
         )
 
     def ai_merge_questions(self, texts_to_merge):
