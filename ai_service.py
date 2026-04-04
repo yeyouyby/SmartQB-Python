@@ -261,7 +261,7 @@ class AIService:
         # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
         last_valid_md_res = None
         for md_match in re.finditer(
-            r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
+            r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
         ):
             try:
                 res = json.loads(md_match.group(1))
