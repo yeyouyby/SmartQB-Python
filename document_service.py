@@ -149,9 +149,17 @@ class DocumentService:
 
                 finally:
                     if annotated_img is not None:
-                        annotated_img.close()
+                        try:
+                            annotated_img.close()
+                        except Exception:
+                            logger.warning(
+                                "Failed to close annotated_img", exc_info=True
+                            )
                     if img is not None:
-                        img.close()
+                        try:
+                            img.close()
+                        except Exception:
+                            logger.warning("Failed to close img", exc_info=True)
 
         finally:
             if doc:

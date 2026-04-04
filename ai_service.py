@@ -243,13 +243,15 @@ class AIService:
 
     @staticmethod
     def _get_safe_default(expected_type):
-        return (
-            expected_type[0]()
-            if isinstance(expected_type, tuple) and expected_type
-            else expected_type()
-            if callable(expected_type)
-            else {}
-        )
+        if (
+            isinstance(expected_type, tuple)
+            and expected_type
+            and callable(expected_type[0])
+        ):
+            return expected_type[0]()
+        if callable(expected_type):
+            return expected_type()
+        return {}
 
     def _parse_json(self, raw_content, expected_type=dict):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
