@@ -241,17 +241,21 @@ class AIService:
             }
         return response_data
 
+    @staticmethod
+    def _get_safe_default(expected_type):
+        return (
+            expected_type[0]()
+            if isinstance(expected_type, tuple) and expected_type
+            else expected_type()
+            if callable(expected_type)
+            else {}
+        )
+
     def _parse_json(self, raw_content, expected_type=dict):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
         if not isinstance(raw_content, str):
             logger.warning(f"Content not a string: {type(raw_content)}")
-            return (
-                expected_type[0]()
-                if isinstance(expected_type, tuple) and expected_type
-                else expected_type()
-                if callable(expected_type)
-                else {}
-            )
+            return self._get_safe_default(expected_type)
         text = raw_content.strip()
 
         # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
@@ -307,13 +311,7 @@ class AIService:
         logger.error(
             f"Failed to parse JSON response after cleaning. Content preview: {raw_content[:500]}..."
         )
-        return (
-            expected_type[0]()
-            if isinstance(expected_type, tuple) and expected_type
-            else expected_type()
-            if callable(expected_type)
-            else {}
-        )
+        return self._get_safe_default(expected_type)
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。
