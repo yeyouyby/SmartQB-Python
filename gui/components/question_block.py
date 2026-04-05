@@ -1,11 +1,19 @@
 import os
 import uuid
 from typing import Optional
+import json
 import markdown  # type: ignore
 
 from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Slot, QObject, QUrl
 from PySide6.QtGui import QFocusEvent, QMouseEvent
-from PySide6.QtWidgets import QVBoxLayout, QWidget, QLabel, QTextBrowser, QSizePolicy
+from PySide6.QtWidgets import (
+    QVBoxLayout,
+    QWidget,
+    QLabel,
+    QTextBrowser,
+    QSizePolicy,
+    QApplication,
+)
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 from qfluentwidgets import ElevatedCardWidget, TextEdit
@@ -28,7 +36,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.setObjectName("QuestionBlockWidget")
 
         # Private data bindings
-        self._block_uuid = f"block_{uuid.uuid4().hex[:8]}"
         self._markdown_source = ""
         self._question_number = 1
 
@@ -92,9 +99,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         else:
             self._update_preview_content()
 
+    def _compile_markdown(self) -> str:
+        return markdown.markdown(self._markdown_source)
+
     def _update_preview_content(self):
         # Convert markdown to basic HTML for preview (without MathJax support)
-        html_content = markdown.markdown(self._markdown_source)
+        html_content = self._compile_markdown()
         # Use simple QTextBrowser for Preview
         self.preview_browser.setHtml(html_content)
 
@@ -120,11 +130,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        template_path = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__),
-                "../../resources/templates/question_template.html",
-            )
+        # Resolving path relative to project root instead of relative to this file
+        base_dir = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        template_path = os.path.join(
+            base_dir, "resources", "templates", "question_template.html"
         )
         self.web_view.setUrl(QUrl.fromLocalFile(template_path))
 
@@ -143,7 +154,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Animate expansion
         current_height = self.height()
-        target_height = current_height + 300
+        EDIT_HEIGHT_OFFSET = 300
+        target_height = current_height + EDIT_HEIGHT_OFFSET
         self.animation.setStartValue(current_height)
         self.animation.setEndValue(target_height)
         self.animation.start()
@@ -166,10 +178,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self.web_view:
             return
 
-        import json
-
         # Convert markdown to HTML
-        html_content = markdown.markdown(self._markdown_source)
+        html_content = self._compile_markdown()
 
         safe_html = json.dumps(html_content)
 
@@ -199,12 +209,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         return super().eventFilter(obj, event)
 
     def _check_focus_and_exit(self):
-        if (
-            not self.hasFocus()
-            and (self.text_edit and not self.text_edit.hasFocus())
-            and (self.web_view and not self.web_view.hasFocus())
-        ):
-            self._exit_edit_state()
+        focused = QApplication.focusWidget()
+        if focused and (focused == self or self.isAncestorOf(focused)):
+            return
+        self._exit_edit_state()
 
     def _exit_edit_state(self):
         if not self._is_editing:
