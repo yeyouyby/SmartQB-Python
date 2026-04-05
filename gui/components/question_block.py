@@ -130,13 +130,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        # Traverse up to find the root directory containing 'resources' to be robust against file moves
-        current_dir = Path(__file__).resolve()
-        while current_dir.name and not (current_dir / "resources").exists():
-            current_dir = current_dir.parent
-        template_path = (
-            current_dir / "resources" / "templates" / "question_template.html"
-        )
+        # The current_dir traversal was brittle based on directory existence which might be missing in packaging.
+        # Fallback to the project root relative to this file's known location.
+        base_dir = Path(__file__).resolve().parents[2]
+        template_path = base_dir / "resources" / "templates" / "question_template.html"
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
@@ -154,8 +151,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Animate expansion
         current_height = self.height()
-        EDIT_HEIGHT_OFFSET = 300
-        target_height = current_height + EDIT_HEIGHT_OFFSET
+
+        # Calculate dynamic height based on minimum height constraints of added widgets
+        target_height = current_height + self.web_view.minimumHeight() + self.text_edit.minimumHeight()
+
         self.animation.setStartValue(current_height)
         self.animation.setEndValue(target_height)
         self.animation.start()
@@ -204,8 +203,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
             and obj == self.text_edit
             and event.type() == QFocusEvent.FocusOut
         ):
-            # We want to delay the exit slightly in case focus shifts within the widget
-            QTimer.singleShot(100, self._check_focus_and_exit)
+            # Check immediately if the new focus widget is outside our component hierarchy
+            focused = QApplication.focusWidget()
+            if not focused or not self.isAncestorOf(focused):
+                # Only exit if the focus actually moved outside our block
+                self._check_focus_and_exit()
         return super().eventFilter(obj, event)
 
     def _check_focus_and_exit(self):
