@@ -153,7 +153,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         current_height = self.height()
 
         # Calculate dynamic height based on minimum height constraints of added widgets
-        target_height = current_height + self.web_view.minimumHeight() + self.text_edit.minimumHeight()
+        target_height = (
+            current_height
+            + self.web_view.minimumHeight()
+            + self.text_edit.minimumHeight()
+        )
 
         self.animation.setStartValue(current_height)
         self.animation.setEndValue(target_height)
