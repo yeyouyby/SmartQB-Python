@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Optional
+import sys
+import os
 import json
 import markdown  # type: ignore
 
@@ -99,7 +101,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self._update_preview_content()
 
     def _compile_markdown(self) -> str:
-        return markdown.markdown(self._markdown_source)
+        # Use md_in_html extension to better support custom tags and MathJax block skipping
+        return markdown.markdown(self._markdown_source, extensions=['md_in_html'])
 
     def _update_preview_content(self):
         # Convert markdown to basic HTML for preview (without MathJax support)
@@ -130,7 +133,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Load local HTML template
         # Resolving path relative to project root instead of relative to this file
-        base_dir = Path(__file__).resolve().parents[2]
+        # Use absolute paths robustly assuming app root is current working dir or derived safely
+        base_dir = Path(os.getcwd())
         template_path = base_dir / "resources" / "templates" / "question_template.html"
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
