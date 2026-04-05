@@ -152,12 +152,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Animate expansion
         current_height = self.height()
 
-        # Calculate dynamic height based on minimum height constraints of added widgets
-        target_height = (
-            current_height
-            + self.web_view.minimumHeight()
-            + self.text_edit.minimumHeight()
-        )
+        # Force layout update to calculate accurate target height
+        self.layout().activate()
+        self.updateGeometry()
+        target_height = self.minimumSizeHint().height()
 
         self.animation.setStartValue(current_height)
         self.animation.setEndValue(target_height)
@@ -207,11 +205,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
             and obj == self.text_edit
             and event.type() == QFocusEvent.FocusOut
         ):
-            # Check immediately if the new focus widget is outside our component hierarchy
-            focused = QApplication.focusWidget()
-            if not focused or not self.isAncestorOf(focused):
-                # Only exit if the focus actually moved outside our block
-                self._check_focus_and_exit()
+            # Check in the next event loop cycle to allow focus to settle
+            QTimer.singleShot(0, self._check_focus_and_exit)
         return super().eventFilter(obj, event)
 
     def _check_focus_and_exit(self):
