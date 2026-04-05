@@ -219,6 +219,20 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self._is_editing = False
 
+        if self.text_edit:
+            self.text_edit.hide()
+            self.content_layout.removeWidget(self.text_edit)
+            self.text_edit.removeEventFilter(self)
+            self.text_edit.deleteLater()
+            self.text_edit = None
+
+        if self.web_view:
+            self.web_view.hide()
+            self.content_layout.removeWidget(self.web_view)
+            self.web_view.deleteLater()
+            self.web_view = None
+            self.web_channel = None
+
         self.animation.setStartValue(self.height())
         self.animation.setEndValue(self.minimumSizeHint().height())
         self.animation.start()
@@ -226,14 +240,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._update_preview_content()
         self.preview_browser.show()
 
-        if self.text_edit:
-            self.content_layout.removeWidget(self.text_edit)
-            self.text_edit.removeEventFilter(self)
-            self.text_edit.deleteLater()
-            self.text_edit = None
+        self.animation.setStartValue(self.height())
+        self.animation.setEndValue(self.minimumSizeHint().height())
+        self.animation.start()
 
-        if self.web_view:
-            self.content_layout.removeWidget(self.web_view)
-            self.web_view.deleteLater()
-            self.web_view = None
-            self.web_channel = None
+        self._update_preview_content()
+        self.preview_browser.show()
