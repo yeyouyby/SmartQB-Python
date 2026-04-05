@@ -130,8 +130,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        base_dir = Path(__file__).resolve().parents[2]
-        template_path = base_dir / "resources" / "templates" / "question_template.html"
+        # Traverse up to find the root directory containing 'resources' to be robust against file moves
+        current_dir = Path(__file__).resolve()
+        while current_dir.name and not (current_dir / "resources").exists():
+            current_dir = current_dir.parent
+        template_path = current_dir / "resources" / "templates" / "question_template.html"
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
@@ -232,6 +235,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self._update_preview_content()
         self.preview_browser.show()
+
+        # Force layout to recalculate size hint before animating
+        self.layout().activate()
+        self.updateGeometry()
 
         self.animation.setStartValue(self.height())
         self.animation.setEndValue(self.minimumSizeHint().height())
