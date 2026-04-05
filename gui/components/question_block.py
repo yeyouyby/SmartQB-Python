@@ -72,7 +72,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view: Optional[QWebEngineView] = None
         self.text_edit: Optional[TextEdit] = None
         self.web_channel: Optional[QWebChannel] = None
-        self.bridge: Optional[Bridge] = None
+        self.bridge = Bridge(self)
 
         # Debounce Timer
         self.debounce_timer = QTimer(self)
@@ -124,7 +124,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Setup QWebChannel
         self.web_channel = QWebChannel(self.web_view.page())
-        self.bridge = Bridge(self)
+        # Reuse the existing bridge instance
         self.web_channel.registerObject("pyBridge", self.bridge)
         self.web_view.page().setWebChannel(self.web_channel)
 
@@ -237,4 +237,3 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view.deleteLater()
             self.web_view = None
             self.web_channel = None
-            self.bridge = None
