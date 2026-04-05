@@ -67,7 +67,9 @@ class CalibrationWorkspace(QFrame):
             block = QuestionBlockWidget(self.mid_panel_content)
             block.set_question_number(i + 1)
             # Add some sample math markdown
-            block.set_markdown(f"**Question {i+1}**\n\nSolve the equation: $$ x^2 - {i+4}x + 4 = 0 $$")
+            block.set_markdown(
+                f"**Question {i + 1}**\n\nSolve the equation: $$ x^2 - {i + 4}x + 4 = 0 $$"
+            )
             self.mid_layout.addWidget(block)
             self.question_blocks.append(block)
 

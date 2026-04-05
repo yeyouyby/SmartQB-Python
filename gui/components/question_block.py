@@ -1,20 +1,15 @@
 import os
 import uuid
 from typing import Optional
-import markdown
+import markdown  # type: ignore
 
 from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Slot, QObject, QUrl
 from PySide6.QtGui import QFocusEvent, QMouseEvent
-from PySide6.QtWidgets import (
-    QVBoxLayout,
-    QWidget,
-    QLabel,
-    QTextBrowser,
-    QSizePolicy
-)
+from PySide6.QtWidgets import QVBoxLayout, QWidget, QLabel, QTextBrowser, QSizePolicy
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 from qfluentwidgets import ElevatedCardWidget, TextEdit
+
 
 class Bridge(QObject):
     @Slot(str)
@@ -22,10 +17,12 @@ class Bridge(QObject):
         # We will handle the drag logic later
         print(f"Dragging image with UUID: {temp_id}")
 
+
 class QuestionBlockWidget(ElevatedCardWidget):
     """
     流式双态题目块 (Flyweight Pattern)
     """
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("QuestionBlockWidget")
@@ -60,7 +57,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.preview_browser.setReadOnly(True)
         self.preview_browser.setStyleSheet("border: none; background: transparent;")
         self.preview_browser.setMinimumHeight(60)
-        self.preview_browser.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.MinimumExpanding)
+        self.preview_browser.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.MinimumExpanding
+        )
         self.content_layout.addWidget(self.preview_browser)
 
         # Edit State Widgets (None initially)
@@ -121,7 +120,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        template_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../resources/templates/question_template.html'))
+        template_path = os.path.abspath(
+            os.path.join(
+                os.path.dirname(__file__),
+                "../../resources/templates/question_template.html",
+            )
+        )
         self.web_view.setUrl(QUrl.fromLocalFile(template_path))
 
         # Wait for page to load to inject initial content
@@ -185,13 +189,21 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
-        if hasattr(self, 'text_edit') and obj == self.text_edit and event.type() == QFocusEvent.FocusOut:
+        if (
+            hasattr(self, "text_edit")
+            and obj == self.text_edit
+            and event.type() == QFocusEvent.FocusOut
+        ):
             # We want to delay the exit slightly in case focus shifts within the widget
             QTimer.singleShot(100, self._check_focus_and_exit)
         return super().eventFilter(obj, event)
 
     def _check_focus_and_exit(self):
-        if not self.hasFocus() and (self.text_edit and not self.text_edit.hasFocus()) and (self.web_view and not self.web_view.hasFocus()):
+        if (
+            not self.hasFocus()
+            and (self.text_edit and not self.text_edit.hasFocus())
+            and (self.web_view and not self.web_view.hasFocus())
+        ):
             self._exit_edit_state()
 
     def _exit_edit_state(self):
