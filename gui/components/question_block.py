@@ -134,7 +134,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         current_dir = Path(__file__).resolve()
         while current_dir.name and not (current_dir / "resources").exists():
             current_dir = current_dir.parent
-        template_path = current_dir / "resources" / "templates" / "question_template.html"
+        template_path = (
+            current_dir / "resources" / "templates" / "question_template.html"
+        )
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
