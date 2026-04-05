@@ -131,9 +131,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        # Resolving path relative to project root instead of relative to this file
-        # Use absolute paths robustly assuming app root is current working dir or derived safely
-        base_dir = Path(os.getcwd())
+        base_dir = Path(__file__).resolve().parents[2]
         template_path = base_dir / "resources" / "templates" / "question_template.html"
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
@@ -235,10 +233,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self._update_preview_content()
         self.preview_browser.show()
-
-        self.animation.setStartValue(self.height())
-        self.animation.setEndValue(self.minimumSizeHint().height())
-        self.animation.start()
 
         self.animation.setStartValue(self.height())
         self.animation.setEndValue(self.minimumSizeHint().height())
