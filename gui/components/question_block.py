@@ -3,8 +3,8 @@ from typing import Optional
 import json
 import markdown  # type: ignore
 
-from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Slot, QObject, QUrl
-from PySide6.QtGui import QFocusEvent, QMouseEvent
+from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Slot, QObject, QUrl, QEvent
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -203,7 +203,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if (
             hasattr(self, "text_edit")
             and obj == self.text_edit
-            and event.type() == QFocusEvent.FocusOut
+            and event.type() == QEvent.FocusOut
         ):
             # Check in the next event loop cycle to allow focus to settle
             QTimer.singleShot(0, self._check_focus_and_exit)
