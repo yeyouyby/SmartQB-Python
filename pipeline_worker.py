@@ -1,4 +1,5 @@
 import threading
+from utils import logger
 
 
 class WorkerSignals:
@@ -13,37 +14,24 @@ class WorkerSignals:
         self.finished = []
         self.error = []
 
-    def emit_started(self, *args, **kwargs):
-        for callback in self.started:
+    def _emit(self, callbacks, signal_name, *args, **kwargs):
+        for callback in list(callbacks):
             try:
                 callback(*args, **kwargs)
             except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_started callback: {e}", exc_info=True)
+                logger.error(f"Error in {signal_name} callback: {e}", exc_info=True)
+
+    def emit_started(self, *args, **kwargs):
+        self._emit(self.started, "emit_started", *args, **kwargs)
 
     def emit_progress(self, *args, **kwargs):
-        for callback in self.progress:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_progress callback: {e}", exc_info=True)
+        self._emit(self.progress, "emit_progress", *args, **kwargs)
 
     def emit_finished(self, *args, **kwargs):
-        for callback in self.finished:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_finished callback: {e}", exc_info=True)
+        self._emit(self.finished, "emit_finished", *args, **kwargs)
 
     def emit_error(self, *args, **kwargs):
-        for callback in self.error:
-            try:
-                callback(*args, **kwargs)
-            except Exception as e:
-                import logging
-                logging.getLogger("SmartQB").error(f"Error in emit_error callback: {e}", exc_info=True)
+        self._emit(self.error, "emit_error", *args, **kwargs)
 
 
 class GenericWorker(threading.Thread):

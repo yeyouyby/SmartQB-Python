@@ -10,9 +10,10 @@ class SmartQBProWindow(FluentWindow):
         self.resize(1000, 700)
 
         # Add basic navigation
-        self.addSubInterface(
-            self.create_placeholder("导入审阅 (Import)"), FIF.DOCUMENT, "导入"
-        )
+        from ui_calibration import CalibrationWorkspace
+
+        self.calibration_workspace = CalibrationWorkspace(self)
+        self.addSubInterface(self.calibration_workspace, FIF.DOCUMENT, "导入")
         self.addSubInterface(
             self.create_placeholder("题库维护 (Library)"), FIF.LIBRARY, "题库"
         )

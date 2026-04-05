@@ -179,7 +179,7 @@ if "!GPU_VENDOR!"=="NVIDIA" (
     echo [INFO] No dedicated GPU vendor recognized. Will install !ONNX_PKG!
 )
 
-pip install -r requirements.txt !ONNX_PKG! PyMuPDF python-docx httpx opencv-python-headless pyarrow psutil pyinstaller -i https://pypi.tuna.tsinghua.edu.cn/simple
+pip install -r requirements.txt !ONNX_PKG! -i https://pypi.tuna.tsinghua.edu.cn/simple
 if %errorlevel% neq 0 (
     echo [ERROR] Python dependency installation failed.
     set "EXIT_CODE=1"
@@ -188,47 +188,12 @@ if %errorlevel% neq 0 (
 )
 
 echo.
-:: 5. Download Models and Build PyInstaller
-echo [5/5] Downloading AI Models and Packaging application...
 
-echo [INFO] Pre-downloading AI models and checking MiKTeX before packaging...
-python main.py --setup-only
-
-if %errorlevel% neq 0 (
-    echo [ERROR] Pre-downloading models or checking MiKTeX failed.
-    set "EXIT_CODE=1"
-    pause
-    goto end_script
-)
-
-echo [INFO] Building .exe with PyInstaller...
-pyinstaller --noconfirm --onedir --windowed --add-data "assets;assets" --hidden-import="pyarrow" main.py
-
-if %errorlevel% neq 0 (
-    echo [ERROR] PyInstaller build failed.
-    set "EXIT_CODE=1"
-    pause
-    goto end_script
-)
-
-echo [INFO] Moving downloaded models to PyInstaller dist folder...
-if exist "model" (
-    xcopy /E /I /Y "model" "dist\main\model\"
-    if !errorlevel! neq 0 (
-        echo [ERROR] Failed to copy model files to dist\main\model\
-        set "EXIT_CODE=1"
-        pause
-        goto end_script
-    )
-)
-
-echo [INFO] Build Complete. You can run dist\main\main.exe
-echo.
 echo ========================================================
 echo [SUCCESS] Environment setup completed successfully!
 echo ========================================================
 echo.
-echo Please double click "dist\main\main.exe" to start.
+echo You can now start the application by running 'python main.py'
 pause
 :end_script
 exit /b %EXIT_CODE%

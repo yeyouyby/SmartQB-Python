@@ -37,16 +37,17 @@ class DocumentService:
                     )
 
                 img = None
-                if file_type == "pdf":
-                    pix = doc[page_index].get_pixmap(dpi=150)
-                    img = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
-                else:
-                    img = Image.open(file_path).convert("RGB")
-
+                annotated_img = None
                 try:
+                    if file_type == "pdf":
+                        pix = doc[page_index].get_pixmap(dpi=150)
+                        with Image.open(io.BytesIO(pix.tobytes("png"))) as tmp_img:
+                            img = tmp_img.convert("RGB")
+                    else:
+                        with Image.open(file_path) as tmp_img:
+                            img = tmp_img.convert("RGB")
                     full_page_markdown = ""
                     diagram_map = {}
-                    annotated_img = None
 
                     if layout_predictor is not None:
                         # --- PP-StructureV3 逻辑 ---
@@ -147,10 +148,18 @@ class DocumentService:
                             )
 
                 finally:
-                    if annotated_img:
-                        annotated_img.close()
-                    if img:
-                        img.close()
+                    if annotated_img is not None:
+                        try:
+                            annotated_img.close()
+                        except Exception:
+                            logger.warning(
+                                "Failed to close annotated_img", exc_info=True
+                            )
+                    if img is not None:
+                        try:
+                            img.close()
+                        except Exception:
+                            logger.warning("Failed to close img", exc_info=True)
 
         finally:
             if doc:

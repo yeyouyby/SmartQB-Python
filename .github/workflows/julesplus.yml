@@ -131,10 +131,10 @@ jobs:
     if: >-
       (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
       github.event.comment.user.login != 'yeyouyby' && 
-      github.event.comment.user.login != 'google-labs-jules' && 
-      github.event.comment.user.login != 'google-labs-jules[bot]' && 
+      github.event.comment.user.login != 'google-labs-jules' &&
+      github.event.comment.user.login != 'google-labs-jules[bot]' &&
       github.event.comment.user.login != 'jules' && 
-      github.event.comment.user.login != 'jules[bot]' && 
+      github.event.comment.user.login != 'jules[bot]' &&
       github.event.comment.user.login != 'github-actions[bot]'
     name: 🎯 Smart Sniper @jules
     runs-on: ubuntu-latest
@@ -161,10 +161,10 @@ jobs:
               "基础检查均已通过，请查收这份新鲜出炉的 AI 代码审查报告 👆"
             ];
             const safeMsg = friendlyMessages[Math.floor(Math.random() * friendlyMessages.length)];
-            
+
             // 【终极防线】：排除真实账号及其 [bot] 变体，彻底封死死循环的可能
             const whiteList = ['yeyouyby', 'google-labs-jules', 'google-labs-jules[bot]', 'jules', 'jules[bot]', 'github-actions[bot]'];
-            
+
             if (whiteList.includes(commenter)) {
               if (commentBody.includes("Mock AI Review")) {
                 console.log(`[测试模式开启] 检测到包含 "Mock AI Review" 的评论，强制放行白名单人员 ${commenter} 以测试 NIM 模型！`);
@@ -173,7 +173,7 @@ jobs:
                 return;
               }
             }
-            
+
             // --- NIM Kimi K2 智能识别逻辑开始 ---
             if (nimApiKey) {
               console.log(`正在使用 NVIDIA NIM API (Kimi K2) 分析 ${commenter} 的评论内容...`);
@@ -203,25 +203,25 @@ jobs:
                   const errorText = await response.text();
                   throw new Error(`API 异常报错! 状态码: ${response.status}, 详情: ${errorText}`);
                 }
-                
+
                 const data = await response.json();
                 let llmReply = data.choices[0].message.content.trim();
                 console.log(`Kimi K2 原始返回内容: \n${llmReply}`);
-                
+
                 // 清洗大模型可能附带的 Markdown 代码块标记 (例如 ```json 和 ```)
                 llmReply = llmReply.replace(/^```[a-zA-Z]*\n/, '').replace(/\n```$/, '').trim();
                 
                 // 解析 JSON
                 const resultObj = JSON.parse(llmReply);
                 console.log(`✅ JSON 解析成功! 判断结果: ${resultObj.is_review}, 理由: ${resultObj.reason}`);
-                
+
                 if (resultObj.is_review !== true) {
                   console.log("拦截成功：AI 判定这是一条无意义的占位/通知评论，跳过 @jules。");
                   return;
                 }
               } catch (err) {
                 console.error("NVIDIA NIM API 调用或 JSON 解析失败，终止本次任务以免误发通知:", err.message);
-                return; 
+                return;
               }
             } else {
               console.log("未检测到 NVIDIA_API_KEY，跳过智能识别。");
@@ -234,18 +234,18 @@ jobs:
             
             // 将 Quote 部分拼接在你需要发送的话术之上（这里使用 JS 本地绝对安全的随机话术）
             const replyBody = `${quotedComment}\n\n@jules ${safeMsg}`;
-            
+
             // 【模拟真人操作】：生成 1000 到 10000 毫秒（1~10秒）的随机延时
             const delayMs = Math.floor(Math.random() * 9000) + 1000;
             console.log(`[随机延时] 等待 ${delayMs} 毫秒后发送通知，模拟真实操作...`);
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            
+
             // 无论刚才 AI 是在文件里评论，还是在外层评论，我们都在最外层 (Conversation页) 新建一条带 Quote 样式的评论
             await github.rest.issues.createComment({
-              owner: owner, 
-              repo: repo, 
-              issue_number: targetNumber, 
+              owner: owner,
+              repo: repo,
+              issue_number: targetNumber,
               body: replyBody
             });
-            
+
             console.log(`[狙击成功] 已在 PR #${targetNumber} 的最外层进行原生 Quote 引用并触发了 @jules`);

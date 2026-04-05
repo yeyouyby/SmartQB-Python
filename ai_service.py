@@ -1,4 +1,5 @@
 import re
+
 # ai_service.py
 import json
 from openai import OpenAI
@@ -240,34 +241,79 @@ class AIService:
             }
         return response_data
 
-    def _parse_json(self, raw_content):
+    @staticmethod
+    def _get_safe_default(expected_type):
+        if (
+            isinstance(expected_type, tuple)
+            and expected_type
+            and callable(expected_type[0])
+        ):
+            return expected_type[0]()
+        if callable(expected_type):
+            return expected_type()
+        return {}
+
+    def _parse_json(self, raw_content, expected_type=dict):
         # 终极容错解析：即使 AI 不听话加了 markdown 标记，也能强行剥离
         if not isinstance(raw_content, str):
             logger.warning(f"Content not a string: {type(raw_content)}")
-            return {}
+            return self._get_safe_default(expected_type)
         text = raw_content.strip()
 
-        # 1. Try to extract from a markdown code block first
-        md_match = re.search(r"```json\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE)
-        if md_match:
+        # 1. Try to extract from markdown code blocks first (prioritize the last block if there are multiple)
+        last_valid_md_res = None
+        for md_match in re.finditer(
+            r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
+        ):
             try:
-                return json.loads(md_match.group(1))
+                res = json.loads(md_match.group(1))
+                if isinstance(res, expected_type):
+                    last_valid_md_res = res
             except json.JSONDecodeError:
-                pass
+                logger.debug(
+                    "JSON parsing from markdown block failed, trying next.",
+                    exc_info=True,
+                )
 
-        # 2. Try to find the outermost JSON structure using regex to handle extra preamble
-        obj_match = re.search(r"\{.*\}|\[.*\]", text, re.DOTALL)
-        if obj_match:
-            text = obj_match.group(0)
+        if last_valid_md_res is not None:
+            return last_valid_md_res
 
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            logger.error(
-                f"Failed to parse JSON response after cleaning: {raw_content}",
-                exc_info=True,
-            )
-            return {}
+        # 2. Try to extract JSON starting from the first `{` or `[` to avoid greedy matching issues.
+        start_idx = 0
+        decoder = json.JSONDecoder()
+        valid_results = []
+        while start_idx < len(text):
+            # Find the next possible start of a JSON object or array
+            next_obj = text.find("{", start_idx)
+            next_arr = text.find("[", start_idx)
+
+            if next_obj == -1 and next_arr == -1:
+                break
+
+            curr_start = min(i for i in (next_obj, next_arr) if i != -1)
+            try:
+                # Use the decoder's raw_decode with an index to avoid string slicing/copying
+                res, end_idx = decoder.raw_decode(text, curr_start)
+                if isinstance(res, expected_type):
+                    valid_results.append(res)
+                # Skip the entire parsed JSON to continue searching for multiple blocks
+                start_idx = end_idx
+                continue
+            except json.JSONDecodeError:
+                logger.debug(
+                    "Raw JSON parsing attempt failed, trying next.", exc_info=True
+                )
+
+            # Move forward to search the next `{` or `[`
+            start_idx = curr_start + 1
+
+        if valid_results:
+            return valid_results[-1]
+
+        logger.error(
+            f"Failed to parse JSON response after cleaning. Content preview: {raw_content[:500]}..."
+        )
+        return self._get_safe_default(expected_type)
 
     def ai_merge_questions(self, texts_to_merge):
         prompt = """你是一个专业的试卷排版与解析助手。
@@ -297,7 +343,9 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            merged_content = data.get("merged_content", "")
+            merged_content = (
+                data.get("merged_content", "") if isinstance(data, dict) else ""
+            )
             return merged_content if isinstance(merged_content, str) else ""
         except Exception as e:
             logger.error(f"Merge error: {e}")
@@ -328,8 +376,15 @@ class AIService:
             res = self.get_client().chat.completions.create(
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
-            data = self._parse_json(res.choices[0].message.content)
-            split_questions = data.get("split_questions", [])
+            data = self._parse_json(
+                res.choices[0].message.content, expected_type=(dict, list)
+            )
+            if isinstance(data, list):
+                split_questions = data
+            elif isinstance(data, dict):
+                split_questions = data.get("split_questions", [])
+            else:
+                split_questions = []
             if not isinstance(split_questions, list):
                 return []
             return [q for q in split_questions if isinstance(q, str)]
@@ -365,7 +420,9 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            formatted_content = data.get("formatted_content", "")
+            formatted_content = (
+                data.get("formatted_content", "") if isinstance(data, dict) else ""
+            )
             return formatted_content if isinstance(formatted_content, str) else ""
         except Exception as e:
             logger.error(f"Format error: {e}")
@@ -398,7 +455,7 @@ class AIService:
                 **kwargs, messages=messages, response_format={"type": "json_object"}
             )
             data = self._parse_json(res.choices[0].message.content)
-            return data.get("fixed_content", "")
+            return data.get("fixed_content", "") if isinstance(data, dict) else ""
         except Exception as e:
             logger.error(f"LaTeX fix error: {e}")
             return ""
