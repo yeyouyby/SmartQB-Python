@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 from typing import Optional
 import json
 import markdown  # type: ignore
@@ -130,13 +130,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Load local HTML template
         # Resolving path relative to project root instead of relative to this file
-        base_dir = os.path.dirname(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        )
-        template_path = os.path.join(
-            base_dir, "resources", "templates", "question_template.html"
-        )
-        self.web_view.setUrl(QUrl.fromLocalFile(template_path))
+        base_dir = Path(__file__).resolve().parents[2]
+        template_path = base_dir / "resources" / "templates" / "question_template.html"
+        self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
         self.web_view.loadFinished.connect(self._on_web_view_loaded)
@@ -217,6 +213,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self._is_editing:
             return
 
+        self.debounce_timer.stop()
         self._is_editing = False
 
         if self.text_edit:
@@ -233,10 +230,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view = None
             self.web_channel = None
 
-        self.animation.setStartValue(self.height())
-        self.animation.setEndValue(self.minimumSizeHint().height())
-        self.animation.start()
-
         self._update_preview_content()
         self.preview_browser.show()
 
@@ -244,5 +237,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.animation.setEndValue(self.minimumSizeHint().height())
         self.animation.start()
 
-        self._update_preview_content()
-        self.preview_browser.show()
+        self.animation.setStartValue(self.height())
+        self.animation.setEndValue(self.minimumSizeHint().height())
+        self.animation.start()
