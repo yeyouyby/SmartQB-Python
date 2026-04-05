@@ -1,3 +1,4 @@
+from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QFrame,
@@ -60,10 +61,16 @@ class CalibrationWorkspace(QFrame):
         self.mid_layout.setContentsMargins(10, 10, 10, 10)
         self.mid_layout.setSpacing(15)
 
-        # Placeholder for the dual-state ElevatedCardWidget
-        self.mid_placeholder = QLabel("流式双态编辑器 (Markdown / MathJax)")
-        self.mid_placeholder.setAlignment(Qt.AlignCenter)
-        self.mid_layout.addWidget(self.mid_placeholder)
+        # Instantiate dual-state ElevatedCardWidgets (QuestionBlockWidget)
+        self.question_blocks = []
+        for i in range(3):
+            block = QuestionBlockWidget(self.mid_panel_content)
+            block.set_question_number(i + 1)
+            # Add some sample math markdown
+            block.set_markdown(f"**Question {i+1}**\n\nSolve the equation: $$ x^2 - {i+4}x + 4 = 0 $$")
+            self.mid_layout.addWidget(block)
+            self.question_blocks.append(block)
+
         self.mid_layout.addStretch(1)
 
         self.mid_panel.setWidget(self.mid_panel_content)
