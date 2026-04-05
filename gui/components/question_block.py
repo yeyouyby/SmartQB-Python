@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Optional
-import sys
 import os
 import json
 import markdown  # type: ignore
