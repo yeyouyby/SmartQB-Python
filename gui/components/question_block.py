@@ -3,7 +3,15 @@ from typing import Optional
 import json
 import markdown  # type: ignore
 
-from PySide6.QtCore import QTimer, QPropertyAnimation, QEasingCurve, Slot, QObject, QUrl, QEvent
+from PySide6.QtCore import (
+    QTimer,
+    QPropertyAnimation,
+    QEasingCurve,
+    Slot,
+    QObject,
+    QUrl,
+    QEvent,
+)
 from PySide6.QtGui import QMouseEvent
 from PySide6.QtWidgets import (
     QVBoxLayout,
