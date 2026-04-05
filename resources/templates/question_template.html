@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Question View</title>
+    <link rel="stylesheet" href="../assets/base.css">
+    <script src="../assets/mathjax/es5/tex-mml-svg.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+
+        let pyBridge = null;
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+            pyBridge = channel.objects.pyBridge;
+        });
+
+        document.addEventListener('dragstart', function(event) {
+            if (event.target.tagName.toLowerCase() === 'img') {
+                event.preventDefault(); // Prevent default browser behavior
+                if (pyBridge) {
+                    const tempId = event.target.dataset.uuid || '';
+                    pyBridge.startDrag(tempId);
+                }
+            }
+        });
+    </script>
+</head>
+<body>
+    <div id="math-content" class="math-content">
+        <!-- Content gets injected here -->
+    </div>
+</body>
+</html>
