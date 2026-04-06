@@ -43,6 +43,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
 
+    @classmethod
+    def cleanup_shared_resources(cls):
+        if cls._shared_web_view:
+            cls._shared_web_view.deleteLater()
+            cls._shared_web_view = None
+            cls._shared_web_channel = None
+            cls._shared_load_connection = None
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("QuestionBlockWidget")
@@ -216,6 +224,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _on_web_view_loaded(self, ok):
         if ok:
             self._sync_preview()
+        else:
+            print(f"Error: Failed to load web engine content for {self.objectName()}.")
 
     def _on_text_changed(self):
         if not self._is_editing or not self.text_edit:
