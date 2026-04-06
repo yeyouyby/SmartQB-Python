@@ -38,6 +38,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
     流式双态题目块 (Flyweight Pattern)
     """
 
+    # Shared Flyweight Instances
+    _shared_web_view: Optional[QWebEngineView] = None
+    _shared_web_channel: Optional[QWebChannel] = None
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("QuestionBlockWidget")
@@ -127,33 +131,47 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Hide preview browser
         self.preview_browser.hide()
 
-        # Instantiate WebEngineView
-        self.web_view = QWebEngineView()
-        self.web_view.setMinimumHeight(150)
+        # Leverage Flyweight pattern for WebEngineView
+        if QuestionBlockWidget._shared_web_view is None:
+            QuestionBlockWidget._shared_web_view = QWebEngineView()
+            QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
 
-        # Setup QWebChannel
-        self.web_channel = QWebChannel(self.web_view.page())
-        # Reuse the existing bridge instance
-        self.web_channel.registerObject("pyBridge", self.bridge)
-        self.web_view.page().setWebChannel(self.web_channel)
+            QuestionBlockWidget._shared_web_channel = QWebChannel(QuestionBlockWidget._shared_web_view.page())
+            QuestionBlockWidget._shared_web_view.page().setWebChannel(QuestionBlockWidget._shared_web_channel)
 
-        # Load local HTML template
-        # Use a dynamic root finder from config or default to a safe known anchor
+            template_path = (
+                Path(__file__).resolve().parents[2] / "resources" / "templates" / "question_template.html"
+            )
+            QuestionBlockWidget._shared_web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
-        # Traverse up to find the root by looking for main.py or resources to be robust against file moves
-        current_dir = Path(__file__).resolve()
-        while (
-            current_dir.parent != current_dir
-            and not (current_dir / "resources" / "templates").exists()
-        ):
-            current_dir = current_dir.parent
-        template_path = (
-            current_dir / "resources" / "templates" / "question_template.html"
-        )
-        self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
+        self.web_view = QuestionBlockWidget._shared_web_view
+        self.web_channel = QuestionBlockWidget._shared_web_channel
 
-        # Wait for page to load to inject initial content
+        # Connect bridge and load callback
+        # We must disconnect old bindings first to avoid firing signals multiple times
+        try:
+            self.web_view.loadFinished.disconnect()
+        except RuntimeError:
+            pass  # Ignore if not connected
+
         self.web_view.loadFinished.connect(self._on_web_view_loaded)
+
+        # Clear out any old objects in the channel if they exist
+        try:
+            self.web_channel.deregisterObject(self.bridge)
+        except Exception:
+            pass
+
+        self.web_channel.registerObject("pyBridge", self.bridge)
+
+        # We also need to re-parent the web view to the current widget layout
+        if self.web_view.parentWidget() is not None and self.web_view.parentWidget() != self.content_widget:
+            self.web_view.setParent(None)
+
+        # If it's already loaded, we sync immediately
+        if self.web_view.page().title() != "":
+            self._on_web_view_loaded(True)
+
 
         # Instantiate TextEdit
         self.text_edit = TextEdit()
@@ -246,7 +264,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
-            self.web_view.deleteLater()
+            # Re-parent to None so it doesn't get destroyed if parent gets destroyed, preserving the flyweight
+            self.web_view.setParent(None)
+
+            # Remove our bridge object to avoid memory leaks or crossing calls
+            try:
+                self.web_channel.deregisterObject(self.bridge)
+            except Exception:
+                pass
+
             self.web_view = None
             self.web_channel = None
 
