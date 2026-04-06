@@ -223,7 +223,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def _check_focus_and_exit(self):
         focused = QApplication.focusWidget()
-        if focused and (focused == self or self.isAncestorOf(focused)):
+        # If no widget has focus, the application likely lost focus to another window.
+        # We should only exit edit mode if focus moved to another widget within our app.
+        if not focused or focused == self or self.isAncestorOf(focused):
             return
         self._exit_edit_state()
 
