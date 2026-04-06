@@ -4,10 +4,8 @@
     <meta charset="UTF-8">
     <title>Question View</title>
     <link rel="stylesheet" href="../assets/base.css">
-    <script src="../assets/mathjax/es5/tex-mml-svg.js"></script>
-    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     <script>
-        MathJax = {
+        window.MathJax = {
             tex: {
                 inlineMath: [['$', '$'], ['\\(', '\\)']],
                 displayMath: [['$$', '$$'], ['\\[', '\\]']],
@@ -18,7 +16,10 @@
                 fontCache: 'global'
             }
         };
-
+    </script>
+    <script src="../assets/mathjax/es5/tex-mml-svg.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
         let pyBridge = null;
         new QWebChannel(qt.webChannelTransport, function (channel) {
             pyBridge = channel.objects.pyBridge;

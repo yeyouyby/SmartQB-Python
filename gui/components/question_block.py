@@ -138,10 +138,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().setWebChannel(self.web_channel)
 
         # Load local HTML template
-        # The current_dir traversal was brittle based on directory existence which might be missing in packaging.
-        # Fallback to the project root relative to this file's known location.
-        base_dir = Path(__file__).resolve().parents[2]
-        template_path = base_dir / "resources" / "templates" / "question_template.html"
+        # Use a dynamic root finder from config or default to a safe known anchor
+
+        # Traverse up to find the root by looking for main.py or resources to be robust against file moves
+        current_dir = Path(__file__).resolve()
+        while current_dir.parent != current_dir and not (current_dir / "resources" / "templates").exists():
+            current_dir = current_dir.parent
+        template_path = current_dir / "resources" / "templates" / "question_template.html"
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
@@ -209,7 +212,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def eventFilter(self, obj, event):
         if (
-            hasattr(self, "text_edit")
+            self.text_edit
             and obj == self.text_edit
             and event.type() == QEvent.FocusOut
         ):
