@@ -41,6 +41,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     # Shared Flyweight Instances
     _shared_web_view: Optional[QWebEngineView] = None
     _shared_web_channel: Optional[QWebChannel] = None
+    _shared_load_connection = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -158,18 +159,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Connect bridge and load callback
         # We must disconnect old bindings first to avoid firing signals multiple times
-        try:
-            self.web_view.loadFinished.disconnect()
-        except RuntimeError:
-            pass  # Ignore if not connected
+        if QuestionBlockWidget._shared_load_connection is not None:
+            self.web_view.loadFinished.disconnect(QuestionBlockWidget._shared_load_connection)
 
-        self.web_view.loadFinished.connect(self._on_web_view_loaded)
+        QuestionBlockWidget._shared_load_connection = self.web_view.loadFinished.connect(self._on_web_view_loaded)
 
         # Clear out any old objects in the channel if they exist
-        try:
-            self.web_channel.deregisterObject(self.bridge)
-        except Exception:
-            pass
+        if "pyBridge" in self.web_channel.registeredObjects():
+            self.web_channel.deregisterObject(self.web_channel.registeredObjects()["pyBridge"])
 
         self.web_channel.registerObject("pyBridge", self.bridge)
 
@@ -181,7 +178,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view.setParent(None)
 
         # If it's already loaded, we sync immediately
-        if self.web_view.page().title() != "":
+        if self.web_view.url().isValid() and not self.web_view.url().isEmpty():
             self._on_web_view_loaded(True)
 
         # Instantiate TextEdit
@@ -279,10 +276,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view.setParent(None)
 
             # Remove our bridge object to avoid memory leaks or crossing calls
-            try:
+            if "pyBridge" in self.web_channel.registeredObjects():
                 self.web_channel.deregisterObject(self.bridge)
-            except Exception:
-                pass
 
             self.web_view = None
             self.web_channel = None
