@@ -142,9 +142,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Traverse up to find the root by looking for main.py or resources to be robust against file moves
         current_dir = Path(__file__).resolve()
-        while current_dir.parent != current_dir and not (current_dir / "resources" / "templates").exists():
+        while (
+            current_dir.parent != current_dir
+            and not (current_dir / "resources" / "templates").exists()
+        ):
             current_dir = current_dir.parent
-        template_path = current_dir / "resources" / "templates" / "question_template.html"
+        template_path = (
+            current_dir / "resources" / "templates" / "question_template.html"
+        )
         self.web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
 
         # Wait for page to load to inject initial content
@@ -211,11 +216,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
-        if (
-            self.text_edit
-            and obj == self.text_edit
-            and event.type() == QEvent.FocusOut
-        ):
+        if self.text_edit and obj == self.text_edit and event.type() == QEvent.FocusOut:
             # Check in the next event loop cycle to allow focus to settle
             QTimer.singleShot(0, self._check_focus_and_exit)
         return super().eventFilter(obj, event)
