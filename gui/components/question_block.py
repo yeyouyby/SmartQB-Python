@@ -136,13 +136,22 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._shared_web_view = QWebEngineView()
             QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
 
-            QuestionBlockWidget._shared_web_channel = QWebChannel(QuestionBlockWidget._shared_web_view.page())
-            QuestionBlockWidget._shared_web_view.page().setWebChannel(QuestionBlockWidget._shared_web_channel)
+            QuestionBlockWidget._shared_web_channel = QWebChannel(
+                QuestionBlockWidget._shared_web_view.page()
+            )
+            QuestionBlockWidget._shared_web_view.page().setWebChannel(
+                QuestionBlockWidget._shared_web_channel
+            )
 
             template_path = (
-                Path(__file__).resolve().parents[2] / "resources" / "templates" / "question_template.html"
+                Path(__file__).resolve().parents[2]
+                / "resources"
+                / "templates"
+                / "question_template.html"
             )
-            QuestionBlockWidget._shared_web_view.setUrl(QUrl.fromLocalFile(str(template_path)))
+            QuestionBlockWidget._shared_web_view.setUrl(
+                QUrl.fromLocalFile(str(template_path))
+            )
 
         self.web_view = QuestionBlockWidget._shared_web_view
         self.web_channel = QuestionBlockWidget._shared_web_channel
@@ -165,13 +174,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_channel.registerObject("pyBridge", self.bridge)
 
         # We also need to re-parent the web view to the current widget layout
-        if self.web_view.parentWidget() is not None and self.web_view.parentWidget() != self.content_widget:
+        if (
+            self.web_view.parentWidget() is not None
+            and self.web_view.parentWidget() != self.content_widget
+        ):
             self.web_view.setParent(None)
 
         # If it's already loaded, we sync immediately
         if self.web_view.page().title() != "":
             self._on_web_view_loaded(True)
-
 
         # Instantiate TextEdit
         self.text_edit = TextEdit()
