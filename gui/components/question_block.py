@@ -160,13 +160,19 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Connect bridge and load callback
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
-            self.web_view.loadFinished.disconnect(QuestionBlockWidget._shared_load_connection)
+            self.web_view.loadFinished.disconnect(
+                QuestionBlockWidget._shared_load_connection
+            )
 
-        QuestionBlockWidget._shared_load_connection = self.web_view.loadFinished.connect(self._on_web_view_loaded)
+        QuestionBlockWidget._shared_load_connection = (
+            self.web_view.loadFinished.connect(self._on_web_view_loaded)
+        )
 
         # Clear out any old objects in the channel if they exist
         if "pyBridge" in self.web_channel.registeredObjects():
-            self.web_channel.deregisterObject(self.web_channel.registeredObjects()["pyBridge"])
+            self.web_channel.deregisterObject(
+                self.web_channel.registeredObjects()["pyBridge"]
+            )
 
         self.web_channel.registerObject("pyBridge", self.bridge)
 
