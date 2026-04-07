@@ -123,13 +123,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self._update_preview_content()
 
     def _compile_markdown(self) -> str:
-        # Use md_in_html extension to better support custom tags and MathJax block skipping
+        # Combine extensions for better support and handle potential missing dependencies
+        extensions = ["md_in_html"]
         try:
-            return markdown.markdown(
-                self._markdown_source, extensions=["pymdownx.arithmatex"]
-            )
-        except Exception:
-            return markdown.markdown(self._markdown_source, extensions=["md_in_html"])
+            import pymdownx.arithmatex  # noqa: F401
+            extensions.append("pymdownx.arithmatex")
+        except ImportError:
+            logging.warning("pymdownx.arithmatex not found, math rendering may be limited.")
+
+        return markdown.markdown(self._markdown_source, extensions=extensions)
 
     def _update_preview_content(self):
         # Convert markdown to basic HTML for preview (without MathJax support)
@@ -157,9 +159,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.preview_browser.hide()
 
         # Leverage Flyweight pattern for WebEngineView
+        view_just_created = False
         if QuestionBlockWidget._shared_web_view is None:
             QuestionBlockWidget._shared_web_view = QWebEngineView()
             QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
+            view_just_created = True
 
             QuestionBlockWidget._shared_web_channel = QWebChannel(
                 QuestionBlockWidget._shared_web_view.page()
@@ -209,8 +213,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         ):
             self.web_view.setParent(None)
 
-        # If it's already loaded, we sync immediately
-        if self.web_view.url().isValid() and not self.web_view.url().isEmpty():
+        # If it's already loaded (not just created), we sync immediately
+        if not view_just_created and self.web_view.url().isValid() and not self.web_view.url().isEmpty():
             self._on_web_view_loaded(True)
 
         # Instantiate TextEdit
