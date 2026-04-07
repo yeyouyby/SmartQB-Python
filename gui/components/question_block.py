@@ -182,7 +182,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         )
         return sanitized_html
 
-
     def _on_destroyed(self):
         # Prevent the shared flyweight view from being destroyed if this widget is deleted while editing
         if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
