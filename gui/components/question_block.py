@@ -121,7 +121,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.debounce_timer.setInterval(300)
         self.debounce_timer.timeout.connect(self._sync_preview)
 
-
         # Animation
         self.animation = QPropertyAnimation(self, b"minimumHeight")
         self.animation.setDuration(250)
@@ -196,7 +195,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
             QuestionBlockWidget._shared_web_view.setParent(None)
             QuestionBlockWidget._current_editing_block = None
-
 
     def _capture_snapshot(self):
         if not self.web_view:
