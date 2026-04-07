@@ -124,9 +124,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _compile_markdown(self) -> str:
         # Use md_in_html extension to better support custom tags and MathJax block skipping
         try:
-            return markdown.markdown(self._markdown_source, extensions=['pymdownx.arithmatex'])
+            return markdown.markdown(
+                self._markdown_source, extensions=["pymdownx.arithmatex"]
+            )
         except Exception:
-            return markdown.markdown(self._markdown_source, extensions=['md_in_html'])
+            return markdown.markdown(self._markdown_source, extensions=["md_in_html"])
 
     def _update_preview_content(self):
         # Convert markdown to basic HTML for preview (without MathJax support)
