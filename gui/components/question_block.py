@@ -235,6 +235,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
             if QuestionBlockWidget._current_editing_block == self:
                 QuestionBlockWidget._current_editing_block = None
 
+        # Break cyclic reference to allow Python garbage collection
+        self.bridge.target = None
+
     def _cleanup_edit_widgets(self):
         if self.web_view:
             self.web_view.hide()
@@ -243,6 +246,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         if self.web_channel and "pyBridge" in self.web_channel.registeredObjects():
             self.web_channel.deregisterObject(self.bridge)
+
+        # Break cyclic reference
+        self.bridge.target = None
 
         if self.text_edit:
             self.content_layout.removeWidget(self.text_edit)
@@ -423,16 +429,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._current_editing_block = None
 
         if force_sync and self.web_view:
-            # Another block is claiming the shared view immediately. We must grab synchronously right now.
+            # Another block is claiming the shared view immediately.
+            # QWebEngineView.grab() is asynchronously unreliable, so we completely fallback
+            # to compiling simple markdown text to guarantee we have content immediately.
             if self.debounce_timer.isActive():
                 self.debounce_timer.stop()
-                # Compile pending text. We can't wait for JS, so fallback to simple text
-                html_content = self._compile_markdown()
-                self.preview_label.setText(html_content)
-            else:
-                pixmap = self.web_view.grab()
-                self.preview_label.setPixmap(pixmap)
-                self.preview_label.setText("")
+            html_content = self._compile_markdown()
+            self.preview_label.setText(html_content)
             self._cleanup_edit_widgets()
         else:
             # Force any pending updates to compile
