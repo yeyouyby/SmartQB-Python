@@ -5,6 +5,12 @@ import bleach  # type: ignore
 from bleach.css_sanitizer import CSSSanitizer  # type: ignore
 import logging
 import markdown  # type: ignore
+try:
+    import importlib.util
+    HAS_ARITHMATEX = importlib.util.find_spec('pymdownx.arithmatex') is not None
+    HAS_ARITHMATEX = True
+except ImportError:
+    HAS_ARITHMATEX = False
 
 from PySide6.QtCore import (
     QTimer,
@@ -45,6 +51,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
     _current_editing_block = None
+    _css_sanitizer = CSSSanitizer()
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -64,7 +71,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._question_number = 1
 
         self._is_editing = False
-        self._has_arithmatex: bool = False
 
         # Setup layouts
         self.main_layout = QVBoxLayout(self)
@@ -126,59 +132,32 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _compile_markdown(self) -> str:
         # Combine extensions for better support and handle potential missing dependencies
         extensions = ["md_in_html"]
-        if hasattr(self, "_has_arithmatex"):
-            if self._has_arithmatex:
-                extensions.append("pymdownx.arithmatex")
+        if HAS_ARITHMATEX:
+            extensions.append("pymdownx.arithmatex")
         else:
-            try:
-                import pymdownx.arithmatex  # noqa: F401
-
-                extensions.append("pymdownx.arithmatex")
-                self._has_arithmatex = True
-            except ImportError:
-                logging.warning(
-                    "pymdownx.arithmatex not found, math rendering may be limited."
-                )
-                self._has_arithmatex = False
+            logging.warning(
+                "pymdownx.arithmatex not found, math rendering may be limited."
+            )
 
         raw_html = markdown.markdown(self._markdown_source, extensions=extensions)
 
         # Sanitize HTML to prevent XSS
         allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
-            "p",
-            "div",
-            "span",
-            "br",
-            "img",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "table",
-            "thead",
-            "tbody",
-            "tr",
-            "th",
-            "td",
-            "pre",
-            "code",
-            "blockquote",
+            "p", "div", "span", "br", "img", "h1", "h2", "h3", "h4", "h5", "h6",
+            "table", "thead", "tbody", "tr", "th", "td", "pre", "code", "blockquote"
         ]
         allowed_attrs = {
             "*": ["class", "id", "style"],
             "img": ["src", "alt", "title", "width", "height", "data-uuid"],
-            "a": ["href", "title"],
+            "a": ["href", "title"]
         }
 
-        css_sanitizer = CSSSanitizer()
         sanitized_html = bleach.clean(
             raw_html,
             tags=allowed_tags,
             attributes=allowed_attrs,
-            css_sanitizer=css_sanitizer,
-            strip=True,
+            css_sanitizer=QuestionBlockWidget._css_sanitizer,
+            strip=True
         )
         return sanitized_html
 
@@ -251,7 +230,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
             try:
-                QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                QuestionBlockWidget._shared_load_connection.disconnect()
                 QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
@@ -368,7 +347,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.debounce_timer.stop()
         self._is_editing = False
-        self._has_arithmatex: bool = False
         if QuestionBlockWidget._current_editing_block == self:
             QuestionBlockWidget._current_editing_block = None
 
