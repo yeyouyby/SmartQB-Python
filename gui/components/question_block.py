@@ -42,6 +42,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_view: Optional[QWebEngineView] = None
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
+    _current_editing_block = None
+    _current_editing_block = None
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -50,6 +52,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
             cls._shared_web_view = None
             cls._shared_web_channel = None
             cls._shared_load_connection = None
+            cls._current_editing_block = None
+            cls._current_editing_block = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -135,6 +139,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         super().mouseDoubleClickEvent(event)
 
     def _enter_edit_state(self):
+        # Enforce single active edit state globally
+        if QuestionBlockWidget._current_editing_block is not None and QuestionBlockWidget._current_editing_block != self:
+            QuestionBlockWidget._current_editing_block._exit_edit_state()
+
+        QuestionBlockWidget._current_editing_block = self
         self._is_editing = True
 
         # Hide preview browser
@@ -277,6 +286,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.debounce_timer.stop()
         self._is_editing = False
+        if QuestionBlockWidget._current_editing_block == self:
+            QuestionBlockWidget._current_editing_block = None
+
+        if QuestionBlockWidget._current_editing_block == self:
+            QuestionBlockWidget._current_editing_block = None
 
         if self.text_edit:
             self.text_edit.hide()
