@@ -123,7 +123,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def _compile_markdown(self) -> str:
         # Use md_in_html extension to better support custom tags and MathJax block skipping
-        return markdown.markdown(self._markdown_source, extensions=["md_in_html"])
+        try:
+            return markdown.markdown(self._markdown_source, extensions=['pymdownx.arithmatex'])
+        except Exception:
+            return markdown.markdown(self._markdown_source, extensions=['md_in_html'])
 
     def _update_preview_content(self):
         # Convert markdown to basic HTML for preview (without MathJax support)
@@ -178,9 +181,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Connect bridge and load callback
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
-            self.web_view.loadFinished.disconnect(
-                QuestionBlockWidget._shared_load_connection
-            )
+            try:
+                self.web_view.loadFinished.disconnect(
+                    QuestionBlockWidget._shared_load_connection
+                )
+            except (RuntimeError, TypeError):
+                pass
 
         QuestionBlockWidget._shared_load_connection = (
             self.web_view.loadFinished.connect(self._on_web_view_loaded)
@@ -270,7 +276,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def eventFilter(self, obj, event):
         if self.text_edit and obj == self.text_edit and event.type() == QEvent.FocusOut:
             # Check in the next event loop cycle to allow focus to settle
-            QTimer.singleShot(0, self._check_focus_and_exit)
+            QTimer.singleShot(0, self, self._check_focus_and_exit)
         return super().eventFilter(obj, event)
 
     def _check_focus_and_exit(self):
