@@ -212,6 +212,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if "pyBridge" in self.web_channel.registeredObjects():
             self.web_channel.deregisterObject(self.bridge)
 
+        if self.text_edit:
+            self.content_layout.removeWidget(self.text_edit)
+            self.text_edit.removeEventFilter(self)
+            self.text_edit.deleteLater()
+            self.text_edit = None
+
         self.web_view = None
         self.web_channel = None
 
@@ -407,6 +413,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self._is_editing:
             return
 
+        self._is_editing = False
+        if QuestionBlockWidget._current_editing_block == self:
+            QuestionBlockWidget._current_editing_block = None
+
         # Force any pending updates to compile
         if self.debounce_timer.isActive():
             self.debounce_timer.stop()
@@ -415,6 +425,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
             # We already synced, just request a snapshot
             js = "if (window.pyBridge) window.pyBridge.snapshotReady();"
             self.web_view.page().runJavaScript(js)
+
+        # Note: If we don't hide the text_edit here, the minimumSizeHint() below will include it,
+        # causing the card to animate to a large height instead of the preview height.
+        if self.text_edit:
+            self.text_edit.hide()
 
         self.preview_label.show()
 
