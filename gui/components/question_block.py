@@ -209,16 +209,31 @@ class QuestionBlockWidget(ElevatedCardWidget):
         return sanitized_html
 
     def _on_destroyed(self):
-        # Prevent the shared flyweight view from being destroyed if this widget is deleted while editing
-        if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
+        # Prevent the shared flyweight view from being destroyed if this widget is deleted
+        if (
+            QuestionBlockWidget._shared_web_view is not None
+            and QuestionBlockWidget._shared_web_view.parentWidget()
+            == self.content_widget
+        ):
             if QuestionBlockWidget._shared_load_connection is not None:
                 try:
                     QObject.disconnect(QuestionBlockWidget._shared_load_connection)
                     QuestionBlockWidget._shared_load_connection = None
                 except (RuntimeError, TypeError):
                     pass
+
+            # Deregister bridge to prevent dangling pointers
+            if (
+                QuestionBlockWidget._shared_web_channel is not None
+                and "pyBridge"
+                in QuestionBlockWidget._shared_web_channel.registeredObjects()
+            ):
+                QuestionBlockWidget._shared_web_channel.deregisterObject(self.bridge)
+
             QuestionBlockWidget._shared_web_view.setParent(None)
-            QuestionBlockWidget._current_editing_block = None
+
+            if QuestionBlockWidget._current_editing_block == self:
+                QuestionBlockWidget._current_editing_block = None
 
     def _cleanup_edit_widgets(self):
         if self.web_view:
@@ -411,10 +426,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
             # Another block is claiming the shared view immediately. We must grab synchronously right now.
             if self.debounce_timer.isActive():
                 self.debounce_timer.stop()
-                # Compile pending text, but since we can't wait for JS, we just grab what's currently painted.
-            pixmap = self.web_view.grab()
-            self.preview_label.setPixmap(pixmap)
-            self.preview_label.setText("")
+                # Compile pending text. We can't wait for JS, so fallback to simple text
+                html_content = self._compile_markdown()
+                self.preview_label.setText(html_content)
+            else:
+                pixmap = self.web_view.grab()
+                self.preview_label.setPixmap(pixmap)
+                self.preview_label.setText("")
             self._cleanup_edit_widgets()
         else:
             # Force any pending updates to compile
