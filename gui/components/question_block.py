@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Optional
 import json
+import logging
 import markdown  # type: ignore
 
 from PySide6.QtCore import (
@@ -30,7 +31,7 @@ class Bridge(QObject):
     @Slot(str)
     def startDrag(self, temp_id: str):
         # We will handle the drag logic later
-        print(f"Dragging image with UUID: {temp_id}")
+        logging.info(f"Dragging image with UUID: {temp_id}")
 
 
 class QuestionBlockWidget(ElevatedCardWidget):
@@ -184,9 +185,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
             try:
-                self.web_view.loadFinished.disconnect(
-                    QuestionBlockWidget._shared_load_connection
-                )
+                QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
 
@@ -243,7 +243,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if ok:
             self._sync_preview()
         else:
-            print(f"Error: Failed to load web engine content for {self.objectName()}.")
+            logging.error(f"Failed to load web engine content for {self.objectName()}.")
 
     def _on_text_changed(self):
         if not self._is_editing or not self.text_edit:
