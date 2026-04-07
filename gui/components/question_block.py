@@ -43,7 +43,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
     _current_editing_block = None
-    _current_editing_block = None
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -52,7 +51,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
             cls._shared_web_view = None
             cls._shared_web_channel = None
             cls._shared_load_connection = None
-            cls._current_editing_block = None
             cls._current_editing_block = None
 
     def __init__(self, parent=None):
@@ -289,9 +287,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.debounce_timer.stop()
         self._is_editing = False
-        if QuestionBlockWidget._current_editing_block == self:
-            QuestionBlockWidget._current_editing_block = None
-
         if QuestionBlockWidget._current_editing_block == self:
             QuestionBlockWidget._current_editing_block = None
 
