@@ -61,7 +61,16 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
     _current_editing_block: Optional["QuestionBlockWidget"] = None
-    _css_sanitizer = CSSSanitizer()
+    _css_sanitizer = CSSSanitizer(
+        allowed_css_properties={
+            "color",
+            "background-color",
+            "font-weight",
+            "text-align",
+            "width",
+            "height",
+        }
+    )
 
     _ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
         "p",
@@ -211,20 +220,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._shared_web_view.setParent(None)
             QuestionBlockWidget._current_editing_block = None
 
-    def _capture_snapshot(self):
-        if not self.web_view:
-            return
-        # Force a full layout and grab
-        pixmap = self.web_view.grab()
-        self.preview_label.setPixmap(pixmap)
-        self.preview_label.setText("")
+    def _cleanup_edit_widgets(self):
+        if self.web_view:
+            self.web_view.hide()
+            self.content_layout.removeWidget(self.web_view)
+            self.web_view.setParent(None)
 
-        # Now we can safely hide and detach
-        self.web_view.hide()
-        self.content_layout.removeWidget(self.web_view)
-        self.web_view.setParent(None)
-
-        if "pyBridge" in self.web_channel.registeredObjects():
+        if self.web_channel and "pyBridge" in self.web_channel.registeredObjects():
             self.web_channel.deregisterObject(self.bridge)
 
         if self.text_edit:
@@ -235,6 +237,16 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.web_view = None
         self.web_channel = None
+
+    def _capture_snapshot(self):
+        if not self.web_view:
+            return
+        # Force a full layout and grab
+        pixmap = self.web_view.grab()
+        self.preview_label.setPixmap(pixmap)
+        self.preview_label.setText("")
+
+        self._cleanup_edit_widgets()
 
     def _update_preview_content(self):
         # Convert markdown to HTML
@@ -253,7 +265,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._current_editing_block is not None
             and QuestionBlockWidget._current_editing_block != self
         ):
-            QuestionBlockWidget._current_editing_block._exit_edit_state()
+            QuestionBlockWidget._current_editing_block._exit_edit_state(force_sync=True)
 
         QuestionBlockWidget._current_editing_block = self
         self._is_editing = True
@@ -367,27 +379,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         safe_html = json.dumps(html_content)
         capture_flag = str(capture_after).lower()
 
-        # Call a global updateContent function if it exists, otherwise inline logic
-        js_code = f"""
-        if (typeof window.updateContent === 'function') {{
-            window.updateContent({safe_html}, {capture_flag});
-        }} else {{
-            const container = document.getElementById('math-content');
-            if (container) {{
-                container.innerHTML = {safe_html};
-                if (typeof MathJax !== 'undefined') {{
-                    MathJax.typesetPromise([container]).then(() => {{
-                        if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
-                    }}).catch(err => {{
-                        console.log(err.message);
-                        if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
-                    }});
-                }} else {{
-                    if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
-                }}
-            }}
-        }}
-        """
+        js_code = f"if (typeof window.updateContent === 'function') {{ window.updateContent({safe_html}, {capture_flag}); }}"
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
@@ -407,7 +399,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             return
         self._exit_edit_state()
 
-    def _exit_edit_state(self):
+    def _exit_edit_state(self, force_sync: bool = False):
         if not self._is_editing:
             return
 
@@ -415,14 +407,24 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if QuestionBlockWidget._current_editing_block == self:
             QuestionBlockWidget._current_editing_block = None
 
-        # Force any pending updates to compile
-        if self.debounce_timer.isActive():
-            self.debounce_timer.stop()
-            self._sync_preview(capture_after=True)
-        elif self.web_view:
-            # We already synced, just request a snapshot
-            js = "if (window.pyBridge) window.pyBridge.snapshotReady();"
-            self.web_view.page().runJavaScript(js)
+        if force_sync and self.web_view:
+            # Another block is claiming the shared view immediately. We must grab synchronously right now.
+            if self.debounce_timer.isActive():
+                self.debounce_timer.stop()
+                # Compile pending text, but since we can't wait for JS, we just grab what's currently painted.
+            pixmap = self.web_view.grab()
+            self.preview_label.setPixmap(pixmap)
+            self.preview_label.setText("")
+            self._cleanup_edit_widgets()
+        else:
+            # Force any pending updates to compile
+            if self.debounce_timer.isActive():
+                self.debounce_timer.stop()
+                self._sync_preview(capture_after=True)
+            elif self.web_view:
+                # We already synced, just request a snapshot
+                js = "if (window.pyBridge) window.pyBridge.snapshotReady();"
+                self.web_view.page().runJavaScript(js)
 
         # Note: If we don't hide the text_edit here, the minimumSizeHint() below will include it,
         # causing the card to animate to a large height instead of the preview height.

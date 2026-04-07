@@ -25,9 +25,25 @@
             pyBridge = channel.objects.pyBridge;
         });
 
+        window.updateContent = function(html, capture) {
+            const container = document.getElementById('math-content');
+            if (!container) return;
+            container.innerHTML = html;
+            if (typeof MathJax !== 'undefined') {
+                MathJax.typesetPromise([container]).then(() => {
+                    if (capture && pyBridge) pyBridge.snapshotReady();
+                }).catch(err => {
+                    console.error("MathJax error:", err);
+                    if (capture && pyBridge) pyBridge.snapshotReady();
+                });
+            } else {
+                if (capture && pyBridge) pyBridge.snapshotReady();
+            }
+        };
+
         document.addEventListener('dragstart', function(event) {
             if (event.target.tagName.toLowerCase() === 'img') {
-                event.preventDefault(); // Prevent default browser behavior
+                event.preventDefault();
                 if (pyBridge) {
                     const tempId = event.target.dataset.uuid || '';
                     pyBridge.startDrag(tempId);

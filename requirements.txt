@@ -23,3 +23,5 @@ opencv-python-headless
 psutil
 bleach
 tinycss2
+
+pymdown-extensions
