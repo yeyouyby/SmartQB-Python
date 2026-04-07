@@ -140,7 +140,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def _enter_edit_state(self):
         # Enforce single active edit state globally
-        if QuestionBlockWidget._current_editing_block is not None and QuestionBlockWidget._current_editing_block != self:
+        if (
+            QuestionBlockWidget._current_editing_block is not None
+            and QuestionBlockWidget._current_editing_block != self
+        ):
             QuestionBlockWidget._current_editing_block._exit_edit_state()
 
         QuestionBlockWidget._current_editing_block = self
