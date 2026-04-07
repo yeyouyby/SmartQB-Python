@@ -10,7 +10,6 @@ try:
     import importlib.util
 
     HAS_ARITHMATEX = importlib.util.find_spec("pymdownx.arithmatex") is not None
-    HAS_ARITHMATEX = True
 except ImportError:
     HAS_ARITHMATEX = False
 
@@ -250,7 +249,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
             try:
-                QuestionBlockWidget._shared_load_connection.disconnect()
+                QObject.disconnect(QuestionBlockWidget._shared_load_connection)
                 QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
