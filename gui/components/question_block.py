@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Optional
 import json
-import bleach
-from bleach.css_sanitizer import CSSSanitizer
+import bleach  # type: ignore
+from bleach.css_sanitizer import CSSSanitizer  # type: ignore
 import logging
 import markdown  # type: ignore
 
@@ -64,6 +64,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._question_number = 1
 
         self._is_editing = False
+        self._has_arithmatex: bool = False
 
         # Setup layouts
         self.main_layout = QVBoxLayout(self)
@@ -367,6 +368,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.debounce_timer.stop()
         self._is_editing = False
+        self._has_arithmatex: bool = False
         if QuestionBlockWidget._current_editing_block == self:
             QuestionBlockWidget._current_editing_block = None
 
