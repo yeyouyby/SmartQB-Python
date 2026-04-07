@@ -21,3 +21,5 @@ pyarrow
 numpy
 opencv-python-headless
 psutil
+bleach
+tinycss2

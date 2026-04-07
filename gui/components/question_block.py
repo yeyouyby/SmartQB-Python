@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Optional
 import json
+import bleach
+from bleach.css_sanitizer import CSSSanitizer
 import logging
 import markdown  # type: ignore
 
@@ -18,7 +20,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QLabel,
-    QTextBrowser,
     QSizePolicy,
     QApplication,
 )
@@ -82,15 +83,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.main_layout.addWidget(self.content_widget)
 
         # Preview State Widget (Lightweight)
-        self.preview_browser = QTextBrowser()
-        self.preview_browser.setOpenExternalLinks(False)
-        self.preview_browser.setReadOnly(True)
-        self.preview_browser.setStyleSheet("border: none; background: transparent;")
-        self.preview_browser.setMinimumHeight(60)
-        self.preview_browser.setSizePolicy(
+        self.preview_label = QLabel()
+        self.preview_label.setWordWrap(True)
+        self.preview_label.setStyleSheet("border: none; background: transparent;")
+        self.preview_label.setMinimumHeight(60)
+        self.preview_label.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.MinimumExpanding
         )
-        self.content_layout.addWidget(self.preview_browser)
+        self.content_layout.addWidget(self.preview_label)
 
         # Edit State Widgets (None initially)
         self.web_view: Optional[QWebEngineView] = None
@@ -125,22 +125,80 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _compile_markdown(self) -> str:
         # Combine extensions for better support and handle potential missing dependencies
         extensions = ["md_in_html"]
-        try:
-            import pymdownx.arithmatex  # noqa: F401
+        if hasattr(self, "_has_arithmatex"):
+            if self._has_arithmatex:
+                extensions.append("pymdownx.arithmatex")
+        else:
+            try:
+                import pymdownx.arithmatex  # noqa: F401
 
-            extensions.append("pymdownx.arithmatex")
-        except ImportError:
-            logging.warning(
-                "pymdownx.arithmatex not found, math rendering may be limited."
-            )
+                extensions.append("pymdownx.arithmatex")
+                self._has_arithmatex = True
+            except ImportError:
+                logging.warning(
+                    "pymdownx.arithmatex not found, math rendering may be limited."
+                )
+                self._has_arithmatex = False
 
-        return markdown.markdown(self._markdown_source, extensions=extensions)
+        raw_html = markdown.markdown(self._markdown_source, extensions=extensions)
+
+        # Sanitize HTML to prevent XSS
+        allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
+            "p",
+            "div",
+            "span",
+            "br",
+            "img",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "table",
+            "thead",
+            "tbody",
+            "tr",
+            "th",
+            "td",
+            "pre",
+            "code",
+            "blockquote",
+        ]
+        allowed_attrs = {
+            "*": ["class", "id", "style"],
+            "img": ["src", "alt", "title", "width", "height", "data-uuid"],
+            "a": ["href", "title"],
+        }
+
+        css_sanitizer = CSSSanitizer()
+        sanitized_html = bleach.clean(
+            raw_html,
+            tags=allowed_tags,
+            attributes=allowed_attrs,
+            css_sanitizer=css_sanitizer,
+            strip=True,
+        )
+        return sanitized_html
 
     def _update_preview_content(self):
-        # Convert markdown to basic HTML for preview (without MathJax support)
+        # Convert markdown to HTML
         html_content = self._compile_markdown()
-        # Use simple QTextBrowser for Preview
-        self.preview_browser.setHtml(html_content)
+
+        # If we have a shared web view (from exiting edit state), we can use it to grab a snapshot
+        # For initial load, we fallback to simple rich text without math support unless we create a dedicated renderer
+        if (
+            QuestionBlockWidget._shared_web_view
+            and self.web_view == QuestionBlockWidget._shared_web_view
+        ):
+            # We are exiting edit mode, the web_view currently holds our rendered content
+            # Let's take a snapshot right before we hide it
+            pixmap = self.web_view.grab()
+            self.preview_label.setPixmap(pixmap)
+            self.preview_label.setText("")
+        else:
+            # Simple rich text fallback for initial load (won't render JS math)
+            self.preview_label.setText(html_content)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         if not self._is_editing:
@@ -159,7 +217,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._is_editing = True
 
         # Hide preview browser
-        self.preview_browser.hide()
+        self.preview_label.hide()
 
         # Leverage Flyweight pattern for WebEngineView
         view_just_created = False
@@ -251,7 +309,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.text_edit.setFocus()
         self.text_edit.installEventFilter(self)
 
-    def _on_web_view_loaded(self, ok):
+    def _on_web_view_loaded(self, ok: bool):
         if ok:
             self._sync_preview()
         else:
@@ -288,6 +346,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
+        if not hasattr(self, "text_edit"):
+            return super().eventFilter(obj, event)
         if self.text_edit and obj == self.text_edit and event.type() == QEvent.FocusOut:
             # Check in the next event loop cycle to allow focus to settle
             QTimer.singleShot(0, self, self._check_focus_and_exit)
@@ -317,6 +377,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.text_edit.deleteLater()
             self.text_edit = None
 
+        # Capture snapshot before hiding if possible
+        if self.web_view:
+            self._update_preview_content()
+
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
@@ -330,8 +394,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view = None
             self.web_channel = None
 
-        self._update_preview_content()
-        self.preview_browser.show()
+        self.preview_label.show()
 
         # Force layout to recalculate size hint before animating
         self.layout().activate()
