@@ -60,8 +60,45 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_view: Optional[QWebEngineView] = None
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_load_connection = None
-    _current_editing_block = None
+    _current_editing_block: Optional["QuestionBlockWidget"] = None
     _css_sanitizer = CSSSanitizer()
+
+    _ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
+        "p",
+        "div",
+        "span",
+        "br",
+        "img",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
+        "pre",
+        "code",
+        "blockquote",
+    ]
+    _ALLOWED_ATTRS = {
+        "*": ["class", "id", "style"],
+        "img": ["src", "alt", "title", "width", "height", "data-uuid"],
+        "a": ["href", "title"],
+    }
+
+    _TEMPLATE_PATH = QUrl.fromLocalFile(
+        str(
+            Path(__file__).resolve().parents[2]
+            / "resources"
+            / "templates"
+            / "question_template.html"
+        )
+    )
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -153,39 +190,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         raw_html = markdown.markdown(self._markdown_source, extensions=extensions)
 
-        # Sanitize HTML to prevent XSS
-        allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
-            "p",
-            "div",
-            "span",
-            "br",
-            "img",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "table",
-            "thead",
-            "tbody",
-            "tr",
-            "th",
-            "td",
-            "pre",
-            "code",
-            "blockquote",
-        ]
-        allowed_attrs = {
-            "*": ["class", "id", "style"],
-            "img": ["src", "alt", "title", "width", "height", "data-uuid"],
-            "a": ["href", "title"],
-        }
-
         sanitized_html = bleach.clean(
             raw_html,
-            tags=allowed_tags,
-            attributes=allowed_attrs,
+            tags=QuestionBlockWidget._ALLOWED_TAGS,
+            attributes=QuestionBlockWidget._ALLOWED_ATTRS,
             css_sanitizer=QuestionBlockWidget._css_sanitizer,
             strip=True,
         )
@@ -267,14 +275,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 QuestionBlockWidget._shared_web_channel
             )
 
-            template_path = (
-                Path(__file__).resolve().parents[2]
-                / "resources"
-                / "templates"
-                / "question_template.html"
-            )
             QuestionBlockWidget._shared_web_view.setUrl(
-                QUrl.fromLocalFile(str(template_path))
+                QuestionBlockWidget._TEMPLATE_PATH
             )
 
         self.web_view = QuestionBlockWidget._shared_web_view
@@ -363,26 +365,28 @@ class QuestionBlockWidget(ElevatedCardWidget):
         html_content = self._compile_markdown()
 
         safe_html = json.dumps(html_content)
+        capture_flag = str(capture_after).lower()
 
+        # Call a global updateContent function if it exists, otherwise inline logic
         js_code = f"""
-        (function() {{
+        if (typeof window.updateContent === 'function') {{
+            window.updateContent({safe_html}, {capture_flag});
+        }} else {{
             const container = document.getElementById('math-content');
             if (container) {{
                 container.innerHTML = {safe_html};
                 if (typeof MathJax !== 'undefined') {{
-                    MathJax.typesetPromise([container]).then(function() {{
-                        if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
-                    }}).catch(function (err) {{
+                    MathJax.typesetPromise([container]).then(() => {{
+                        if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
+                    }}).catch(err => {{
                         console.log(err.message);
-                        if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
+                        if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
                     }});
                 }} else {{
-                    if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
+                    if ({capture_flag} && window.pyBridge) window.pyBridge.snapshotReady();
                 }}
-            }} else {{
-                if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
             }}
-        }})();
+        }}
         """
         self.web_view.page().runJavaScript(js_code)
 
