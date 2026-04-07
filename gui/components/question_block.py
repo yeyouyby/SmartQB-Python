@@ -118,6 +118,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
 
         self._update_preview_content()
+        self.destroyed.connect(self._on_destroyed)
 
     def set_question_number(self, num: int):
         self._question_number = num
@@ -129,6 +130,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.text_edit.setPlainText(text)
         else:
             self._update_preview_content()
+        self.destroyed.connect(self._on_destroyed)
 
     def _compile_markdown(self) -> str:
         # Combine extensions for better support and handle potential missing dependencies
@@ -180,23 +182,30 @@ class QuestionBlockWidget(ElevatedCardWidget):
         )
         return sanitized_html
 
+
+    def _on_destroyed(self):
+        # Prevent the shared flyweight view from being destroyed if this widget is deleted while editing
+        if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
+            QuestionBlockWidget._shared_web_view.setParent(None)
+            QuestionBlockWidget._current_editing_block = None
+
     def _update_preview_content(self):
         # Convert markdown to HTML
         html_content = self._compile_markdown()
 
-        # If we have a shared web view (from exiting edit state), we can use it to grab a snapshot
-        # For initial load, we fallback to simple rich text without math support unless we create a dedicated renderer
         if (
             QuestionBlockWidget._shared_web_view
             and self.web_view == QuestionBlockWidget._shared_web_view
         ):
-            # We are exiting edit mode, the web_view currently holds our rendered content
-            # Let's take a snapshot right before we hide it
+            # We are exiting edit mode.
+            # grab() can be unreliable, so we could theoretically use QWebEnginePage's printToPdf,
+            # but for a synchronous fast-path, grab() is what we have right now.
+            # To ensure it captures correctly, we force a sync and wait for the event loop slightly,
+            # or rely on the previous sync.
             pixmap = self.web_view.grab()
             self.preview_label.setPixmap(pixmap)
             self.preview_label.setText("")
         else:
-            # Simple rich text fallback for initial load (won't render JS math)
             self.preview_label.setText(html_content)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
@@ -365,7 +374,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self._is_editing:
             return
 
-        self.debounce_timer.stop()
+        # Force any pending updates to compile
+        if self.debounce_timer.isActive():
+            self.debounce_timer.stop()
+            self._sync_preview()
+
         self._is_editing = False
         if QuestionBlockWidget._current_editing_block == self:
             QuestionBlockWidget._current_editing_block = None
@@ -380,6 +393,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Capture snapshot before hiding if possible
         if self.web_view:
             self._update_preview_content()
+        self.destroyed.connect(self._on_destroyed)
 
         if self.web_view:
             self.web_view.hide()
