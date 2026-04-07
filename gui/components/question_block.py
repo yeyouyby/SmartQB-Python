@@ -36,10 +36,19 @@ from qfluentwidgets import ElevatedCardWidget, TextEdit
 
 
 class Bridge(QObject):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.target = None
+
     @Slot(str)
     def startDrag(self, temp_id: str):
         # We will handle the drag logic later
         logging.info(f"Dragging image with UUID: {temp_id}")
+
+    @Slot()
+    def snapshotReady(self):
+        if self.target:
+            self.target()
 
 
 class QuestionBlockWidget(ElevatedCardWidget):
@@ -112,13 +121,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.debounce_timer.setInterval(300)
         self.debounce_timer.timeout.connect(self._sync_preview)
 
+
         # Animation
         self.animation = QPropertyAnimation(self, b"minimumHeight")
         self.animation.setDuration(250)
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
 
-        self._update_preview_content()
         self.destroyed.connect(self._on_destroyed)
+        self._update_preview_content()
 
     def set_question_number(self, num: int):
         self._question_number = num
@@ -130,7 +140,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.text_edit.setPlainText(text)
         else:
             self._update_preview_content()
-        self.destroyed.connect(self._on_destroyed)
 
     def _compile_markdown(self) -> str:
         # Combine extensions for better support and handle potential missing dependencies
@@ -187,6 +196,26 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
             QuestionBlockWidget._shared_web_view.setParent(None)
             QuestionBlockWidget._current_editing_block = None
+
+
+    def _capture_snapshot(self):
+        if not self.web_view:
+            return
+        # Force a full layout and grab
+        pixmap = self.web_view.grab()
+        self.preview_label.setPixmap(pixmap)
+        self.preview_label.setText("")
+
+        # Now we can safely hide and detach
+        self.web_view.hide()
+        self.content_layout.removeWidget(self.web_view)
+        self.web_view.setParent(None)
+
+        if "pyBridge" in self.web_channel.registeredObjects():
+            self.web_channel.deregisterObject(self.bridge)
+
+        self.web_view = None
+        self.web_channel = None
 
     def _update_preview_content(self):
         # Convert markdown to HTML
@@ -328,7 +357,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._markdown_source = self.text_edit.toPlainText()
         self.debounce_timer.start()
 
-    def _sync_preview(self):
+    def _sync_preview(self, capture_after: bool = False):
         if not self.web_view:
             return
 
@@ -343,10 +372,17 @@ class QuestionBlockWidget(ElevatedCardWidget):
             if (container) {{
                 container.innerHTML = {safe_html};
                 if (typeof MathJax !== 'undefined') {{
-                    MathJax.typesetPromise([container]).catch(function (err) {{
+                    MathJax.typesetPromise([container]).then(function() {{
+                        if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
+                    }}).catch(function (err) {{
                         console.log(err.message);
+                        if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
                     }});
+                }} else {{
+                    if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
                 }}
+            }} else {{
+                if ({str(capture_after).lower()} && window.pyBridge) window.pyBridge.snapshotReady();
             }}
         }})();
         """
@@ -376,36 +412,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Force any pending updates to compile
         if self.debounce_timer.isActive():
             self.debounce_timer.stop()
-            self._sync_preview()
-
-        self._is_editing = False
-        if QuestionBlockWidget._current_editing_block == self:
-            QuestionBlockWidget._current_editing_block = None
-
-        if self.text_edit:
-            self.text_edit.hide()
-            self.content_layout.removeWidget(self.text_edit)
-            self.text_edit.removeEventFilter(self)
-            self.text_edit.deleteLater()
-            self.text_edit = None
-
-        # Capture snapshot before hiding if possible
-        if self.web_view:
-            self._update_preview_content()
-        self.destroyed.connect(self._on_destroyed)
-
-        if self.web_view:
-            self.web_view.hide()
-            self.content_layout.removeWidget(self.web_view)
-            # Re-parent to None so it doesn't get destroyed if parent gets destroyed, preserving the flyweight
-            self.web_view.setParent(None)
-
-            # Remove our bridge object to avoid memory leaks or crossing calls
-            if "pyBridge" in self.web_channel.registeredObjects():
-                self.web_channel.deregisterObject(self.bridge)
-
-            self.web_view = None
-            self.web_channel = None
+            self._sync_preview(capture_after=True)
+        elif self.web_view:
+            # We already synced, just request a snapshot
+            js = "if (window.pyBridge) window.pyBridge.snapshotReady();"
+            self.web_view.page().runJavaScript(js)
 
         self.preview_label.show()
 
