@@ -127,9 +127,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         extensions = ["md_in_html"]
         try:
             import pymdownx.arithmatex  # noqa: F401
+
             extensions.append("pymdownx.arithmatex")
         except ImportError:
-            logging.warning("pymdownx.arithmatex not found, math rendering may be limited.")
+            logging.warning(
+                "pymdownx.arithmatex not found, math rendering may be limited."
+            )
 
         return markdown.markdown(self._markdown_source, extensions=extensions)
 
@@ -214,7 +217,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view.setParent(None)
 
         # If it's already loaded (not just created), we sync immediately
-        if not view_just_created and self.web_view.url().isValid() and not self.web_view.url().isEmpty():
+        if (
+            not view_just_created
+            and self.web_view.url().isValid()
+            and not self.web_view.url().isEmpty()
+        ):
             self._on_web_view_loaded(True)
 
         # Instantiate TextEdit
