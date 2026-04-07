@@ -345,7 +345,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
-        if not hasattr(self, "text_edit"):
+        if getattr(self, "text_edit", None) is None:
+            # Using getattr instead of self.text_edit directly prevents AttributeError if PySide6 fires eventFilter before __init__ finishes.
             return super().eventFilter(obj, event)
         if self.text_edit and obj == self.text_edit and event.type() == QEvent.FocusOut:
             # Check in the next event loop cycle to allow focus to settle
