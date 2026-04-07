@@ -114,6 +114,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.text_edit: Optional[TextEdit] = None
         self.web_channel: Optional[QWebChannel] = None
         self.bridge = Bridge(self)
+        self.bridge.target = self._capture_snapshot
 
         # Debounce Timer
         self.debounce_timer = QTimer(self)
@@ -193,6 +194,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _on_destroyed(self):
         # Prevent the shared flyweight view from being destroyed if this widget is deleted while editing
         if self._is_editing and QuestionBlockWidget._shared_web_view is not None:
+            if QuestionBlockWidget._shared_load_connection is not None:
+                try:
+                    QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                    QuestionBlockWidget._shared_load_connection = None
+                except (RuntimeError, TypeError):
+                    pass
             QuestionBlockWidget._shared_web_view.setParent(None)
             QuestionBlockWidget._current_editing_block = None
 
@@ -224,21 +231,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def _update_preview_content(self):
         # Convert markdown to HTML
         html_content = self._compile_markdown()
-
-        if (
-            QuestionBlockWidget._shared_web_view
-            and self.web_view == QuestionBlockWidget._shared_web_view
-        ):
-            # We are exiting edit mode.
-            # grab() can be unreliable, so we could theoretically use QWebEnginePage's printToPdf,
-            # but for a synchronous fast-path, grab() is what we have right now.
-            # To ensure it captures correctly, we force a sync and wait for the event loop slightly,
-            # or rely on the previous sync.
-            pixmap = self.web_view.grab()
-            self.preview_label.setPixmap(pixmap)
-            self.preview_label.setText("")
-        else:
-            self.preview_label.setText(html_content)
+        # Simple rich text fallback for initial load (won't render JS math)
+        self.preview_label.setText(html_content)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent):
         if not self._is_editing:
