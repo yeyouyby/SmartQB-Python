@@ -221,6 +221,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Add to layout
         self.content_layout.addWidget(self.web_view)
+        self.web_view.show()
         self.content_layout.addWidget(self.text_edit)
 
         # Animate expansion
