@@ -5,9 +5,11 @@ import bleach  # type: ignore
 from bleach.css_sanitizer import CSSSanitizer  # type: ignore
 import logging
 import markdown  # type: ignore
+
 try:
     import importlib.util
-    HAS_ARITHMATEX = importlib.util.find_spec('pymdownx.arithmatex') is not None
+
+    HAS_ARITHMATEX = importlib.util.find_spec("pymdownx.arithmatex") is not None
     HAS_ARITHMATEX = True
 except ImportError:
     HAS_ARITHMATEX = False
@@ -143,13 +145,31 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Sanitize HTML to prevent XSS
         allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
-            "p", "div", "span", "br", "img", "h1", "h2", "h3", "h4", "h5", "h6",
-            "table", "thead", "tbody", "tr", "th", "td", "pre", "code", "blockquote"
+            "p",
+            "div",
+            "span",
+            "br",
+            "img",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "table",
+            "thead",
+            "tbody",
+            "tr",
+            "th",
+            "td",
+            "pre",
+            "code",
+            "blockquote",
         ]
         allowed_attrs = {
             "*": ["class", "id", "style"],
             "img": ["src", "alt", "title", "width", "height", "data-uuid"],
-            "a": ["href", "title"]
+            "a": ["href", "title"],
         }
 
         sanitized_html = bleach.clean(
@@ -157,7 +177,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             tags=allowed_tags,
             attributes=allowed_attrs,
             css_sanitizer=QuestionBlockWidget._css_sanitizer,
-            strip=True
+            strip=True,
         )
         return sanitized_html
 
