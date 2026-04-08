@@ -363,13 +363,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.web_channel.registerObject("pyBridge", self.bridge)
 
-        # We also need to re-parent the web view to the current widget layout
-        if (
-            self.web_view.parentWidget() is not None
-            and self.web_view.parentWidget() != self.content_widget
-        ):
-            self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
-
         # If it's already loaded (not just created), we sync immediately
         if (
             not view_just_created
@@ -431,8 +424,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.page().runJavaScript(js_code)
 
     def eventFilter(self, obj, event):
-        if getattr(self, "text_edit", None) is None:
-            # Using getattr instead of self.text_edit directly prevents AttributeError if PySide6 fires eventFilter before __init__ finishes.
+        if not self.text_edit:
             return super().eventFilter(obj, event)
         if self.text_edit and obj == self.text_edit and event.type() == QEvent.FocusOut:
             # Check in the next event loop cycle to allow focus to settle
