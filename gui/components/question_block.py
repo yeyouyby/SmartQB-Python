@@ -223,7 +223,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
             ):
                 if QuestionBlockWidget._shared_load_connection is not None:
                     try:
-                        QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                        QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
+                            QuestionBlockWidget._shared_load_connection
+                        )
                         QuestionBlockWidget._shared_load_connection = None
                     except (RuntimeError, TypeError):
                         pass
@@ -349,7 +351,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # We must disconnect old bindings first to avoid firing signals multiple times
         if QuestionBlockWidget._shared_load_connection is not None:
             try:
-                QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
+                    QuestionBlockWidget._shared_load_connection
+                )
                 QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
