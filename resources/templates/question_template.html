@@ -31,13 +31,14 @@
             container.innerHTML = html;
             if (typeof MathJax !== 'undefined') {
                 MathJax.typesetPromise([container]).then(() => {
-                    if (capture && pyBridge) pyBridge.snapshotReady();
+                    const height = document.body.scrollHeight;
+                    if (capture && pyBridge) pyBridge.snapshotReady(height);
                 }).catch(err => {
                     console.error("MathJax error:", err);
-                    if (capture && pyBridge) pyBridge.snapshotReady();
+                    if (capture && pyBridge) pyBridge.snapshotReady(document.body.scrollHeight);
                 });
             } else {
-                if (capture && pyBridge) pyBridge.snapshotReady();
+                if (capture && pyBridge) pyBridge.snapshotReady(document.body.scrollHeight);
             }
         };
 

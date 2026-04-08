@@ -45,10 +45,10 @@ class Bridge(QObject):
         # We will handle the drag logic later
         logging.info(f"Dragging image with UUID: {temp_id}")
 
-    @Slot()
-    def snapshotReady(self):
+    @Slot(int)
+    def snapshotReady(self, height: int = 0):
         if self.target:
-            self.target()
+            self.target(height)
 
 
 class QuestionBlockWidget(ElevatedCardWidget):
@@ -213,47 +213,57 @@ class QuestionBlockWidget(ElevatedCardWidget):
         )
         return sanitized_html
 
+    def deleteLater(self):
+        # Detach shared resources BEFORE Qt destroys children
+        if (
+            QuestionBlockWidget._shared_web_view is not None
+            and QuestionBlockWidget._shared_web_view.parentWidget()
+            == self.content_widget
+        ):
+            if QuestionBlockWidget._shared_load_connection is not None:
+                try:
+                    QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
+                        QuestionBlockWidget._shared_load_connection
+                    )
+                    QuestionBlockWidget._shared_load_connection = None
+                except (RuntimeError, TypeError):
+                    pass
+
+            if (
+                QuestionBlockWidget._shared_web_channel is not None
+                and "pyBridge"
+                in QuestionBlockWidget._shared_web_channel.registeredObjects()
+            ):
+                QuestionBlockWidget._shared_web_channel.deregisterObject(self.bridge)
+
+            if QuestionBlockWidget._shared_dummy_parent:
+                QuestionBlockWidget._shared_web_view.setParent(
+                    QuestionBlockWidget._shared_dummy_parent
+                )
+
+            if QuestionBlockWidget._current_editing_block == self:
+                QuestionBlockWidget._current_editing_block = None
+
+        self.bridge.target = None
+        super().deleteLater()
+
     def _on_destroyed(self):
+        # Fallback if deleteLater wasn't explicitly called (e.g. parent destroyed natively)
         try:
-            # Prevent the shared flyweight view from being destroyed if this widget is deleted
             if (
                 QuestionBlockWidget._shared_web_view is not None
                 and QuestionBlockWidget._shared_web_view.parentWidget()
                 == self.content_widget
             ):
-                if QuestionBlockWidget._shared_load_connection is not None:
-                    try:
-                        QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
-                            QuestionBlockWidget._shared_load_connection
-                        )
-                        QuestionBlockWidget._shared_load_connection = None
-                    except (RuntimeError, TypeError):
-                        pass
-
-                # Deregister bridge to prevent dangling pointers
-                if (
-                    QuestionBlockWidget._shared_web_channel is not None
-                    and "pyBridge"
-                    in QuestionBlockWidget._shared_web_channel.registeredObjects()
-                ):
-                    QuestionBlockWidget._shared_web_channel.deregisterObject(
-                        self.bridge
-                    )
-
                 QuestionBlockWidget._shared_web_view.setParent(
                     QuestionBlockWidget._shared_dummy_parent
                 )
-
-                if QuestionBlockWidget._current_editing_block == self:
-                    QuestionBlockWidget._current_editing_block = None
         except RuntimeError:
-            # Shared view or content_widget was already destroyed by Qt
             QuestionBlockWidget._shared_web_view = None
             QuestionBlockWidget._shared_web_channel = None
             QuestionBlockWidget._shared_load_connection = None
             QuestionBlockWidget._current_editing_block = None
 
-        # Break cyclic reference to allow Python garbage collection
         self.bridge.target = None
 
     def _cleanup_edit_widgets(self):
@@ -275,13 +285,25 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view = None
         self.web_channel = None
 
-    def _capture_snapshot(self):
+    def _capture_snapshot(self, content_height: int = 0):
         if not self.web_view:
             return
+
+        # Resize to full content height before grab to prevent clipping
+        original_height = self.web_view.height()
+        if content_height > original_height:
+            self.web_view.setFixedHeight(content_height)
+            # Give Qt a tiny moment to process the geometry change
+            QApplication.processEvents()
+
         # Force a full layout and grab
         pixmap = self.web_view.grab()
         self.preview_label.setPixmap(pixmap)
         self.preview_label.setText("")
+
+        # Restore original geometry properties
+        self.web_view.setMinimumHeight(150)
+        self.web_view.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
 
         self._cleanup_edit_widgets()
 
