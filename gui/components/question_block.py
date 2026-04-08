@@ -260,13 +260,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
-            self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
+            if QuestionBlockWidget._shared_dummy_parent:
+                self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
 
         if self.web_channel and "pyBridge" in self.web_channel.registeredObjects():
             self.web_channel.deregisterObject(self.bridge)
-
-        # Break cyclic reference
-        self.bridge.target = None
 
         if self.text_edit:
             self.content_layout.removeWidget(self.text_edit)
