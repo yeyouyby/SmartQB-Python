@@ -294,7 +294,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if content_height > original_height:
             self.web_view.setFixedHeight(content_height)
             # Give Qt a tiny moment to process the geometry change
-            QApplication.processEvents()
+            QTimer.singleShot(50, self._perform_grab)
+        else:
+            self._perform_grab()
+
+    def _perform_grab(self):
+        if not self.web_view:
+            return
 
         # Force a full layout and grab
         pixmap = self.web_view.grab()
