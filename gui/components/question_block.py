@@ -59,6 +59,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     # Shared Flyweight Instances
     _shared_web_view: Optional[QWebEngineView] = None
     _shared_web_channel: Optional[QWebChannel] = None
+    _shared_dummy_parent: Optional[QWidget] = None
     _shared_load_connection = None
     _current_editing_block: Optional["QuestionBlockWidget"] = None
     _css_sanitizer = CSSSanitizer(
@@ -178,6 +179,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def set_question_number(self, num: int):
         self._question_number = num
+        self.setObjectName(f"QuestionBlockWidget_{num}")
         self.header_label.setText(f"题号: {self._question_number}")
 
     def set_markdown(self, text: str):
@@ -230,7 +232,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
             ):
                 QuestionBlockWidget._shared_web_channel.deregisterObject(self.bridge)
 
-            QuestionBlockWidget._shared_web_view.setParent(None)
+            QuestionBlockWidget._shared_web_view.setParent(
+                QuestionBlockWidget._shared_dummy_parent
+            )
 
             if QuestionBlockWidget._current_editing_block == self:
                 QuestionBlockWidget._current_editing_block = None
@@ -242,7 +246,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
-            self.web_view.setParent(None)
+            self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
 
         if self.web_channel and "pyBridge" in self.web_channel.registeredObjects():
             self.web_channel.deregisterObject(self.bridge)
@@ -297,7 +301,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Leverage Flyweight pattern for WebEngineView
         view_just_created = False
         if QuestionBlockWidget._shared_web_view is None:
-            QuestionBlockWidget._shared_web_view = QWebEngineView()
+            # Create a dedicated hidden parent to prevent top-level window behavior
+            QuestionBlockWidget._shared_dummy_parent = QWidget()
+            QuestionBlockWidget._shared_dummy_parent.hide()
+
+            QuestionBlockWidget._shared_web_view = QWebEngineView(
+                QuestionBlockWidget._shared_dummy_parent
+            )
             QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
             view_just_created = True
 
@@ -341,7 +351,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.web_view.parentWidget() is not None
             and self.web_view.parentWidget() != self.content_widget
         ):
-            self.web_view.setParent(None)
+            self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
 
         # If it's already loaded (not just created), we sync immediately
         if (
