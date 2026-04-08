@@ -304,8 +304,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Force a full layout and grab
         pixmap = self.web_view.grab()
-        self.preview_label.setPixmap(pixmap)
-        self.preview_label.setText("")
+        if not pixmap.isNull():
+            self.preview_label.setPixmap(pixmap)
+            self.preview_label.setText("")
 
         # Restore original geometry properties
         self.web_view.setMinimumHeight(150)
@@ -496,13 +497,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 self._sync_preview(capture_after=True)
             elif self.web_view:
                 # We already synced, just request a snapshot
-                js = "if (window.pyBridge) window.pyBridge.snapshotReady();"
+                js = "if (window.pyBridge) window.pyBridge.snapshotReady(document.body.scrollHeight);"
                 self.web_view.page().runJavaScript(js)
 
         # Note: If we don't hide the text_edit here, the minimumSizeHint() below will include it,
         # causing the card to animate to a large height instead of the preview height.
         if self.text_edit:
             self.text_edit.hide()
+        if self.web_view:
+            self.web_view.hide()
 
         self.preview_label.show()
 
