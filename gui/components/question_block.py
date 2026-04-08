@@ -115,9 +115,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if cls._shared_web_view:
             cls._shared_web_view.deleteLater()
             cls._shared_web_view = None
-            cls._shared_web_channel = None
-            cls._shared_load_connection = None
-            cls._current_editing_block = None
+        if cls._shared_dummy_parent:
+            cls._shared_dummy_parent.deleteLater()
+            cls._shared_dummy_parent = None
+        cls._shared_web_channel = None
+        cls._shared_load_connection = None
+        cls._current_editing_block = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
