@@ -211,33 +211,42 @@ class QuestionBlockWidget(ElevatedCardWidget):
         return sanitized_html
 
     def _on_destroyed(self):
-        # Prevent the shared flyweight view from being destroyed if this widget is deleted
-        if (
-            QuestionBlockWidget._shared_web_view is not None
-            and QuestionBlockWidget._shared_web_view.parentWidget()
-            == self.content_widget
-        ):
-            if QuestionBlockWidget._shared_load_connection is not None:
-                try:
-                    QObject.disconnect(QuestionBlockWidget._shared_load_connection)
-                    QuestionBlockWidget._shared_load_connection = None
-                except (RuntimeError, TypeError):
-                    pass
-
-            # Deregister bridge to prevent dangling pointers
+        try:
+            # Prevent the shared flyweight view from being destroyed if this widget is deleted
             if (
-                QuestionBlockWidget._shared_web_channel is not None
-                and "pyBridge"
-                in QuestionBlockWidget._shared_web_channel.registeredObjects()
+                QuestionBlockWidget._shared_web_view is not None
+                and QuestionBlockWidget._shared_web_view.parentWidget()
+                == self.content_widget
             ):
-                QuestionBlockWidget._shared_web_channel.deregisterObject(self.bridge)
+                if QuestionBlockWidget._shared_load_connection is not None:
+                    try:
+                        QObject.disconnect(QuestionBlockWidget._shared_load_connection)
+                        QuestionBlockWidget._shared_load_connection = None
+                    except (RuntimeError, TypeError):
+                        pass
 
-            QuestionBlockWidget._shared_web_view.setParent(
-                QuestionBlockWidget._shared_dummy_parent
-            )
+                # Deregister bridge to prevent dangling pointers
+                if (
+                    QuestionBlockWidget._shared_web_channel is not None
+                    and "pyBridge"
+                    in QuestionBlockWidget._shared_web_channel.registeredObjects()
+                ):
+                    QuestionBlockWidget._shared_web_channel.deregisterObject(
+                        self.bridge
+                    )
 
-            if QuestionBlockWidget._current_editing_block == self:
-                QuestionBlockWidget._current_editing_block = None
+                QuestionBlockWidget._shared_web_view.setParent(
+                    QuestionBlockWidget._shared_dummy_parent
+                )
+
+                if QuestionBlockWidget._current_editing_block == self:
+                    QuestionBlockWidget._current_editing_block = None
+        except RuntimeError:
+            # Shared view or content_widget was already destroyed by Qt
+            QuestionBlockWidget._shared_web_view = None
+            QuestionBlockWidget._shared_web_channel = None
+            QuestionBlockWidget._shared_load_connection = None
+            QuestionBlockWidget._current_editing_block = None
 
         # Break cyclic reference to allow Python garbage collection
         self.bridge.target = None
@@ -300,6 +309,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Leverage Flyweight pattern for WebEngineView
         view_just_created = False
+
+        # Ensure shared view is still valid (not deleted by Qt)
+        if QuestionBlockWidget._shared_web_view is not None:
+            try:
+                QuestionBlockWidget._shared_web_view.parent()
+            except RuntimeError:
+                QuestionBlockWidget._shared_web_view = None
+
         if QuestionBlockWidget._shared_web_view is None:
             # Create a dedicated hidden parent to prevent top-level window behavior
             QuestionBlockWidget._shared_dummy_parent = QWidget()
