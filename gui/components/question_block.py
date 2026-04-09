@@ -286,7 +286,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_channel = None
 
     def _capture_snapshot(self, content_height: int = 0):
-        if not self.web_view:
+        if not self.web_view or self._is_editing:
             return
 
         # Ensure we capture exactly the content height (with a minimum)
@@ -295,10 +295,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view.setFixedSize(self.content_widget.width(), target_height)
 
         # Use a small delay to allow the browser to reflow and paint at the new size
-        QTimer.singleShot(100, self._perform_grab)
+        QTimer.singleShot(100, self, self._perform_grab)
 
     def _perform_grab(self):
-        if not self.web_view:
+        if not self.web_view or self._is_editing:
             return
 
         # Force a full layout and grab
@@ -386,6 +386,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
             )
 
         self.web_view = QuestionBlockWidget._shared_web_view
+        self.web_view.setMinimumSize(0, QuestionBlockWidget._MIN_EDITOR_HEIGHT)
+        self.web_view.setMaximumSize(16777215, 16777215)
         self.web_channel = QuestionBlockWidget._shared_web_channel
 
         # Direct the shared bridge to this instance
