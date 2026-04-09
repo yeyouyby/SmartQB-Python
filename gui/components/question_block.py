@@ -356,7 +356,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 QuestionBlockWidget._shared_dummy_parent
             )
 
-            # Disable scrollbars to prevent them from appearing in snapshots
+            # Ensure scrollbars are enabled for live editing (snapshots naturally hide them via height expansion)
 
             QuestionBlockWidget._shared_web_view.settings().setAttribute(
                 QWebEngineSettings.ShowScrollBars, True
