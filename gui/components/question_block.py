@@ -16,6 +16,7 @@ except ImportError:
     HAS_ARITHMATEX = False
 
 from PySide6.QtCore import (
+    Signal,
     QTimer,
     QPropertyAnimation,
     QEasingCurve,
@@ -39,9 +40,10 @@ from qfluentwidgets import ElevatedCardWidget, TextEdit
 
 
 class Bridge(QObject):
+    snapshotReadySignal = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.target = None
 
     @Slot(str)
     def startDrag(self, temp_id: str):
@@ -50,8 +52,7 @@ class Bridge(QObject):
 
     @Slot(int)
     def snapshotReady(self, height: int = 0):
-        if self.target:
-            self.target(height)
+        self.snapshotReadySignal.emit(height)
 
 
 class QuestionBlockWidget(ElevatedCardWidget):
@@ -409,9 +410,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         )
         self.web_channel = QuestionBlockWidget._shared_web_channel
 
-        # Direct the shared bridge to this instance
+        # Direct the shared bridge to this instance via Signal
         if QuestionBlockWidget._shared_bridge:
-            QuestionBlockWidget._shared_bridge.target = self._capture_snapshot
+            QuestionBlockWidget._shared_bridge.snapshotReadySignal.connect(
+                self._capture_snapshot
+            )
 
         # Connect bridge and load callback
         # We must disconnect old bindings first to avoid firing signals multiple times
