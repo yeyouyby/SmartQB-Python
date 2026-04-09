@@ -133,9 +133,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     if not _TEMPLATE_FILE.exists():
         logging.critical(f"Required template file not found: {_TEMPLATE_FILE}")
-        _HTML_TEMPLATE = "<html><body><h3 style='color:red;'>Template missing: question_template.html</h3></body></html>"
-    else:
-        _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
+        raise FileNotFoundError(f"Required template file not found: {_TEMPLATE_FILE}")
+    _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -283,11 +282,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
             if QuestionBlockWidget._shared_dummy_parent:
                 self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
 
-        if (
-            QuestionBlockWidget._shared_bridge
-            and QuestionBlockWidget._shared_bridge.target == self._capture_snapshot
-        ):
-            QuestionBlockWidget._shared_bridge.target = None
+        if QuestionBlockWidget._shared_bridge:
+            try:
+                QuestionBlockWidget._shared_bridge.snapshotReadySignal.disconnect(
+                    self._capture_snapshot
+                )
+            except (RuntimeError, TypeError):
+                pass  # Ignore if already disconnected or C++ object is dead
 
         if self.text_edit:
             self.content_layout.removeWidget(self.text_edit)
@@ -549,17 +550,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if self.text_edit:
             self.text_edit.hide()
 
-        # We must NOT hide web_view yet if async grabbing, but we do need the correct layout height.
-        # But web_view minimum height is 150. If we don't hide it, size hint includes it!
-        # Instead, we can force its height to 0 or fixed height temporarily, but that ruins the grab.
-        # Actually, QWebEngineView's geometry isn't strictly required to be part of the layout to grab.
-        # But if we don't hide it, the layout is too big.
-        # If we remove it from the layout but don't hide it?
-        # Let's remove it from layout but don't hide it.
+        # To ensure the collapse animation targets the correct final preview height,
+        # the web_view is temporarily removed from the layout manager before the
+        # animation starts. This prevents its own minimum size from interfering
+        # with the layout's size hint calculation. The web_view remains a visible
+        # child of the widget, allowing the asynchronous grab() to function
+        # correctly. It is fully cleaned up later in _perform_grab().
         if self.web_view and not force_sync:
             self.content_layout.removeWidget(self.web_view)
-            # It's no longer in layout, so minimumSizeHint works for animation!
-            # It remains visible as a child until _perform_grab hides it.
 
         self.preview_label.show()
 
