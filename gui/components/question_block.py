@@ -289,14 +289,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self.web_view:
             return
 
-        # Resize to full content height before grab to prevent clipping
-        original_height = self.web_view.height()
-        if content_height > original_height:
-            self.web_view.setFixedHeight(content_height)
-            # Use QTimer.singleShot(0) instead of processEvents() to safely queue the grab
-            QTimer.singleShot(100, self._perform_grab)
-        else:
-            self._perform_grab()
+        # Ensure we capture exactly the content height (with a minimum)
+        # and maintain the current width since it's removed from layout
+        target_height = max(content_height, QuestionBlockWidget._MIN_EDITOR_HEIGHT)
+        self.web_view.setFixedSize(self.content_widget.width(), target_height)
+
+        # Use a small delay to allow the browser to reflow and paint at the new size
+        QTimer.singleShot(100, self._perform_grab)
 
     def _perform_grab(self):
         if not self.web_view:
