@@ -10,6 +10,8 @@ try:
     import importlib.util
 
     HAS_ARITHMATEX = importlib.util.find_spec("pymdownx.arithmatex") is not None
+    if not HAS_ARITHMATEX:
+        logging.warning("pymdownx.arithmatex not found, math rendering may be limited.")
 except ImportError:
     HAS_ARITHMATEX = False
 
@@ -108,7 +110,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    _project_root = Path(__file__).resolve().parents[2]
+    _project_root = Path(__file__).resolve().parent.parent.parent
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
@@ -116,8 +118,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     if not _TEMPLATE_FILE.exists():
         logging.critical(f"Required template file not found: {_TEMPLATE_FILE}")
-        raise FileNotFoundError(f"Required template file not found: {_TEMPLATE_FILE}")
-    _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
+        _HTML_TEMPLATE = "<html><body><h3 style='color:red;'>Template missing: question_template.html</h3></body></html>"
+    else:
+        _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -148,7 +151,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.main_layout.setSpacing(5)
 
         # Header
-        self.header_label = QLabel(f"题号: {self._question_number}")
+        self.header_label = QLabel(self.tr("题号: ") + str(self._question_number))
         self.header_label.setStyleSheet("font-weight: bold; color: #5c5c5c;")
         self.main_layout.addWidget(self.header_label)
 
@@ -190,7 +193,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     def set_question_number(self, num: int):
         self._question_number = num
         self.setObjectName(f"QuestionBlockWidget_{num}")
-        self.header_label.setText(f"题号: {self._question_number}")
+        self.header_label.setText(self.tr("题号: ") + str(self._question_number))
 
     def set_markdown(self, text: str):
         self._markdown_source = text
@@ -204,10 +207,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         extensions = ["md_in_html"]
         if HAS_ARITHMATEX:
             extensions.append("pymdownx.arithmatex")
-        else:
-            logging.warning(
-                "pymdownx.arithmatex not found, math rendering may be limited."
-            )
 
         raw_html = markdown.markdown(self._markdown_source, extensions=extensions)
 
@@ -360,7 +359,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             # Disable scrollbars to prevent them from appearing in snapshots
 
             QuestionBlockWidget._shared_web_view.settings().setAttribute(
-                QWebEngineSettings.ShowScrollBars, False
+                QWebEngineSettings.ShowScrollBars, True
             )
 
             QuestionBlockWidget._shared_web_view.setMinimumHeight(
