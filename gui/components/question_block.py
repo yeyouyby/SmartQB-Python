@@ -266,11 +266,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
             # Clear the reference if the C++ object is dead
             QuestionBlockWidget._shared_web_view = None
 
-        if QuestionBlockWidget._shared_bridge and getattr(
-            QuestionBlockWidget._shared_bridge, "target", None
-        ) == getattr(self, "_capture_snapshot", None):
-            QuestionBlockWidget._shared_bridge.target = None
-
     def _on_destroyed(self):
         # Fallback if deleteLater wasn't explicitly called (e.g. parent destroyed natively)
         self._detach_shared_resources()
