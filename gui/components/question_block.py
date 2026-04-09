@@ -82,6 +82,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _ANIMATION_DURATION = 250
     _MIN_PREVIEW_HEIGHT = 60
     _MIN_EDITOR_HEIGHT = 150
+    _FALLBACK_CAPTURE_WIDTH = 400
     _QWIDGETSIZE_MAX = 16777215
 
     _ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
@@ -291,7 +292,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         target_height = max(content_height, QuestionBlockWidget._MIN_EDITOR_HEIGHT)
 
         # Ensure width is valid even if layout is temporarily collapsed
-        target_width = max(self.content_widget.width(), 400)
+        target_width = max(
+            self.content_widget.width(), QuestionBlockWidget._FALLBACK_CAPTURE_WIDTH
+        )
         self.web_view.setFixedSize(target_width, target_height)
 
         # Use a small delay to allow the browser to reflow and paint at the new size
@@ -384,7 +387,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
             QuestionBlockWidget._shared_web_view.setHtml(
                 QuestionBlockWidget._HTML_TEMPLATE,
-                baseUrl=QUrl.fromLocalFile(f"{QuestionBlockWidget._ASSETS_PATH}/"),
+                baseUrl=QUrl.fromLocalFile(str(QuestionBlockWidget._ASSETS_PATH) + "/"),
             )
 
         self.web_view = QuestionBlockWidget._shared_web_view
