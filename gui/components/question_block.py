@@ -116,7 +116,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     if not _TEMPLATE_FILE.exists():
         logging.critical(f"Required template file not found: {_TEMPLATE_FILE}")
-        raise SystemExit(1)
+        raise FileNotFoundError(f"Required template file not found: {_TEMPLATE_FILE}")
     _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
 
     @classmethod
@@ -506,6 +506,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
             # Since we cleaned up, we should ensure the preview shows
             self.preview_label.show()
         else:
+            # Show fallback HTML immediately to avoid stale text flicker during async grab
+            html_content = self._compile_markdown()
+            self.preview_label.setText(html_content)
+
             # Force any pending updates to compile
             if self.debounce_timer.isActive():
                 self.debounce_timer.stop()
