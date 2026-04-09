@@ -110,7 +110,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    _project_root = Path(__file__).resolve().parent.parent.parent
+    # Robustly locate project root regardless of file hierarchy shifts
+    _project_root = Path(__file__).resolve().parent
+    while (
+        _project_root.parent != _project_root
+        and not (_project_root / "requirements.txt").exists()
+    ):
+        _project_root = _project_root.parent
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
@@ -249,9 +255,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
                     QuestionBlockWidget._current_editing_block = None
 
         except RuntimeError:
-            # Only log or pass; the shared resources might still be valid for other instances.
-            # The _enter_edit_state method already handles re-initializing None or dead shared views.
-            pass
+            # Clear the reference if the C++ object is dead
+            QuestionBlockWidget._shared_web_view = None
 
         if QuestionBlockWidget._shared_bridge and getattr(
             QuestionBlockWidget._shared_bridge, "target", None
