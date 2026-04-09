@@ -163,9 +163,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.web_view: Optional[QWebEngineView] = None
         self.text_edit: Optional[TextEdit] = None
         self.web_channel: Optional[QWebChannel] = None
-        self.bridge = Bridge(self)
-        self.bridge.target = self._capture_snapshot
-
         # Debounce Timer
         self.debounce_timer = QTimer(self)
         self.debounce_timer.setSingleShot(True)
@@ -229,13 +226,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 except (RuntimeError, TypeError):
                     pass
 
-            if (
-                QuestionBlockWidget._shared_web_channel is not None
-                and "pyBridge"
-                in QuestionBlockWidget._shared_web_channel.registeredObjects()
-            ):
-                QuestionBlockWidget._shared_web_channel.deregisterObject(self.bridge)
-
             if QuestionBlockWidget._shared_dummy_parent:
                 QuestionBlockWidget._shared_web_view.setParent(
                     QuestionBlockWidget._shared_dummy_parent
@@ -244,7 +234,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
             if QuestionBlockWidget._current_editing_block == self:
                 QuestionBlockWidget._current_editing_block = None
 
-        self.bridge.target = None
+        if QuestionBlockWidget._shared_bridge and getattr(
+            QuestionBlockWidget._shared_bridge, "target", None
+        ) == getattr(self, "_capture_snapshot", None):
+            QuestionBlockWidget._shared_bridge.target = None
+
         super().deleteLater()
 
     def _on_destroyed(self):
@@ -264,7 +258,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._shared_load_connection = None
             QuestionBlockWidget._current_editing_block = None
 
-        self.bridge.target = None
+        if QuestionBlockWidget._shared_bridge and getattr(
+            QuestionBlockWidget._shared_bridge, "target", None
+        ) == getattr(self, "_capture_snapshot", None):
+            QuestionBlockWidget._shared_bridge.target = None
 
     def _cleanup_edit_widgets(self):
         if self.web_view:
@@ -273,8 +270,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
             if QuestionBlockWidget._shared_dummy_parent:
                 self.web_view.setParent(QuestionBlockWidget._shared_dummy_parent)
 
-        if self.web_channel and "pyBridge" in self.web_channel.registeredObjects():
-            self.web_channel.deregisterObject(self.bridge)
+        if (
+            QuestionBlockWidget._shared_bridge
+            and QuestionBlockWidget._shared_bridge.target == self._capture_snapshot
+        ):
+            QuestionBlockWidget._shared_bridge.target = None
 
         if self.text_edit:
             self.content_layout.removeWidget(self.text_edit)
@@ -293,8 +293,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         original_height = self.web_view.height()
         if content_height > original_height:
             self.web_view.setFixedHeight(content_height)
-            # Give Qt a tiny moment to process the geometry change
-            QTimer.singleShot(50, self._perform_grab)
+            # Use QTimer.singleShot(0) instead of processEvents() to safely queue the grab
+            QTimer.singleShot(0, self._perform_grab)
         else:
             self._perform_grab()
 
@@ -357,6 +357,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._shared_web_view = QWebEngineView(
                 QuestionBlockWidget._shared_dummy_parent
             )
+
+            # Disable scrollbars to prevent them from appearing in snapshots
+            from PySide6.QtWebEngineCore import QWebEngineSettings
+
+            QuestionBlockWidget._shared_web_view.settings().setAttribute(
+                QWebEngineSettings.ShowScrollBars, False
+            )
+
             QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
             view_just_created = True
 
@@ -367,12 +375,22 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 QuestionBlockWidget._shared_web_channel
             )
 
-            QuestionBlockWidget._shared_web_view.setUrl(
-                QuestionBlockWidget._TEMPLATE_PATH
+            QuestionBlockWidget._shared_bridge = Bridge()
+            QuestionBlockWidget._shared_web_channel.registerObject(
+                "pyBridge", QuestionBlockWidget._shared_bridge
+            )
+
+            QuestionBlockWidget._shared_web_view.setHtml(
+                QuestionBlockWidget._HTML_TEMPLATE,
+                baseUrl=QUrl.fromLocalFile(str(QuestionBlockWidget._ASSETS_PATH) + "/"),
             )
 
         self.web_view = QuestionBlockWidget._shared_web_view
         self.web_channel = QuestionBlockWidget._shared_web_channel
+
+        # Direct the shared bridge to this instance
+        if QuestionBlockWidget._shared_bridge:
+            QuestionBlockWidget._shared_bridge.target = self._capture_snapshot
 
         # Connect bridge and load callback
         # We must disconnect old bindings first to avoid firing signals multiple times
@@ -388,14 +406,6 @@ class QuestionBlockWidget(ElevatedCardWidget):
         QuestionBlockWidget._shared_load_connection = (
             self.web_view.loadFinished.connect(self._on_web_view_loaded)
         )
-
-        # Clear out any old objects in the channel if they exist
-        if "pyBridge" in self.web_channel.registeredObjects():
-            self.web_channel.deregisterObject(
-                self.web_channel.registeredObjects()["pyBridge"]
-            )
-
-        self.web_channel.registerObject("pyBridge", self.bridge)
 
         # If it's already loaded (not just created), we sync immediately
         if (
