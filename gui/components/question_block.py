@@ -81,6 +81,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _ANIMATION_DURATION = 250
     _MIN_PREVIEW_HEIGHT = 60
     _MIN_EDITOR_HEIGHT = 150
+    _QWIDGETSIZE_MAX = 16777215
 
     _ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
         "p",
@@ -110,10 +111,20 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    # Resolve project root statically
-    _project_root = Path(__file__).resolve().parents[2]
-    if not (_project_root / "requirements.txt").exists():
-        logging.warning(f"Project root marker not found at {_project_root}")
+    # Resolve project root dynamically by searching for a marker
+    _project_root = next(
+        (
+            p
+            for p in Path(__file__).resolve().parents
+            if (p / "requirements.txt").exists()
+        ),
+        None,
+    )
+    if _project_root is None:
+        _project_root = Path(__file__).resolve().parents[2]  # Fallback
+        logging.warning(
+            f"Project root marker not found. Falling back to {_project_root}"
+        )
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
@@ -310,7 +321,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Restore original geometry properties
         self.web_view.setMinimumHeight(QuestionBlockWidget._MIN_EDITOR_HEIGHT)
-        self.web_view.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
+        self.web_view.setMaximumHeight(
+            QuestionBlockWidget._QWIDGETSIZE_MAX
+        )  # QWIDGETSIZE_MAX
 
         self._cleanup_edit_widgets()
 
@@ -388,7 +401,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         self.web_view = QuestionBlockWidget._shared_web_view
         self.web_view.setMinimumSize(0, QuestionBlockWidget._MIN_EDITOR_HEIGHT)
-        self.web_view.setMaximumSize(16777215, 16777215)
+        self.web_view.setMaximumSize(
+            QuestionBlockWidget._QWIDGETSIZE_MAX, QuestionBlockWidget._QWIDGETSIZE_MAX
+        )
         self.web_channel = QuestionBlockWidget._shared_web_channel
 
         # Direct the shared bridge to this instance
