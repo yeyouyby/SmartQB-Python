@@ -386,7 +386,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
             QuestionBlockWidget._shared_web_view.setHtml(
                 QuestionBlockWidget._HTML_TEMPLATE,
-                baseUrl=QUrl.fromLocalFile(str(QuestionBlockWidget._ASSETS_PATH) + "/"),
+                baseUrl=QUrl.fromLocalFile(f"{QuestionBlockWidget._ASSETS_PATH}/"),
             )
 
         self.web_view = QuestionBlockWidget._shared_web_view
