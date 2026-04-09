@@ -112,20 +112,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    # Resolve project root dynamically by searching for a marker
-    _project_root = next(
-        (
-            p
-            for p in Path(__file__).resolve().parents
-            if (p / "requirements.txt").exists()
-        ),
-        None,
-    )
-    if _project_root is None:
-        _project_root = Path(__file__).resolve().parents[2]  # Fallback
-        logging.warning(
-            f"Project root marker not found. Falling back to {_project_root}"
-        )
+    # Resolve project root statically
+    _project_root = Path(__file__).resolve().parents[2]
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
