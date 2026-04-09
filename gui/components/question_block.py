@@ -304,7 +304,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Ensure we capture exactly the content height (with a minimum)
         # and maintain the current width since it's removed from layout
         target_height = max(content_height, QuestionBlockWidget._MIN_EDITOR_HEIGHT)
-        self.web_view.setFixedSize(self.content_widget.width(), target_height)
+
+        # Ensure width is valid even if layout is temporarily collapsed
+        target_width = max(self.content_widget.width(), 400)
+        self.web_view.setFixedSize(target_width, target_height)
 
         # Use a small delay to allow the browser to reflow and paint at the new size
         QTimer.singleShot(100, self, self._perform_grab)
