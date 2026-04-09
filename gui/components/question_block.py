@@ -110,13 +110,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    # Robustly locate project root regardless of file hierarchy shifts
-    _project_root = Path(__file__).resolve().parent
-    while (
-        _project_root.parent != _project_root
-        and not (_project_root / "requirements.txt").exists()
-    ):
-        _project_root = _project_root.parent
+    # Resolve project root statically
+    _project_root = Path(__file__).resolve().parents[2]
+    if not (_project_root / "requirements.txt").exists():
+        logging.warning(f"Project root marker not found at {_project_root}")
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
@@ -232,27 +229,27 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def _detach_shared_resources(self):
         try:
-            if (
-                QuestionBlockWidget._shared_web_view is not None
-                and QuestionBlockWidget._shared_web_view.parentWidget()
-                == self.content_widget
-            ):
+            # Safely check if this instance is the current owner of the shared resources
+            if QuestionBlockWidget._current_editing_block == self:
                 if QuestionBlockWidget._shared_load_connection is not None:
                     try:
-                        QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
-                            QuestionBlockWidget._shared_load_connection
-                        )
+                        if QuestionBlockWidget._shared_web_view:
+                            QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
+                                QuestionBlockWidget._shared_load_connection
+                            )
                         QuestionBlockWidget._shared_load_connection = None
                     except (RuntimeError, TypeError):
                         pass
 
-                if QuestionBlockWidget._shared_dummy_parent:
+                if (
+                    QuestionBlockWidget._shared_web_view
+                    and QuestionBlockWidget._shared_dummy_parent
+                ):
                     QuestionBlockWidget._shared_web_view.setParent(
                         QuestionBlockWidget._shared_dummy_parent
                     )
 
-                if QuestionBlockWidget._current_editing_block == self:
-                    QuestionBlockWidget._current_editing_block = None
+                QuestionBlockWidget._current_editing_block = None
 
         except RuntimeError:
             # Clear the reference if the C++ object is dead
