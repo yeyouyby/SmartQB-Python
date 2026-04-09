@@ -61,6 +61,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
     _shared_web_channel: Optional[QWebChannel] = None
     _shared_dummy_parent: Optional[QWidget] = None
     _shared_load_connection = None
+    _shared_bridge: Optional["Bridge"] = None
     _current_editing_block: Optional["QuestionBlockWidget"] = None
     _css_sanitizer = CSSSanitizer(
         allowed_css_properties={
@@ -101,13 +102,22 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    _TEMPLATE_PATH = QUrl.fromLocalFile(
-        str(
-            Path(__file__).resolve().parents[2]
-            / "resources"
-            / "templates"
-            / "question_template.html"
-        )
+    # Robustly find project root by searching for 'resources' directory
+    _current_dir = Path(__file__).resolve()
+    _project_root = _current_dir.parent
+    while (
+        _project_root.parent != _project_root
+        and not (_project_root / "resources").exists()
+    ):
+        _project_root = _project_root.parent
+
+    _RESOURCES_PATH = _project_root / "resources"
+    _ASSETS_PATH = _RESOURCES_PATH / "assets"
+    _TEMPLATE_FILE = _RESOURCES_PATH / "templates" / "question_template.html"
+
+    # Avoid FileNotFoundError dynamically on import by supplying empty string fallback
+    _HTML_TEMPLATE = (
+        _TEMPLATE_FILE.read_text(encoding="utf-8") if _TEMPLATE_FILE.exists() else ""
     )
 
     @classmethod
@@ -121,6 +131,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         cls._shared_web_channel = None
         cls._shared_load_connection = None
         cls._current_editing_block = None
+        cls._shared_bridge = None
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -500,6 +511,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
             html_content = self._compile_markdown()
             self.preview_label.setText(html_content)
             self._cleanup_edit_widgets()
+
+            # Since we cleaned up, we should ensure the preview shows
+            self.preview_label.show()
         else:
             # Force any pending updates to compile
             if self.debounce_timer.isActive():
@@ -510,12 +524,25 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 js = "if (window.pyBridge) window.pyBridge.snapshotReady(document.body.scrollHeight);"
                 self.web_view.page().runJavaScript(js)
 
+            # Do NOT hide self.web_view here, as we need it visible for the async .grab().
+            # It will be hidden inside _perform_grab via _cleanup_edit_widgets()
+
         # Note: If we don't hide the text_edit here, the minimumSizeHint() below will include it,
         # causing the card to animate to a large height instead of the preview height.
         if self.text_edit:
             self.text_edit.hide()
-        if self.web_view:
-            self.web_view.hide()
+
+        # We must NOT hide web_view yet if async grabbing, but we do need the correct layout height.
+        # But web_view minimum height is 150. If we don't hide it, size hint includes it!
+        # Instead, we can force its height to 0 or fixed height temporarily, but that ruins the grab.
+        # Actually, QWebEngineView's geometry isn't strictly required to be part of the layout to grab.
+        # But if we don't hide it, the layout is too big.
+        # If we remove it from the layout but don't hide it?
+        # Let's remove it from layout but don't hide it.
+        if self.web_view and not force_sync:
+            self.content_layout.removeWidget(self.web_view)
+            # It's no longer in layout, so minimumSizeHint works for animation!
+            # It remains visible as a child until _perform_grab hides it.
 
         self.preview_label.show()
 
