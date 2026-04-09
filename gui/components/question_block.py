@@ -108,23 +108,16 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    # Robustly find project root by searching for a project marker
-    _current_dir = Path(__file__).resolve()
-    _project_root = _current_dir.parent
-    while (
-        _project_root.parent != _project_root
-        and not (_project_root / "requirements.txt").exists()
-    ):
-        _project_root = _project_root.parent
+    _project_root = Path(__file__).resolve().parents[2]
 
     _RESOURCES_PATH = _project_root / "resources"
     _ASSETS_PATH = _RESOURCES_PATH / "assets"
     _TEMPLATE_FILE = _RESOURCES_PATH / "templates" / "question_template.html"
 
-    # Avoid FileNotFoundError dynamically on import by supplying empty string fallback
-    _HTML_TEMPLATE = (
-        _TEMPLATE_FILE.read_text(encoding="utf-8") if _TEMPLATE_FILE.exists() else ""
-    )
+    if not _TEMPLATE_FILE.exists():
+        logging.critical(f"Required template file not found: {_TEMPLATE_FILE}")
+        raise SystemExit(1)
+    _HTML_TEMPLATE = _TEMPLATE_FILE.read_text(encoding="utf-8")
 
     @classmethod
     def cleanup_shared_resources(cls):
@@ -229,57 +222,46 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def deleteLater(self):
         # Detach shared resources BEFORE Qt destroys children
-        if (
-            QuestionBlockWidget._shared_web_view is not None
-            and QuestionBlockWidget._shared_web_view.parentWidget()
-            == self.content_widget
-        ):
-            if QuestionBlockWidget._shared_load_connection is not None:
-                try:
-                    QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
-                        QuestionBlockWidget._shared_load_connection
-                    )
-                    QuestionBlockWidget._shared_load_connection = None
-                except (RuntimeError, TypeError):
-                    pass
-
-            if QuestionBlockWidget._shared_dummy_parent:
-                QuestionBlockWidget._shared_web_view.setParent(
-                    QuestionBlockWidget._shared_dummy_parent
-                )
-
-            if QuestionBlockWidget._current_editing_block == self:
-                QuestionBlockWidget._current_editing_block = None
-
-        if QuestionBlockWidget._shared_bridge and getattr(
-            QuestionBlockWidget._shared_bridge, "target", None
-        ) == getattr(self, "_capture_snapshot", None):
-            QuestionBlockWidget._shared_bridge.target = None
-
+        self._detach_shared_resources()
         super().deleteLater()
 
-    def _on_destroyed(self):
-        # Fallback if deleteLater wasn't explicitly called (e.g. parent destroyed natively)
+    def _detach_shared_resources(self):
         try:
             if (
                 QuestionBlockWidget._shared_web_view is not None
                 and QuestionBlockWidget._shared_web_view.parentWidget()
                 == self.content_widget
             ):
-                QuestionBlockWidget._shared_web_view.setParent(
-                    QuestionBlockWidget._shared_dummy_parent
-                )
+                if QuestionBlockWidget._shared_load_connection is not None:
+                    try:
+                        QuestionBlockWidget._shared_web_view.loadFinished.disconnect(
+                            QuestionBlockWidget._shared_load_connection
+                        )
+                        QuestionBlockWidget._shared_load_connection = None
+                    except (RuntimeError, TypeError):
+                        pass
+
+                if QuestionBlockWidget._shared_dummy_parent:
+                    QuestionBlockWidget._shared_web_view.setParent(
+                        QuestionBlockWidget._shared_dummy_parent
+                    )
+
+                if QuestionBlockWidget._current_editing_block == self:
+                    QuestionBlockWidget._current_editing_block = None
+
         except RuntimeError:
-            QuestionBlockWidget._shared_web_view = None
-            QuestionBlockWidget._shared_web_channel = None
-            QuestionBlockWidget._shared_load_connection = None
-            QuestionBlockWidget._current_editing_block = None
-            QuestionBlockWidget._shared_bridge = None
+            # Only log or pass; the shared resources might still be valid for other instances.
+            # The _enter_edit_state method already handles re-initializing None or dead shared views.
+            pass
 
         if QuestionBlockWidget._shared_bridge and getattr(
             QuestionBlockWidget._shared_bridge, "target", None
         ) == getattr(self, "_capture_snapshot", None):
             QuestionBlockWidget._shared_bridge.target = None
+
+    def _on_destroyed(self):
+        # Fallback if deleteLater wasn't explicitly called (e.g. parent destroyed natively)
+        self._detach_shared_resources()
 
     def _cleanup_edit_widgets(self):
         if self.web_view:
@@ -312,7 +294,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if content_height > original_height:
             self.web_view.setFixedHeight(content_height)
             # Use QTimer.singleShot(0) instead of processEvents() to safely queue the grab
-            QTimer.singleShot(0, self._perform_grab)
+            QTimer.singleShot(100, self._perform_grab)
         else:
             self._perform_grab()
 
