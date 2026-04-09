@@ -29,16 +29,19 @@
             const container = document.getElementById('math-content');
             if (!container) return;
             container.innerHTML = html;
+
+            const takeSnapshot = () => {
+                if (capture && pyBridge) {
+                    pyBridge.snapshotReady(document.body.scrollHeight);
+                }
+            };
+
             if (typeof MathJax !== 'undefined') {
-                MathJax.typesetPromise([container]).then(() => {
-                    const height = document.body.scrollHeight;
-                    if (capture && pyBridge) pyBridge.snapshotReady(height);
-                }).catch(err => {
-                    console.error("MathJax error:", err);
-                    if (capture && pyBridge) pyBridge.snapshotReady(document.body.scrollHeight);
-                });
+                MathJax.typesetPromise([container])
+                    .catch(err => console.error("MathJax error:", err))
+                    .finally(takeSnapshot);
             } else {
-                if (capture && pyBridge) pyBridge.snapshotReady(document.body.scrollHeight);
+                takeSnapshot();
             }
         };
 

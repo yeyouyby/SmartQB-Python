@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QApplication,
 )
+from PySide6.QtWebEngineCore import QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
 from qfluentwidgets import ElevatedCardWidget, TextEdit
@@ -74,6 +75,11 @@ class QuestionBlockWidget(ElevatedCardWidget):
         }
     )
 
+    _DEBOUNCE_INTERVAL = 300
+    _ANIMATION_DURATION = 250
+    _MIN_PREVIEW_HEIGHT = 60
+    _MIN_EDITOR_HEIGHT = 150
+
     _ALLOWED_TAGS = list(bleach.sanitizer.ALLOWED_TAGS) + [
         "p",
         "div",
@@ -102,12 +108,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         "a": ["href", "title"],
     }
 
-    # Robustly find project root by searching for 'resources' directory
+    # Robustly find project root by searching for a project marker
     _current_dir = Path(__file__).resolve()
     _project_root = _current_dir.parent
     while (
         _project_root.parent != _project_root
-        and not (_project_root / "resources").exists()
+        and not (_project_root / "requirements.txt").exists()
     ):
         _project_root = _project_root.parent
 
@@ -164,7 +170,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self.preview_label = QLabel()
         self.preview_label.setWordWrap(True)
         self.preview_label.setStyleSheet("border: none; background: transparent;")
-        self.preview_label.setMinimumHeight(60)
+        self.preview_label.setMinimumHeight(QuestionBlockWidget._MIN_PREVIEW_HEIGHT)
         self.preview_label.setSizePolicy(
             QSizePolicy.Expanding, QSizePolicy.MinimumExpanding
         )
@@ -177,12 +183,12 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Debounce Timer
         self.debounce_timer = QTimer(self)
         self.debounce_timer.setSingleShot(True)
-        self.debounce_timer.setInterval(300)
+        self.debounce_timer.setInterval(QuestionBlockWidget._DEBOUNCE_INTERVAL)
         self.debounce_timer.timeout.connect(self._sync_preview)
 
         # Animation
         self.animation = QPropertyAnimation(self, b"minimumHeight")
-        self.animation.setDuration(250)
+        self.animation.setDuration(QuestionBlockWidget._ANIMATION_DURATION)
         self.animation.setEasingCurve(QEasingCurve.OutCubic)
 
         self.destroyed.connect(self._on_destroyed)
@@ -268,6 +274,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             QuestionBlockWidget._shared_web_channel = None
             QuestionBlockWidget._shared_load_connection = None
             QuestionBlockWidget._current_editing_block = None
+            QuestionBlockWidget._shared_bridge = None
 
         if QuestionBlockWidget._shared_bridge and getattr(
             QuestionBlockWidget._shared_bridge, "target", None
@@ -320,7 +327,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self.preview_label.setText("")
 
         # Restore original geometry properties
-        self.web_view.setMinimumHeight(150)
+        self.web_view.setMinimumHeight(QuestionBlockWidget._MIN_EDITOR_HEIGHT)
         self.web_view.setMaximumHeight(16777215)  # QWIDGETSIZE_MAX
 
         self._cleanup_edit_widgets()
@@ -370,13 +377,14 @@ class QuestionBlockWidget(ElevatedCardWidget):
             )
 
             # Disable scrollbars to prevent them from appearing in snapshots
-            from PySide6.QtWebEngineCore import QWebEngineSettings
 
             QuestionBlockWidget._shared_web_view.settings().setAttribute(
                 QWebEngineSettings.ShowScrollBars, False
             )
 
-            QuestionBlockWidget._shared_web_view.setMinimumHeight(150)
+            QuestionBlockWidget._shared_web_view.setMinimumHeight(
+                QuestionBlockWidget._MIN_EDITOR_HEIGHT
+            )
             view_just_created = True
 
             QuestionBlockWidget._shared_web_channel = QWebChannel(
@@ -429,7 +437,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Instantiate TextEdit
         self.text_edit = TextEdit()
         self.text_edit.setPlainText(self._markdown_source)
-        self.text_edit.setMinimumHeight(150)
+        self.text_edit.setMinimumHeight(QuestionBlockWidget._MIN_EDITOR_HEIGHT)
         self.text_edit.textChanged.connect(self._on_text_changed)
 
         # Add to layout
