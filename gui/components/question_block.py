@@ -81,6 +81,7 @@ class DroppableTextEdit(TextEdit):
             cursor.beginEditBlock()
             cursor.insertText(f"\n![img]({temp_id})\n")
             cursor.endEditBlock()
+            self.setTextCursor(cursor)
 
             e.acceptProposedAction()
             return
@@ -292,6 +293,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._detach_shared_resources()
 
     def _cleanup_edit_widgets(self):
+        # Clean up bridge signal
+        if QuestionBlockWidget._shared_bridge:
+            try:
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect(
+                    self._on_drag_requested
+                )
+            except (RuntimeError, TypeError):
+                pass
+
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
@@ -445,6 +455,16 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
+
+        # Connect bridge dragRequestedSignal
+        if QuestionBlockWidget._shared_bridge:
+            try:
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+            QuestionBlockWidget._shared_bridge.dragRequestedSignal.connect(
+                self._on_drag_requested
+            )
 
         QuestionBlockWidget._shared_load_connection = (
             self.web_view.loadFinished.connect(self._on_web_view_loaded)

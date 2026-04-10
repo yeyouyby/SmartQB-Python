@@ -42,17 +42,16 @@ class TransactionWorker(QThread):
             # Use mapping to ensure idempotent ID replacements
             id_mapping = {}
 
-            # Matches ![img](...)
-            pattern = re.compile(r"!\[img\]\((.*?)\)")
+            # Matches ![img](url) or ![img](url "title")
+            pattern = re.compile(r"!\[img\]\((?P<url>.*?)(?:\s+\"(?P<title>.*?)\")?\)")
 
             def replace_id(match):
-                temp_id = match.group(1)
+                temp_id = match.group("url")
+                title = match.group("title")
 
-                # Check if it already looks like a Snowflake ID or a URL, etc.
-                # Here we assume a valid temp ID is a UUID (contains hyphens)
-                # or just any temp id format, but skip if it is all digits (Snowflake)
-                if temp_id.isdigit():
-                    return match.group(0)  # Do not replace existing snowflake
+                # If it's already a Snowflake ID (digits) or a remote URL, skip it
+                if temp_id.isdigit() or "://" in temp_id:
+                    return match.group(0)
 
                 if temp_id in id_mapping:
                     new_id = id_mapping[temp_id]
@@ -63,6 +62,10 @@ class TransactionWorker(QThread):
                         f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
                     )
 
+                if title:
+                    return f'![img]({new_id} "{title}")'
+                if title:
+                    return f'![img]({new_id} "{title}")'
                 return f"![img]({new_id})"
 
             results = []
@@ -289,7 +292,15 @@ class CalibrationWorkspace(QFrame):
 
     def _on_transaction_error(self, err_msg):
         import logging
+        from qfluentwidgets import MessageBox
 
         logging.getLogger(__name__).error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
+
+        # Display an error message box to the user
+        MessageBox(
+            "Transaction Failed",
+            f"An error occurred during asset generation:\n{err_msg}",
+            self.window(),
+        ).exec()
