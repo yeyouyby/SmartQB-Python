@@ -273,7 +273,7 @@ class CalibrationWorkspace(QFrame):
 
         # Launch worker
         markdown_data = [block.get_markdown() for block in self.question_blocks]
-        self.worker = TransactionWorker(markdown_data)
+        self.worker = TransactionWorker(markdown_data, self)
         self.worker.finished.connect(self._on_transaction_finished)
         self.worker.error.connect(self._on_transaction_error)
         self.worker.start()
