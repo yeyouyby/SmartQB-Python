@@ -459,7 +459,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Connect bridge dragRequestedSignal
         if QuestionBlockWidget._shared_bridge:
             try:
-                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect()
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect(
+                    self._on_drag_requested
+                )
             except (RuntimeError, TypeError):
                 pass
             QuestionBlockWidget._shared_bridge.dragRequestedSignal.connect(
