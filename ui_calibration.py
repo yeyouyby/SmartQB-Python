@@ -65,8 +65,8 @@ class TransactionWorker(QThread):
 
                 return f"![img]({new_id})"
 
-            for idx, block in enumerate(self.question_blocks):
-                markdown_text = block.get_markdown()
+            results = []
+            for idx, markdown_text in enumerate(self.markdown_data):
                 logger.info(
                     f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}"
                 )
@@ -76,12 +76,9 @@ class TransactionWorker(QThread):
                     f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n"
                 )
 
-                # Set the modified markdown back (we should invoke this via signal normally,
-                # but direct property access or safe set_markdown inside a connected slot is better.
-                # However, for this fix we will store it and update blocks in the finished slot).
-                block._final_markdown_temp = final_markdown
+                results.append(final_markdown)
 
-            self.finished.emit()
+            self.finished.emit(results)
 
         except Exception as e:
             logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
@@ -291,5 +288,8 @@ class CalibrationWorkspace(QFrame):
             self.freeze_dialog.accept()
 
     def _on_transaction_error(self, err_msg):
+        import logging
+
+        logging.getLogger(__name__).error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
