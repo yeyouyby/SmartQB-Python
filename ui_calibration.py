@@ -23,7 +23,7 @@ from qfluentwidgets import (
 
 
 class TransactionWorker(QThread):
-    finished = Signal()
+    finished = Signal(list)
     error = Signal(str)
 
     def __init__(self, question_blocks, parent=None):
@@ -276,16 +276,14 @@ class CalibrationWorkspace(QFrame):
         self.worker.error.connect(self._on_transaction_error)
         self.worker.start()
 
-    def _on_transaction_finished(self):
+    def _on_transaction_finished(self, results):
         import logging
 
         logger = logging.getLogger(__name__)
 
         # Update blocks with their final markdown
-        for block in self.question_blocks:
-            if hasattr(block, "_final_markdown_temp"):
-                block.set_markdown(block._final_markdown_temp)
-                delattr(block, "_final_markdown_temp")
+        for block, final_markdown in zip(self.question_blocks, results):
+            block.set_markdown(final_markdown)
 
         logger.info("Transaction Pipeline completed successfully.")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:

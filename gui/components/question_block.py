@@ -74,7 +74,7 @@ class DroppableTextEdit(TextEdit):
     def dropEvent(self, e: QDropEvent):
         text = e.mimeData().text()
         if text.startswith("smartqb-image-drag://"):
-            temp_id = text.split("://")[1]
+            temp_id = text[len("smartqb-image-drag://") :]
             cursor = self.cursorForPosition(e.pos())
 
             # Use beginEditBlock/endEditBlock to group undo
