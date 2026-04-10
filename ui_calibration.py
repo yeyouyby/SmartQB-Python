@@ -1,3 +1,5 @@
+import re
+import logging
 from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt, QThread, Signal
 from db_adapter import LanceDBAdapter
@@ -10,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    MessageBox,
     CommandBar,
     PrimaryPushButton,
     ProgressRing,
@@ -31,8 +34,6 @@ class TransactionWorker(QThread):
         self.markdown_data = markdown_data
 
     def run(self):
-        import logging
-        import re
 
         logger = logging.getLogger(__name__)
         try:
@@ -245,7 +246,7 @@ class CalibrationWorkspace(QFrame):
         self.commit_btn.clicked.connect(self.run_transaction_pipeline)
 
     def run_transaction_pipeline(self):
-        import logging
+
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel
 
         logger = logging.getLogger(__name__)
@@ -278,7 +279,6 @@ class CalibrationWorkspace(QFrame):
         self.worker.start()
 
     def _on_transaction_finished(self, results):
-        import logging
 
         logger = logging.getLogger(__name__)
 
@@ -291,8 +291,6 @@ class CalibrationWorkspace(QFrame):
             self.freeze_dialog.accept()
 
     def _on_transaction_error(self, err_msg):
-        import logging
-        from qfluentwidgets import MessageBox
 
         logging.getLogger(__name__).error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
