@@ -25,7 +25,7 @@ from PySide6.QtCore import (
     QUrl,
     QEvent,
 )
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -54,6 +54,35 @@ class Bridge(QObject):
     def snapshotReady(self, height: int = 0):
         self.snapshotReadySignal.emit(height)
 
+
+
+class DroppableTextEdit(TextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, e: QDragEnterEvent):
+        if e.mimeData().hasText():
+            text = e.mimeData().text()
+            if text.startswith("smartqb-image-drag://"):
+                e.acceptProposedAction()
+                return
+        super().dragEnterEvent(e)
+
+    def dropEvent(self, e: QDropEvent):
+        text = e.mimeData().text()
+        if text.startswith("smartqb-image-drag://"):
+            temp_id = text.split("://")[1]
+            cursor = self.cursorForPosition(e.pos())
+
+            # Use beginEditBlock/endEditBlock to group undo
+            cursor.beginEditBlock()
+            cursor.insertText(f"\n![img]({temp_id})\n")
+            cursor.endEditBlock()
+
+            e.acceptProposedAction()
+            return
+        super().dropEvent(e)
 
 class QuestionBlockWidget(ElevatedCardWidget):
     """
@@ -177,7 +206,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Edit State Widgets (None initially)
         self.web_view: Optional[QWebEngineView] = None
-        self.text_edit: Optional[TextEdit] = None
+        self.text_edit: Optional[DroppableTextEdit] = None
         self.web_channel: Optional[QWebChannel] = None
         # Debounce Timer
         self.debounce_timer = QTimer(self)
@@ -427,7 +456,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self._on_web_view_loaded(True)
 
         # Instantiate TextEdit
-        self.text_edit = TextEdit()
+        self.text_edit = DroppableTextEdit()
         self.text_edit.setPlainText(self._markdown_source)
         self.text_edit.setMinimumHeight(QuestionBlockWidget._MIN_EDITOR_HEIGHT)
         self.text_edit.textChanged.connect(self._on_text_changed)

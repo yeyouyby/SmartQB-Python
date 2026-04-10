@@ -1,6 +1,8 @@
 from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCompleter,
+
     QFrame,
     QVBoxLayout,
     QSplitter,
@@ -8,6 +10,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    CommandBar,
+    PrimaryPushButton,
+    ProgressRing,
+
+    FlowLayout,
+    PillPushButton,
+    LineEdit,
+    TextEdit,
+    SubtitleLabel,
     SmoothScrollArea,
 )
 
@@ -79,14 +90,59 @@ class CalibrationWorkspace(QFrame):
         self.splitter.addWidget(self.mid_panel)
 
         # ==========================================
+                # ==========================================
         # 3. 右栏：元数据属性侧边栏 (Right Panel)
         # ==========================================
         self.right_panel = QFrame()
         self.right_layout = QVBoxLayout(self.right_panel)
+        self.right_layout.setContentsMargins(10, 10, 10, 10)
+        self.right_layout.setSpacing(15)
 
-        self.right_placeholder = QLabel("元数据属性侧边栏\n(AI 逻辑链与标签树)")
-        self.right_placeholder.setAlignment(Qt.AlignCenter)
-        self.right_layout.addWidget(self.right_placeholder)
+        # 3.1 Tags Area (标签域)
+        self.tags_title = SubtitleLabel("考点标签 (Tags)")
+        self.right_layout.addWidget(self.tags_title)
+
+        self.tags_container = QWidget()
+        self.tags_flow_layout = FlowLayout(self.tags_container, isTight=True)
+        self.tags_flow_layout.setContentsMargins(0, 0, 0, 0)
+        self.tags_flow_layout.setSpacing(5)
+
+        # Add initial dummy tags
+        dummy_tags = ["Math", "Algebra", "Calculus"]
+        for tag in dummy_tags:
+            btn = PillPushButton(tag)
+            self.tags_flow_layout.addWidget(btn)
+
+        self.right_layout.addWidget(self.tags_container)
+
+        self.tag_input = LineEdit()
+        self.tag_input.setPlaceholderText("添加新标签...")
+
+        # Setup Completer with dummy data
+        completer_data = ["Math", "Algebra", "Calculus", "Geometry", "Trigonometry", "Physics"]
+        self.completer = QCompleter(completer_data)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.tag_input.setCompleter(self.completer)
+        self.right_layout.addWidget(self.tag_input)
+
+        # 3.2 AI Logic Area (描述域)
+        self.ai_title = SubtitleLabel("AI 解析逻辑 (Chain of Thought)")
+        self.right_layout.addWidget(self.ai_title)
+
+        self.ai_logic_edit = TextEdit()
+        self.ai_logic_edit.setReadOnly(True)
+        self.ai_logic_edit.setPlaceholderText("大模型解析思维链...")
+        # Slightly different background color for distinction
+        self.ai_logic_edit.setStyleSheet("TextEdit { background-color: rgba(200, 200, 200, 0.1); }")
+        self.right_layout.addWidget(self.ai_logic_edit)
+
+        # 3.3 State Indicator Placeholder
+        self.state_title = SubtitleLabel("处理状态")
+        self.right_layout.addWidget(self.state_title)
+
+        self.status_label = QLabel("当前就绪 (Ready)")
+        self.right_layout.addWidget(self.status_label)
+
         self.right_layout.addStretch(1)
 
         self.splitter.addWidget(self.right_panel)
@@ -95,3 +151,84 @@ class CalibrationWorkspace(QFrame):
         self.splitter.setStretchFactor(0, 7)
         self.splitter.setStretchFactor(1, 10)
         self.splitter.setStretchFactor(2, 3)
+
+        # ==========================================
+        # 4. 底部：全局事务控制栏 (Transaction Command Bar)
+        # ==========================================
+        self.bottom_bar = CommandBar(self)
+        # Apply somewhat transparent styling using styling if needed, otherwise rely on CommandBar defaults
+        self.bottom_layout = QVBoxLayout(self.bottom_bar)
+        self.bottom_layout.setContentsMargins(10, 10, 10, 10)
+
+        self.commit_btn = PrimaryPushButton("确认导入并生成资产")
+        # Align to right
+        self.bottom_bar.addWidget(self.commit_btn)
+
+        # We need an overarching layout since `self.main_layout` only has splitter
+        self.main_layout.addWidget(self.bottom_bar)
+
+        # Bind the transaction pipeline
+        self.commit_btn.clicked.connect(self.run_transaction_pipeline)
+
+    def run_transaction_pipeline(self):
+        import logging
+        import re
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel
+        from db_adapter import LanceDBAdapter
+
+        logger = logging.getLogger(__name__)
+        logger.info("Starting Transaction Pipeline...")
+
+        # 1. UI Freeze - Show overlay mask with ProgressRing
+        self.freeze_dialog = QDialog(self)
+        self.freeze_dialog.setModal(True)
+        self.freeze_dialog.setWindowOpacity(0.8)
+        self.freeze_dialog.setWindowFlags(Qt.FramelessWindowHint)
+        self.freeze_dialog.setStyleSheet("background-color: rgba(0, 0, 0, 150);")
+        self.freeze_dialog.resize(self.size())
+
+        layout = QVBoxLayout(self.freeze_dialog)
+        layout.setAlignment(Qt.AlignCenter)
+        ring = ProgressRing()
+        ring.setFixedSize(60, 60)
+        layout.addWidget(ring)
+        label = QLabel("正在生成数字资产，请勿操作...")
+        label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        layout.addWidget(label)
+
+        self.freeze_dialog.show()
+
+        try:
+            db_adapter = LanceDBAdapter()
+
+            # 2. Data Harvesting & 3. Snowflake ID Replacement
+            logger.info("Harvesting data from QuestionBlocks...")
+
+            for idx, block in enumerate(self.question_blocks):
+                markdown_text = block._markdown_source
+                logger.info(f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}")
+
+                # Regex to find ![img](temporary-uuid)
+                # Matches ![img](...)
+                pattern = re.compile(r'!\[img\]\((.*?)\)')
+
+                def replace_id(match):
+                    temp_id = match.group(1)
+                    # Generate 64-bit Snowflake ID
+                    new_id = str(db_adapter.next_id())
+                    logger.info(f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}")
+                    return f"![img]({new_id})"
+
+                final_markdown = pattern.sub(replace_id, markdown_text)
+
+                logger.info(f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n")
+
+            logger.info("Transaction Pipeline completed successfully.")
+
+        except Exception as e:
+            logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
+
+        finally:
+            # Hide the mask
+            # For demonstration, we keep it a brief moment or close immediately
+            self.freeze_dialog.accept()
