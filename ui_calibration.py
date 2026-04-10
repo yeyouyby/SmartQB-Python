@@ -2,7 +2,6 @@ from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCompleter,
-
     QFrame,
     QVBoxLayout,
     QSplitter,
@@ -13,7 +12,6 @@ from qfluentwidgets import (
     CommandBar,
     PrimaryPushButton,
     ProgressRing,
-
     FlowLayout,
     PillPushButton,
     LineEdit,
@@ -90,7 +88,7 @@ class CalibrationWorkspace(QFrame):
         self.splitter.addWidget(self.mid_panel)
 
         # ==========================================
-                # ==========================================
+        # ==========================================
         # 3. 右栏：元数据属性侧边栏 (Right Panel)
         # ==========================================
         self.right_panel = QFrame()
@@ -119,7 +117,14 @@ class CalibrationWorkspace(QFrame):
         self.tag_input.setPlaceholderText("添加新标签...")
 
         # Setup Completer with dummy data
-        completer_data = ["Math", "Algebra", "Calculus", "Geometry", "Trigonometry", "Physics"]
+        completer_data = [
+            "Math",
+            "Algebra",
+            "Calculus",
+            "Geometry",
+            "Trigonometry",
+            "Physics",
+        ]
         self.completer = QCompleter(completer_data)
         self.completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.tag_input.setCompleter(self.completer)
@@ -133,7 +138,9 @@ class CalibrationWorkspace(QFrame):
         self.ai_logic_edit.setReadOnly(True)
         self.ai_logic_edit.setPlaceholderText("大模型解析思维链...")
         # Slightly different background color for distinction
-        self.ai_logic_edit.setStyleSheet("TextEdit { background-color: rgba(200, 200, 200, 0.1); }")
+        self.ai_logic_edit.setStyleSheet(
+            "TextEdit { background-color: rgba(200, 200, 200, 0.1); }"
+        )
         self.right_layout.addWidget(self.ai_logic_edit)
 
         # 3.3 State Indicator Placeholder
@@ -206,22 +213,28 @@ class CalibrationWorkspace(QFrame):
 
             for idx, block in enumerate(self.question_blocks):
                 markdown_text = block._markdown_source
-                logger.info(f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}")
+                logger.info(
+                    f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}"
+                )
 
                 # Regex to find ![img](temporary-uuid)
                 # Matches ![img](...)
-                pattern = re.compile(r'!\[img\]\((.*?)\)')
+                pattern = re.compile(r"!\[img\]\((.*?)\)")
 
                 def replace_id(match):
                     temp_id = match.group(1)
                     # Generate 64-bit Snowflake ID
                     new_id = str(db_adapter.next_id())
-                    logger.info(f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}")
+                    logger.info(
+                        f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
+                    )
                     return f"![img]({new_id})"
 
                 final_markdown = pattern.sub(replace_id, markdown_text)
 
-                logger.info(f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n")
+                logger.info(
+                    f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n"
+                )
 
             logger.info("Transaction Pipeline completed successfully.")
 

@@ -55,7 +55,6 @@ class Bridge(QObject):
         self.snapshotReadySignal.emit(height)
 
 
-
 class DroppableTextEdit(TextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -83,6 +82,7 @@ class DroppableTextEdit(TextEdit):
             e.acceptProposedAction()
             return
         super().dropEvent(e)
+
 
 class QuestionBlockWidget(ElevatedCardWidget):
     """
