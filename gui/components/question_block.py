@@ -16,6 +16,7 @@ except ImportError:
     HAS_ARITHMATEX = False
 
 from PySide6.QtCore import (
+    QMimeData,
     Signal,
     QTimer,
     QPropertyAnimation,
@@ -25,7 +26,8 @@ from PySide6.QtCore import (
     QUrl,
     QEvent,
 )
-from PySide6.QtGui import QMouseEvent, QDragEnterEvent, QDropEvent
+from PySide6.QtGui import QMouseEvent, QDragEnterEvent, QDropEvent, QDrag
+
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -41,14 +43,15 @@ from qfluentwidgets import ElevatedCardWidget, TextEdit
 
 class Bridge(QObject):
     snapshotReadySignal = Signal(int)
+    dragRequestedSignal = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
     @Slot(str)
     def startDrag(self, temp_id: str):
-        # We will handle the drag logic later
-        logging.info(f"Dragging image with UUID: {temp_id}")
+        logging.info(f"Drag requested from JS for image UUID: {temp_id}")
+        self.dragRequestedSignal.emit(temp_id)
 
     @Slot(int)
     def snapshotReady(self, height: int = 0):
@@ -481,6 +484,18 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Request focus on text edit
         self.text_edit.setFocus()
         self.text_edit.installEventFilter(self)
+
+    def _on_drag_requested(self, temp_id: str):
+        if not self.web_view:
+            return
+        drag = QDrag(self.web_view)
+        mime_data = QMimeData()
+        mime_data.setText(f"smartqb-image-drag://{temp_id}")
+        drag.setMimeData(mime_data)
+        drag.exec()
+
+    def get_markdown(self) -> str:
+        return self._markdown_source
 
     def _on_web_view_loaded(self, ok: bool):
         if ok:

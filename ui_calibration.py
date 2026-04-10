@@ -1,5 +1,6 @@
 from gui.components.question_block import QuestionBlockWidget
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
+from db_adapter import LanceDBAdapter
 from PySide6.QtWidgets import (
     QCompleter,
     QFrame,
@@ -19,6 +20,72 @@ from qfluentwidgets import (
     SubtitleLabel,
     SmoothScrollArea,
 )
+
+
+class TransactionWorker(QThread):
+    finished = Signal()
+    error = Signal(str)
+
+    def __init__(self, question_blocks, parent=None):
+        super().__init__(parent)
+        self.question_blocks = question_blocks
+
+    def run(self):
+        import logging
+        import re
+
+        logger = logging.getLogger(__name__)
+        try:
+            db_adapter = LanceDBAdapter()
+            logger.info("Harvesting data from QuestionBlocks...")
+
+            # Use mapping to ensure idempotent ID replacements
+            id_mapping = {}
+
+            # Matches ![img](...)
+            pattern = re.compile(r"!\[img\]\((.*?)\)")
+
+            def replace_id(match):
+                temp_id = match.group(1)
+
+                # Check if it already looks like a Snowflake ID or a URL, etc.
+                # Here we assume a valid temp ID is a UUID (contains hyphens)
+                # or just any temp id format, but skip if it is all digits (Snowflake)
+                if temp_id.isdigit():
+                    return match.group(0)  # Do not replace existing snowflake
+
+                if temp_id in id_mapping:
+                    new_id = id_mapping[temp_id]
+                else:
+                    new_id = str(db_adapter.next_id())
+                    id_mapping[temp_id] = new_id
+                    logger.info(
+                        f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
+                    )
+
+                return f"![img]({new_id})"
+
+            for idx, block in enumerate(self.question_blocks):
+                markdown_text = block.get_markdown()
+                logger.info(
+                    f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}"
+                )
+
+                final_markdown = pattern.sub(replace_id, markdown_text)
+                logger.info(
+                    f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n"
+                )
+
+                # Set the modified markdown back (we should invoke this via signal normally,
+                # but direct property access or safe set_markdown inside a connected slot is better.
+                # However, for this fix we will store it and update blocks in the finished slot).
+                block._final_markdown_temp = final_markdown
+
+            self.finished.emit()
+
+        except Exception as e:
+            logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
+            self.error.emit(str(e))
 
 
 class CalibrationWorkspace(QFrame):
@@ -179,9 +246,7 @@ class CalibrationWorkspace(QFrame):
 
     def run_transaction_pipeline(self):
         import logging
-        import re
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel
-        from db_adapter import LanceDBAdapter
 
         logger = logging.getLogger(__name__)
         logger.info("Starting Transaction Pipeline...")
@@ -205,43 +270,27 @@ class CalibrationWorkspace(QFrame):
 
         self.freeze_dialog.show()
 
-        try:
-            db_adapter = LanceDBAdapter()
+        # Launch worker
+        self.worker = TransactionWorker(self.question_blocks)
+        self.worker.finished.connect(self._on_transaction_finished)
+        self.worker.error.connect(self._on_transaction_error)
+        self.worker.start()
 
-            # 2. Data Harvesting & 3. Snowflake ID Replacement
-            logger.info("Harvesting data from QuestionBlocks...")
+    def _on_transaction_finished(self):
+        import logging
 
-            for idx, block in enumerate(self.question_blocks):
-                markdown_text = block._markdown_source
-                logger.info(
-                    f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}"
-                )
+        logger = logging.getLogger(__name__)
 
-                # Regex to find ![img](temporary-uuid)
-                # Matches ![img](...)
-                pattern = re.compile(r"!\[img\]\((.*?)\)")
+        # Update blocks with their final markdown
+        for block in self.question_blocks:
+            if hasattr(block, "_final_markdown_temp"):
+                block.set_markdown(block._final_markdown_temp)
+                delattr(block, "_final_markdown_temp")
 
-                def replace_id(match):
-                    temp_id = match.group(1)
-                    # Generate 64-bit Snowflake ID
-                    new_id = str(db_adapter.next_id())
-                    logger.info(
-                        f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
-                    )
-                    return f"![img]({new_id})"
+        logger.info("Transaction Pipeline completed successfully.")
+        if hasattr(self, "freeze_dialog") and self.freeze_dialog:
+            self.freeze_dialog.accept()
 
-                final_markdown = pattern.sub(replace_id, markdown_text)
-
-                logger.info(
-                    f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n"
-                )
-
-            logger.info("Transaction Pipeline completed successfully.")
-
-        except Exception as e:
-            logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
-
-        finally:
-            # Hide the mask
-            # For demonstration, we keep it a brief moment or close immediately
+    def _on_transaction_error(self, err_msg):
+        if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
