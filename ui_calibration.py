@@ -26,9 +26,9 @@ class TransactionWorker(QThread):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, question_blocks, parent=None):
+    def __init__(self, markdown_data, parent=None):
         super().__init__(parent)
-        self.question_blocks = question_blocks
+        self.markdown_data = markdown_data
 
     def run(self):
         import logging
@@ -271,7 +271,8 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.show()
 
         # Launch worker
-        self.worker = TransactionWorker(self.question_blocks)
+        markdown_data = [block.get_markdown() for block in self.question_blocks]
+        self.worker = TransactionWorker(markdown_data)
         self.worker.finished.connect(self._on_transaction_finished)
         self.worker.error.connect(self._on_transaction_error)
         self.worker.start()
