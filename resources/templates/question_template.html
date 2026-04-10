@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Question View</title>
+    <link rel="stylesheet" href="base.css">
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            svg: {
+                fontCache: 'global'
+            }
+        };
+    </script>
+    <script src="mathjax/es5/tex-mml-svg.js"></script>
+    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+    <script>
+        let pyBridge = null;
+        new QWebChannel(qt.webChannelTransport, function (channel) {
+            pyBridge = channel.objects.pyBridge;
+        });
+
+        window.updateContent = function(html, capture) {
+            const container = document.getElementById('math-content');
+            if (!container) return;
+            container.innerHTML = html;
+
+            const takeSnapshot = () => {
+                if (capture && pyBridge) {
+                    pyBridge.snapshotReady(document.body.scrollHeight);
+                }
+            };
+
+            if (typeof MathJax !== 'undefined') {
+                MathJax.typesetPromise([container])
+                    .catch(err => console.error("MathJax error:", err))
+                    .finally(takeSnapshot);
+            } else {
+                takeSnapshot();
+            }
+        };
+
+        document.addEventListener('dragstart', function(event) {
+            if (event.target.tagName.toLowerCase() === 'img') {
+                event.preventDefault();
+                if (pyBridge) {
+                    const tempId = event.target.dataset.uuid || '';
+                    pyBridge.startDrag(tempId);
+                }
+            }
+        });
+    </script>
+</head>
+<body>
+    <div id="math-content" class="math-content">
+        <!-- Content gets injected here -->
+    </div>
+</body>
+</html>
