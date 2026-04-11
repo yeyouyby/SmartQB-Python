@@ -258,7 +258,7 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.setStyleSheet(
             "QDialog { background-color: rgba(0, 0, 0, 150); }"
         )
-        self.freeze_dialog.setGeometry(self.window().rect())
+        self.freeze_dialog.setGeometry(self.window().geometry())
 
         layout = QVBoxLayout(self.freeze_dialog)
         layout.setAlignment(Qt.AlignCenter)
