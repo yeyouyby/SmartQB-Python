@@ -372,6 +372,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self._enter_edit_state()
         super().mouseDoubleClickEvent(event)
 
+    def _safe_reconnect(self, signal, slot):
+        try:
+            signal.disconnect(slot)
+        except (RuntimeError, TypeError):
+            pass
+        signal.connect(slot)
+
     def _enter_edit_state(self):
         # Enforce single active edit state globally
         if (
@@ -442,14 +449,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Direct the shared bridge to this instance via Signal
         if QuestionBlockWidget._shared_bridge:
-            try:
-                QuestionBlockWidget._shared_bridge.snapshotReadySignal.disconnect(
-                    self._capture_snapshot
-                )
-            except (RuntimeError, TypeError):
-                pass
-            QuestionBlockWidget._shared_bridge.snapshotReadySignal.connect(
-                self._capture_snapshot
+            self._safe_reconnect(
+                QuestionBlockWidget._shared_bridge.snapshotReadySignal,
+                self._capture_snapshot,
             )
 
         # Connect bridge and load callback
@@ -465,14 +467,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Connect bridge dragRequestedSignal
         if QuestionBlockWidget._shared_bridge:
-            try:
-                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect(
-                    self._on_drag_requested
-                )
-            except (RuntimeError, TypeError):
-                pass
-            QuestionBlockWidget._shared_bridge.dragRequestedSignal.connect(
-                self._on_drag_requested
+            self._safe_reconnect(
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal,
+                self._on_drag_requested,
             )
 
         QuestionBlockWidget._shared_load_connection = (

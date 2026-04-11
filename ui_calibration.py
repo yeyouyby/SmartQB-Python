@@ -48,7 +48,7 @@ class TransactionWorker(QThread):
 
             # Matches ![img](url) or ![img](url "title")
             pattern = re.compile(
-                r"!\[img\]\((?P<url>[^\s)]+)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
+                r"!\[(?P<alt>.*?)\]\((?P<url>[^\s)]+)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
             )
 
             def replace_id(match):
@@ -103,6 +103,16 @@ class CalibrationWorkspace(QFrame):
         super().__init__(parent=parent)
         self.setObjectName("CalibrationWorkspace")
         self.setup_ui()
+
+    def eventFilter(self, obj, event):
+        if (
+            obj == self.window()
+            and hasattr(self, "freeze_dialog")
+            and self.freeze_dialog
+        ):
+            if event.type() in (event.Type.Move, event.Type.Resize):
+                self.freeze_dialog.setGeometry(self.window().geometry())
+        return super().eventFilter(obj, event)
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -288,6 +298,7 @@ class CalibrationWorkspace(QFrame):
 
         logger.info("Transaction Pipeline completed successfully.")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
+            self.window().removeEventFilter(self)
             self.freeze_dialog.accept()
             self.freeze_dialog = None
 
@@ -295,6 +306,7 @@ class CalibrationWorkspace(QFrame):
 
         logger.error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
+            self.window().removeEventFilter(self)
             self.freeze_dialog.accept()
             self.freeze_dialog = None
 
