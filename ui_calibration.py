@@ -207,7 +207,7 @@ class CalibrationWorkspace(QFrame):
             "Trigonometry",
             "Physics",
         ]
-        self.completer = QCompleter(completer_data)
+        self.completer = QCompleter(completer_data, self)
         self.completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.tag_input.setCompleter(self.completer)
         self.right_layout.addWidget(self.tag_input)
@@ -279,6 +279,7 @@ class CalibrationWorkspace(QFrame):
         label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
         layout.addWidget(label)
 
+        self.window().installEventFilter(self)
         self.freeze_dialog.show()
 
         # Launch worker
