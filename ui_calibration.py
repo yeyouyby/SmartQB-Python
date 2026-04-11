@@ -274,7 +274,9 @@ class CalibrationWorkspace(QFrame):
         markdown_data = [block.get_markdown() for block in self.question_blocks]
         self.worker = TransactionWorker(markdown_data, self)
         self.worker.finished.connect(self._on_transaction_finished)
+        self.worker.finished.connect(self.worker.deleteLater)
         self.worker.error.connect(self._on_transaction_error)
+        self.worker.error.connect(self.worker.deleteLater)
         self.worker.start()
 
     def _on_transaction_finished(self, results):
