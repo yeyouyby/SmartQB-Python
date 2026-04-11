@@ -5,6 +5,7 @@ from PySide6.QtCore import Qt, QThread, Signal
 from db_adapter import LanceDBAdapter
 from PySide6.QtWidgets import (
     QCompleter,
+    QDialog,
     QFrame,
     QVBoxLayout,
     QSplitter,
@@ -25,6 +26,9 @@ from qfluentwidgets import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class TransactionWorker(QThread):
     finished = Signal(list)
     error = Signal(str)
@@ -35,7 +39,6 @@ class TransactionWorker(QThread):
 
     def run(self):
 
-        logger = logging.getLogger(__name__)
         try:
             db_adapter = LanceDBAdapter()
             logger.info("Harvesting data from QuestionBlocks...")
@@ -72,12 +75,11 @@ class TransactionWorker(QThread):
             results = []
             for idx, markdown_text in enumerate(self.markdown_data):
                 logger.info(
-                    f"--- Block {idx + 1} Original Markdown ---\n{markdown_text}"
+                    f"Processing Block {idx + 1} (length: {len(markdown_text)} chars)"
                 )
-
                 final_markdown = pattern.sub(replace_id, markdown_text)
                 logger.info(
-                    f"--- Block {idx + 1} Final Markdown ---\n{final_markdown}\n"
+                    f"Finished Block {idx + 1} (length: {len(final_markdown)} chars)"
                 )
 
                 results.append(final_markdown)
@@ -247,9 +249,6 @@ class CalibrationWorkspace(QFrame):
 
     def run_transaction_pipeline(self):
 
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel
-
-        logger = logging.getLogger(__name__)
         logger.info("Starting Transaction Pipeline...")
 
         # 1. UI Freeze - Show overlay mask with ProgressRing
@@ -280,8 +279,6 @@ class CalibrationWorkspace(QFrame):
 
     def _on_transaction_finished(self, results):
 
-        logger = logging.getLogger(__name__)
-
         # Update blocks with their final markdown
         for block, final_markdown in zip(self.question_blocks, results):
             block.set_markdown(final_markdown)
@@ -292,7 +289,7 @@ class CalibrationWorkspace(QFrame):
 
     def _on_transaction_error(self, err_msg):
 
-        logging.getLogger(__name__).error(f"Transaction failed: {err_msg}")
+        logger.error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
 

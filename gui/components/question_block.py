@@ -79,7 +79,7 @@ class DroppableTextEdit(TextEdit):
 
             # Use beginEditBlock/endEditBlock to group undo
             cursor.beginEditBlock()
-            cursor.insertText(f"\n![img]({temp_id})\n")
+            cursor.insertText(f"![img]({temp_id})")
             cursor.endEditBlock()
             self.setTextCursor(cursor)
 
