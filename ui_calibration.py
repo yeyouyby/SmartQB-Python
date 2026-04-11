@@ -252,10 +252,12 @@ class CalibrationWorkspace(QFrame):
         # 1. UI Freeze - Show overlay mask with ProgressRing
         self.freeze_dialog = QDialog(self)
         self.freeze_dialog.setModal(True)
+        self.freeze_dialog.setAttribute(Qt.WA_DeleteOnClose)
         self.freeze_dialog.setWindowOpacity(0.8)
         self.freeze_dialog.setWindowFlags(Qt.FramelessWindowHint)
         self.freeze_dialog.setStyleSheet("background-color: rgba(0, 0, 0, 150);")
         self.freeze_dialog.resize(self.size())
+        self.freeze_dialog.move(0, 0)
 
         layout = QVBoxLayout(self.freeze_dialog)
         layout.setAlignment(Qt.AlignCenter)
