@@ -522,7 +522,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         mime_data.setText(f"smartqb-image-drag://{temp_id}")
         drag.setMimeData(mime_data)
         # Start drag copy action
-        drag.exec(Qt.CopyAction)
+        drag.exec(Qt.DropAction.CopyAction)
 
     def get_markdown(self) -> str:
         return self._markdown_source
