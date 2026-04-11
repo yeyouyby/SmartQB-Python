@@ -16,6 +16,7 @@ except ImportError:
     HAS_ARITHMATEX = False
 
 from PySide6.QtCore import (
+    Qt,
     QMimeData,
     Signal,
     QTimer,
@@ -520,7 +521,8 @@ class QuestionBlockWidget(ElevatedCardWidget):
         mime_data = QMimeData()
         mime_data.setText(f"smartqb-image-drag://{temp_id}")
         drag.setMimeData(mime_data)
-        drag.exec()
+        # Start drag copy action
+        drag.exec(Qt.CopyAction)
 
     def get_markdown(self) -> str:
         return self._markdown_source

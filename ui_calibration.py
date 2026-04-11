@@ -37,6 +37,11 @@ class TransactionWorker(QThread):
         super().__init__(parent)
         self.markdown_data = markdown_data
 
+    # Compile regex once for efficiency
+    pattern = re.compile(
+        r"!\\[(?P<alt>.*?)\\]\\((?P<url>[^\\s)]+)(?:\\s+[\'\"](?P<title>.*?)[\'\"])?\\)"
+    )
+
     def run(self):
 
         try:
@@ -258,7 +263,7 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.setStyleSheet(
             "QDialog { background-color: rgba(0, 0, 0, 150); }"
         )
-        self.freeze_dialog.setGeometry(self.window().geometry())
+        self.freeze_dialog.setGeometry(self.window().frameGeometry())
 
         layout = QVBoxLayout(self.freeze_dialog)
         layout.setAlignment(Qt.AlignCenter)
