@@ -55,8 +55,10 @@ class TransactionWorker(QThread):
                 temp_id = match.group("url")
                 title = match.group("title")
 
-                # If it's already a Snowflake ID (digits) or a remote URL, skip it
-                if temp_id.isdigit() or "://" in temp_id:
+                # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
+                if temp_id.isdigit() or (
+                    "://" in temp_id and not temp_id.startswith("smartqb-image-drag://")
+                ):
                     return match.group(0)
 
                 if temp_id in id_mapping:
@@ -253,7 +255,9 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.setAttribute(Qt.WA_DeleteOnClose)
         self.freeze_dialog.setAttribute(Qt.WA_TranslucentBackground)
         self.freeze_dialog.setWindowFlags(Qt.FramelessWindowHint)
-        self.freeze_dialog.setStyleSheet("background-color: rgba(0, 0, 0, 150);")
+        self.freeze_dialog.setStyleSheet(
+            "QDialog { background-color: rgba(0, 0, 0, 150); }"
+        )
         self.freeze_dialog.setGeometry(self.window().geometry())
 
         layout = QVBoxLayout(self.freeze_dialog)
