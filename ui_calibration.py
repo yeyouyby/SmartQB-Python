@@ -57,10 +57,12 @@ class TransactionWorker(QThread):
                 alt = match.group("alt")
 
                 # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
-                if (temp_id.isdigit() and len(temp_id) >= 15) or (
-                    "://" in temp_id and not temp_id.startswith("smartqb-image-drag://")
-                ):
+                # Ensure we only replace if it explicitly matches our temporary UUID drop format
+                if not temp_id.startswith("smartqb-image-drag://"):
                     return match.group(0)
+
+                # Strip out the prefix to just work with the actual uuid string internally
+                temp_id = temp_id[len("smartqb-image-drag://") :]
 
                 if temp_id in id_mapping:
                     new_id = id_mapping[temp_id]

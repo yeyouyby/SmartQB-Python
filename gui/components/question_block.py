@@ -380,7 +380,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
     def _safe_reconnect(self, signal, slot):
         try:
-            signal.disconnect(slot)
+            signal.disconnect()
         except (RuntimeError, TypeError):
             pass
         signal.connect(slot)
