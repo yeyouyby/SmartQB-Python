@@ -76,6 +76,12 @@ class DroppableTextEdit(TextEdit):
         text = e.mimeData().text()
         if text.startswith("smartqb-image-drag://"):
             temp_id = text[len("smartqb-image-drag://") :]
+
+            # Basic sanitization to prevent markdown injection
+            if ")" in temp_id or '"' in temp_id or "'" in temp_id:
+                e.ignore()
+                return
+
             cursor = self.cursorForPosition(e.pos())
 
             # Use beginEditBlock/endEditBlock to group undo

@@ -48,7 +48,7 @@ class TransactionWorker(QThread):
 
             # Matches ![img](url) or ![img](url "title")
             pattern = re.compile(
-                r"!\[(?P<alt>.*?)\]\((?P<url>[^\s)]+)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
+                r"!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
             )
 
             def replace_id(match):
@@ -57,7 +57,7 @@ class TransactionWorker(QThread):
                 alt = match.group("alt")
 
                 # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
-                if temp_id.isdigit() or (
+                if (temp_id.isdigit() and len(temp_id) >= 15) or (
                     "://" in temp_id and not temp_id.startswith("smartqb-image-drag://")
                 ):
                     return match.group(0)
