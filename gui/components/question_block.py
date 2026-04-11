@@ -441,6 +441,10 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Direct the shared bridge to this instance via Signal
         if QuestionBlockWidget._shared_bridge:
+            try:
+                QuestionBlockWidget._shared_bridge.snapshotReadySignal.disconnect()
+            except (RuntimeError, TypeError):
+                pass
             QuestionBlockWidget._shared_bridge.snapshotReadySignal.connect(
                 self._capture_snapshot
             )
@@ -459,9 +463,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Connect bridge dragRequestedSignal
         if QuestionBlockWidget._shared_bridge:
             try:
-                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect(
-                    self._on_drag_requested
-                )
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect()
             except (RuntimeError, TypeError):
                 pass
             QuestionBlockWidget._shared_bridge.dragRequestedSignal.connect(
