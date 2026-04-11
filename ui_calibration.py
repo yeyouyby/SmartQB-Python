@@ -48,7 +48,7 @@ class TransactionWorker(QThread):
 
             # Matches ![img](url) or ![img](url "title")
             pattern = re.compile(
-                r"!\[img\]\((?P<url>[^\s)]+)(?:\s+\"(?P<title>.*?)\")?\)"
+                r"!\[img\]\((?P<url>[^\s)]+)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
             )
 
             def replace_id(match):
@@ -289,6 +289,7 @@ class CalibrationWorkspace(QFrame):
         logger.info("Transaction Pipeline completed successfully.")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
+            self.freeze_dialog = None
 
     def _on_transaction_error(self, err_msg):
 
