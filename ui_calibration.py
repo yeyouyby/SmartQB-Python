@@ -68,8 +68,6 @@ class TransactionWorker(QThread):
 
                 if title:
                     return f'![img]({new_id} "{title}")'
-                if title:
-                    return f'![img]({new_id} "{title}")'
                 return f"![img]({new_id})"
 
             results = []
