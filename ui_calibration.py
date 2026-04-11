@@ -54,6 +54,7 @@ class TransactionWorker(QThread):
             def replace_id(match):
                 temp_id = match.group("url")
                 title = match.group("title")
+                alt = match.group("alt")
 
                 # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
                 if temp_id.isdigit() or (
@@ -71,8 +72,8 @@ class TransactionWorker(QThread):
                     )
 
                 if title:
-                    return f'![img]({new_id} "{title}")'
-                return f"![img]({new_id})"
+                    return f'![{alt}]({new_id} "{title}")'
+                return f"![{alt}]({new_id})"
 
             results = []
             for idx, markdown_text in enumerate(self.markdown_data):
