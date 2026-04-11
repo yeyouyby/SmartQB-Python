@@ -37,11 +37,6 @@ class TransactionWorker(QThread):
         super().__init__(parent)
         self.markdown_data = markdown_data
 
-    # Compile regex once for efficiency
-    pattern = re.compile(
-        r"!\\[(?P<alt>.*?)\\]\\((?P<url>[^\\s)]+)(?:\\s+[\'\"](?P<title>.*?)[\'\"])?\\)"
-    )
-
     def run(self):
 
         try:
@@ -255,7 +250,7 @@ class CalibrationWorkspace(QFrame):
         logger.info("Starting Transaction Pipeline...")
 
         # 1. UI Freeze - Show overlay mask with ProgressRing
-        self.freeze_dialog = QDialog(self)
+        self.freeze_dialog = QDialog(self.window())
         self.freeze_dialog.setModal(True)
         self.freeze_dialog.setAttribute(Qt.WA_DeleteOnClose)
         self.freeze_dialog.setAttribute(Qt.WA_TranslucentBackground)
@@ -263,7 +258,7 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.setStyleSheet(
             "QDialog { background-color: rgba(0, 0, 0, 150); }"
         )
-        self.freeze_dialog.setGeometry(self.window().frameGeometry())
+        self.freeze_dialog.setGeometry(self.window().rect())
 
         layout = QVBoxLayout(self.freeze_dialog)
         layout.setAlignment(Qt.AlignCenter)
@@ -300,6 +295,7 @@ class CalibrationWorkspace(QFrame):
         logger.error(f"Transaction failed: {err_msg}")
         if hasattr(self, "freeze_dialog") and self.freeze_dialog:
             self.freeze_dialog.accept()
+            self.freeze_dialog = None
 
         # Display an error message box to the user
         MessageBox(
