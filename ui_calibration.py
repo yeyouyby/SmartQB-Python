@@ -205,10 +205,7 @@ class CalibrationWorkspace(QFrame):
         self.ai_logic_edit = TextEdit()
         self.ai_logic_edit.setReadOnly(True)
         self.ai_logic_edit.setPlaceholderText("大模型解析思维链...")
-        # Slightly different background color for distinction
-        self.ai_logic_edit.setStyleSheet(
-            "TextEdit { background-color: rgba(200, 200, 200, 0.1); }"
-        )
+        # Rely on QFluentWidgets built-in theme-aware styling for read-only edits instead of hardcoding
         self.right_layout.addWidget(self.ai_logic_edit)
 
         # 3.3 State Indicator Placeholder
