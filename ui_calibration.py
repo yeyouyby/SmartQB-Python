@@ -232,8 +232,7 @@ class CalibrationWorkspace(QFrame):
         # ==========================================
         self.bottom_bar = CommandBar(self)
         # Apply somewhat transparent styling using styling if needed, otherwise rely on CommandBar defaults
-        self.bottom_layout = QVBoxLayout(self.bottom_bar)
-        self.bottom_layout.setContentsMargins(10, 10, 10, 10)
+        self.bottom_bar.setContentsMargins(10, 10, 10, 10)
 
         self.commit_btn = PrimaryPushButton("确认导入并生成资产")
         # Align to right
@@ -253,11 +252,10 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog = QDialog(self)
         self.freeze_dialog.setModal(True)
         self.freeze_dialog.setAttribute(Qt.WA_DeleteOnClose)
-        self.freeze_dialog.setWindowOpacity(0.8)
+        self.freeze_dialog.setAttribute(Qt.WA_TranslucentBackground)
         self.freeze_dialog.setWindowFlags(Qt.FramelessWindowHint)
         self.freeze_dialog.setStyleSheet("background-color: rgba(0, 0, 0, 150);")
-        self.freeze_dialog.resize(self.size())
-        self.freeze_dialog.move(0, 0)
+        self.freeze_dialog.setGeometry(self.window().geometry())
 
         layout = QVBoxLayout(self.freeze_dialog)
         layout.setAlignment(Qt.AlignCenter)
