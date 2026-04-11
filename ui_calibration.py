@@ -47,7 +47,9 @@ class TransactionWorker(QThread):
             id_mapping = {}
 
             # Matches ![img](url) or ![img](url "title")
-            pattern = re.compile(r"!\[img\]\((?P<url>.*?)(?:\s+\"(?P<title>.*?)\")?\)")
+            pattern = re.compile(
+                r"!\[img\]\((?P<url>[^\s)]+)(?:\s+\"(?P<title>.*?)\")?\)"
+            )
 
             def replace_id(match):
                 temp_id = match.group("url")
