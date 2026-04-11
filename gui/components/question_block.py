@@ -86,7 +86,7 @@ class DroppableTextEdit(TextEdit):
 
             # Use beginEditBlock/endEditBlock to group undo
             cursor.beginEditBlock()
-            cursor.insertText(f"![img]({temp_id})")
+            cursor.insertText(f"![img](smartqb-image-drag://{temp_id})")
             cursor.endEditBlock()
             self.setTextCursor(cursor)
 
