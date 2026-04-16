@@ -13,6 +13,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    InfoBar,
+    InfoBarPosition,
     MessageBox,
     CommandBar,
     PrimaryPushButton,
@@ -33,9 +35,9 @@ class TransactionWorker(QThread):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, markdown_data, parent=None):
+    def __init__(self, block_data, parent=None):
         super().__init__(parent)
-        self.markdown_data = markdown_data
+        self.block_data = block_data
 
     def run(self):
 
@@ -286,8 +288,14 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.show()
 
         # Launch worker
-        markdown_data = [block.get_markdown() for block in self.question_blocks]
-        self.worker = TransactionWorker(markdown_data, self)
+        block_data = []
+        for block in self.question_blocks:
+            block_data.append({
+                "markdown": block.get_markdown(),
+                "logic_chain": "", # Will pull from right panel in future
+                "tags": [] # Will pull from right panel in future
+            })
+        self.worker = TransactionWorker(block_data, self)
         self.worker.finished.connect(self._on_transaction_finished)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.error.connect(self._on_transaction_error)
@@ -305,6 +313,16 @@ class CalibrationWorkspace(QFrame):
             self.window().removeEventFilter(self)
             self.freeze_dialog.accept()
             self.freeze_dialog = None
+
+        InfoBar.success(
+            title="落盘成功",
+            content="全部试题已成功解析并导入到题库中！",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self.window()
+        )
 
     def _on_transaction_error(self, err_msg):
 

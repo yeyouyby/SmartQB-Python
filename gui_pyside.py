@@ -11,11 +11,14 @@ class SmartQBProWindow(FluentWindow):
 
         # Add basic navigation
         from ui_calibration import CalibrationWorkspace
+        from gui.views.knowledge_base import KnowledgeBaseWorkspace
+
 
         self.calibration_workspace = CalibrationWorkspace(self)
         self.addSubInterface(self.calibration_workspace, FIF.DOCUMENT, "导入")
+        self.knowledge_base_workspace = KnowledgeBaseWorkspace(self)
         self.addSubInterface(
-            self.create_placeholder("题库维护 (Library)"), FIF.LIBRARY, "题库"
+            self.knowledge_base_workspace, FIF.LIBRARY, "题库"
         )
         self.addSubInterface(
             self.create_placeholder("设置 (Settings)"),

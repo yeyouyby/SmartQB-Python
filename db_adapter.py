@@ -56,7 +56,11 @@ class LanceDBAdapter:
 
         try:
             self.q_table = self.db.open_table("questions")
-        except FileNotFoundError:
+            if "snowflake_id" not in self.q_table.schema.names:
+                logger.warning("Legacy 'questions' table detected. Dropping to apply new Phase 3 schema.")
+                self.db.drop_table("questions")
+                raise FileNotFoundError("Force recreate")
+        except (FileNotFoundError, ValueError):
             pass
         except Exception:
             logger.warning(
@@ -67,21 +71,21 @@ class LanceDBAdapter:
                 "questions",
                 schema=pa.schema(
                     [
-                        pa.field("id", pa.int64()),
-                        pa.field("content", pa.string()),
-                        pa.field("logic_descriptor", pa.string()),
-                        pa.field("difficulty", pa.float64()),
+                        pa.field("snowflake_id", pa.int64()),
                         pa.field(
                             "vector", pa.list_(pa.float32(), self.embedding_dimension)
                         ),
-                        pa.field("diagram_base64", pa.string()),
+                        pa.field("content_md", pa.string()),
+                        pa.field("logic_chain", pa.string()),
+                        pa.field("tags", pa.list_(pa.string())),
+                        pa.field("created_at", pa.timestamp('s')),
                     ]
                 ),
             )
 
         try:
             self.t_table = self.db.open_table("tags")
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             pass
         except Exception:
             logger.warning(
@@ -99,7 +103,7 @@ class LanceDBAdapter:
 
         try:
             self.qt_table = self.db.open_table("question_tags")
-        except FileNotFoundError:
+        except (FileNotFoundError, ValueError):
             pass
         except Exception:
             logger.warning(
@@ -242,6 +246,21 @@ class LanceDBAdapter:
             if not res:
                 self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
 
+
+    def add_questions_bulk(self, arrow_table):
+        """
+        Bulk insert an arrow table into LanceDB.
+        Expects a PyArrow Table matching the LanceDB schema.
+        """
+        # Prevent check-then-insert race via lock if needed
+        with _id_lock:
+            try:
+                self.q_table.add(arrow_table)
+                logger.info(f"Successfully bulk inserted {arrow_table.num_rows} questions into LanceDB.")
+            except Exception as e:
+                logger.error(f"Failed to bulk insert questions into LanceDB: {e}", exc_info=True)
+                raise
+
     def get_all_tags(self):
         try:
             # For a moderate number of tags, grabbing all via limit(10000) is fine
@@ -257,7 +276,7 @@ class LanceDBAdapter:
             # Native lancedb to retrieve all, sorting in memory is usually fine for a reasonable number of rows
             # but for true scale we might need limit/offset.
             res = self.q_table.search().limit(1000).to_list()  # Adding a safety limit
-            res = sorted(res, key=lambda x: x["id"], reverse=True)
+            res = sorted(res, key=lambda x: x["snowflake_id"], reverse=True)
             return [(int(r["id"]), r["content"]) for r in res]
 
         try:
@@ -297,9 +316,9 @@ class LanceDBAdapter:
             # 3. Fetch final questions
             id_str = ",".join(map(str, all_match_ids))
             final_res = (
-                self.q_table.search().where(f"id IN ({id_str})").limit(1000).to_list()
+                self.q_table.search().where(f"snowflake_id IN ({id_str})").limit(1000).to_list()
             )
-            final_res = sorted(final_res, key=lambda x: x["id"], reverse=True)
+            final_res = sorted(final_res, key=lambda x: x["snowflake_id"], reverse=True)
             return [(int(r["id"]), r["content"]) for r in final_res]
 
         except Exception as e:
@@ -309,10 +328,10 @@ class LanceDBAdapter:
     def get_question(self, q_id):
         try:
             q_id = int(q_id)
-            res = self.q_table.search().where(f"id = {q_id}").limit(1).to_list()
+            res = self.q_table.search().where(f"snowflake_id = {q_id}").limit(1).to_list()
             if not res:
                 return None, None
-            return res[0]["content"], res[0].get("diagram_base64", "")
+            return res[0]["content_md"], res[0].get("diagram_base64", "")
         except Exception as e:
             logger.error(f"Error getting question: {e}")
             return None, None
@@ -329,7 +348,7 @@ class LanceDBAdapter:
                 return []
 
             tag_id_str = ",".join(map(str, tag_ids))
-            t_res = self.t_table.search().where(f"id IN ({tag_id_str})").to_list()
+            t_res = self.t_table.search().where(f"snowflake_id IN ({tag_id_str})").to_list()
             names = [r["name"] for r in t_res]
             return [(n,) for n in names]
         except Exception as e:
@@ -355,7 +374,7 @@ class LanceDBAdapter:
         else:
             id_list_str = ",".join(map(str, q_ids))
             filter_str_qt = f"question_id IN ({id_list_str})"
-            filter_str_q = f"id IN ({id_list_str})"
+            filter_str_q = f"snowflake_id IN ({id_list_str})"
 
         # Note: LanceDB does not currently support multi-table ACID transactions in its
         # Python SDK for simple .delete() operations. We execute them sequentially.

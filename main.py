@@ -27,7 +27,7 @@ def check_and_install_miktex(raise_errors=False):
         if res.returncode == 0:
             logger.info("xelatex found. MiKTeX/TeX Live is installed.")
             return
-    except FileNotFoundError:
+    except (FileNotFoundError, ValueError):
         pass
     except Exception as e:
         logger.warning(f"Error checking xelatex: {e}")
@@ -127,18 +127,19 @@ def ensure_lancedb_tables():
         db = adapter.db
 
         try:
-            db.open_table("questions")
-            logger.info("Table 'questions' found.")
+            t = db.open_table("questions")
+            if "snowflake_id" not in t.schema.names:
+                logger.warning("Legacy 'questions' table detected. Dropping to apply new Phase 3 schema.")
+                db.drop_table("questions")
+                raise Exception("Force recreate")
+            logger.info("Table 'questions' found with valid Phase 3 schema.")
         except Exception:
-            logger.info("Table 'questions' missing, creating it...")
+            logger.info("Table 'questions' missing or dropped, creating it...")
             db.create_table(
                 "questions",
                 schema=pa.schema(
                     [
-                        pa.field("id", pa.int64()),
-                        pa.field("content", pa.string()),
-                        pa.field("logic_descriptor", pa.string()),
-                        pa.field("difficulty", pa.float64()),
+                        pa.field("snowflake_id", pa.int64()),
                         pa.field(
                             "vector",
                             pa.list_(
@@ -146,7 +147,10 @@ def ensure_lancedb_tables():
                                 getattr(adapter, "embedding_dimension", 1536),
                             ),
                         ),
-                        pa.field("diagram_base64", pa.string()),
+                        pa.field("content_md", pa.string()),
+                        pa.field("logic_chain", pa.string()),
+                        pa.field("tags", pa.list_(pa.string())),
+                        pa.field("created_at", pa.timestamp('s')),
                     ]
                 ),
             )
