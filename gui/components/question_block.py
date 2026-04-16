@@ -77,8 +77,8 @@ class DroppableTextEdit(TextEdit):
         if text.startswith("smartqb-image-drag://"):
             temp_id = text[len("smartqb-image-drag://") :]
 
-            # Basic sanitization to prevent markdown injection
-            if ")" in temp_id or '"' in temp_id or "'" in temp_id:
+            # Validate that temp_id is a valid alphanumeric/hyphenated string (typical for UUIDs)
+            if not all(c.isalnum() or c == "-" for c in temp_id):
                 e.ignore()
                 return
 
