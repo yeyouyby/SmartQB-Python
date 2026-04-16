@@ -129,7 +129,9 @@ def ensure_lancedb_tables():
         try:
             t = db.open_table("questions")
             if "snowflake_id" not in t.schema.names:
-                logger.warning("Legacy 'questions' table detected. Dropping to apply new Phase 3 schema.")
+                logger.warning(
+                    "Legacy 'questions' table detected. Dropping to apply new Phase 3 schema."
+                )
                 db.drop_table("questions")
                 raise Exception("Force recreate")
             logger.info("Table 'questions' found with valid Phase 3 schema.")
@@ -150,7 +152,7 @@ def ensure_lancedb_tables():
                         pa.field("content_md", pa.string()),
                         pa.field("logic_chain", pa.string()),
                         pa.field("tags", pa.list_(pa.string())),
-                        pa.field("created_at", pa.timestamp('s')),
+                        pa.field("created_at", pa.timestamp("s")),
                     ]
                 ),
             )

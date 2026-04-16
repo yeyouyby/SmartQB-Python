@@ -290,11 +290,13 @@ class CalibrationWorkspace(QFrame):
         # Launch worker
         block_data = []
         for block in self.question_blocks:
-            block_data.append({
-                "markdown": block.get_markdown(),
-                "logic_chain": "", # Will pull from right panel in future
-                "tags": [] # Will pull from right panel in future
-            })
+            block_data.append(
+                {
+                    "markdown": block.get_markdown(),
+                    "logic_chain": "",  # Will pull from right panel in future
+                    "tags": [],  # Will pull from right panel in future
+                }
+            )
         self.worker = TransactionWorker(block_data, self)
         self.worker.finished.connect(self._on_transaction_finished)
         self.worker.finished.connect(self.worker.deleteLater)
@@ -321,7 +323,7 @@ class CalibrationWorkspace(QFrame):
             isClosable=True,
             position=InfoBarPosition.TOP,
             duration=3000,
-            parent=self.window()
+            parent=self.window(),
         )
 
     def _on_transaction_error(self, err_msg):

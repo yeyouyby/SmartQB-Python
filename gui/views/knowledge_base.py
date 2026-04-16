@@ -2,14 +2,23 @@ import logging
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from qfluentwidgets import (
-    Pivot, SearchLineEdit, FlowLayout, PillPushButton,
-    ListWidget, SmoothScrollArea, FluentIcon as FIF, InfoBar, InfoBarPosition
+    Pivot,
+    SearchLineEdit,
+    FlowLayout,
+    PillPushButton,
+    ListWidget,
+    SmoothScrollArea,
+    FluentIcon as FIF,
+    InfoBar,
+    InfoBarPosition,
 )
 
 logger = logging.getLogger(__name__)
 
+
 class VirtualQuestionListModel(QAbstractListModel):
     """Custom high-performance virtual scrolling list model for massive datasets."""
+
     def __init__(self, data=None, parent=None):
         super().__init__(parent)
         self._data = data or []
@@ -26,8 +35,8 @@ class VirtualQuestionListModel(QAbstractListModel):
         if role == Qt.DisplayRole:
             # We return a truncated string representation or formatting here if using a standard view
             # For a highly customized item view, we would use a delegate. For now, basic string.
-            content = row_data.get('content_md', 'No Content')
-            tags = row_data.get('tags', [])
+            content = row_data.get("content_md", "No Content")
+            tags = row_data.get("tags", [])
             tag_str = ", ".join(tags) if tags else "无标签"
             return f"[{tag_str}] {content[:100]}..."
 
@@ -40,6 +49,7 @@ class VirtualQuestionListModel(QAbstractListModel):
         self.beginResetModel()
         self._data = new_data
         self.endResetModel()
+
 
 class KnowledgeBaseWorkspace(QFrame):
     """
@@ -76,17 +86,17 @@ class KnowledgeBaseWorkspace(QFrame):
         self.pivot.addItem(
             routeKey="search_view",
             text="智能混合检索",
-            onClick=lambda: self.switch_view("search_view")
+            onClick=lambda: self.switch_view("search_view"),
         )
         self.pivot.addItem(
             routeKey="explore_view",
             text="多模态探索",
-            onClick=lambda: self.switch_view("explore_view")
+            onClick=lambda: self.switch_view("explore_view"),
         )
         self.pivot.addItem(
             routeKey="graph_view",
             text="3D 星空图谱",
-            onClick=lambda: self.switch_view("graph_view")
+            onClick=lambda: self.switch_view("graph_view"),
         )
 
         self.pivot.setCurrentItem("search_view")
@@ -98,7 +108,9 @@ class KnowledgeBaseWorkspace(QFrame):
 
         # Super Search Bar
         self.search_bar = SearchLineEdit(self)
-        self.search_bar.setPlaceholderText("输入知识点、考点或题目描述 (支持自然语言混合检索)...")
+        self.search_bar.setPlaceholderText(
+            "输入知识点、考点或题目描述 (支持自然语言混合检索)..."
+        )
         self.search_bar.setClearButtonEnabled(True)
         layout.addWidget(self.search_bar)
 
@@ -127,6 +139,7 @@ class KnowledgeBaseWorkspace(QFrame):
         # It's better to use a bare QListView with our custom model, but ListWidget might not support setModel
         # properly without breaking some Fluent integrations. We'll use a QListView directly styled like Fluent
         from PySide6.QtWidgets import QListView
+
         self.list_view = QListView(self)
         self.list_view.setModel(self.list_model)
         self.list_view.setStyleSheet("""
@@ -155,7 +168,9 @@ class KnowledgeBaseWorkspace(QFrame):
         self.scroll_area = SmoothScrollArea(self)
         self.scroll_area.setWidget(self.list_view)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.scroll_area.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
 
         layout.addWidget(self.scroll_area, 1)
 
@@ -173,7 +188,7 @@ class KnowledgeBaseWorkspace(QFrame):
                 content=f"{view_key} 仍在施工中...",
                 orient=Qt.Horizontal,
                 position=InfoBarPosition.TOP,
-                parent=self.window()
+                parent=self.window(),
             )
 
     def _on_search_text_changed(self, text):
@@ -197,6 +212,7 @@ class KnowledgeBaseWorkspace(QFrame):
         # Perform actual search via LanceDB (mocked for now, real implementation would call search_service)
         try:
             from db_adapter import LanceDBAdapter
+
             db = LanceDBAdapter()
             # FTS Search on content_md
             res = db.q_table.search(query).limit(50).to_list()
