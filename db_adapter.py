@@ -1,3 +1,4 @@
+from datetime import datetime
 from utils import pad_or_truncate_vector
 import pyarrow as pa
 import logging
@@ -164,8 +165,6 @@ class LanceDBAdapter:
             )
 
         vec = pad_or_truncate_vector(vec, target_dim)
-
-        from datetime import datetime
 
         new_q_id = self.next_id()
         timestamp = int(datetime.now().timestamp())
