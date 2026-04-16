@@ -16,6 +16,8 @@ except ImportError:
     HAS_ARITHMATEX = False
 
 from PySide6.QtCore import (
+    Qt,
+    QMimeData,
     Signal,
     QTimer,
     QPropertyAnimation,
@@ -25,7 +27,8 @@ from PySide6.QtCore import (
     QUrl,
     QEvent,
 )
-from PySide6.QtGui import QMouseEvent
+from PySide6.QtGui import QMouseEvent, QDragEnterEvent, QDropEvent, QDrag
+
 from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
@@ -41,18 +44,55 @@ from qfluentwidgets import ElevatedCardWidget, TextEdit
 
 class Bridge(QObject):
     snapshotReadySignal = Signal(int)
+    dragRequestedSignal = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
 
     @Slot(str)
     def startDrag(self, temp_id: str):
-        # We will handle the drag logic later
-        logging.info(f"Dragging image with UUID: {temp_id}")
+        logging.info(f"Drag requested from JS for image UUID: {temp_id}")
+        self.dragRequestedSignal.emit(temp_id)
 
     @Slot(int)
     def snapshotReady(self, height: int = 0):
         self.snapshotReadySignal.emit(height)
+
+
+class DroppableTextEdit(TextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, e: QDragEnterEvent):
+        if e.mimeData().hasText():
+            text = e.mimeData().text()
+            if text.startswith("smartqb-image-drag://"):
+                e.acceptProposedAction()
+                return
+        super().dragEnterEvent(e)
+
+    def dropEvent(self, e: QDropEvent):
+        text = e.mimeData().text()
+        if text.startswith("smartqb-image-drag://"):
+            temp_id = text[len("smartqb-image-drag://") :]
+
+            # Validate that temp_id is a valid alphanumeric/hyphenated string (typical for UUIDs)
+            if not all(c.isalnum() or c == "-" for c in temp_id):
+                e.ignore()
+                return
+
+            cursor = self.cursorForPosition(e.pos())
+
+            # Use beginEditBlock/endEditBlock to group undo
+            cursor.beginEditBlock()
+            cursor.insertText(f"![img](smartqb-image-drag://{temp_id})")
+            cursor.endEditBlock()
+            self.setTextCursor(cursor)
+
+            e.acceptProposedAction()
+            return
+        super().dropEvent(e)
 
 
 class QuestionBlockWidget(ElevatedCardWidget):
@@ -177,7 +217,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Edit State Widgets (None initially)
         self.web_view: Optional[QWebEngineView] = None
-        self.text_edit: Optional[TextEdit] = None
+        self.text_edit: Optional[DroppableTextEdit] = None
         self.web_channel: Optional[QWebChannel] = None
         # Debounce Timer
         self.debounce_timer = QTimer(self)
@@ -260,6 +300,15 @@ class QuestionBlockWidget(ElevatedCardWidget):
         self._detach_shared_resources()
 
     def _cleanup_edit_widgets(self):
+        # Clean up bridge signal
+        if QuestionBlockWidget._shared_bridge:
+            try:
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal.disconnect(
+                    self._on_drag_requested
+                )
+            except (RuntimeError, TypeError):
+                pass
+
         if self.web_view:
             self.web_view.hide()
             self.content_layout.removeWidget(self.web_view)
@@ -328,6 +377,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
         if not self._is_editing:
             self._enter_edit_state()
         super().mouseDoubleClickEvent(event)
+
+    def _safe_reconnect(self, signal, slot):
+        try:
+            signal.disconnect()
+        except (RuntimeError, TypeError):
+            pass
+        signal.connect(slot)
 
     def _enter_edit_state(self):
         # Enforce single active edit state globally
@@ -399,8 +455,9 @@ class QuestionBlockWidget(ElevatedCardWidget):
 
         # Direct the shared bridge to this instance via Signal
         if QuestionBlockWidget._shared_bridge:
-            QuestionBlockWidget._shared_bridge.snapshotReadySignal.connect(
-                self._capture_snapshot
+            self._safe_reconnect(
+                QuestionBlockWidget._shared_bridge.snapshotReadySignal,
+                self._capture_snapshot,
             )
 
         # Connect bridge and load callback
@@ -413,6 +470,13 @@ class QuestionBlockWidget(ElevatedCardWidget):
                 QuestionBlockWidget._shared_load_connection = None
             except (RuntimeError, TypeError):
                 pass
+
+        # Connect bridge dragRequestedSignal
+        if QuestionBlockWidget._shared_bridge:
+            self._safe_reconnect(
+                QuestionBlockWidget._shared_bridge.dragRequestedSignal,
+                self._on_drag_requested,
+            )
 
         QuestionBlockWidget._shared_load_connection = (
             self.web_view.loadFinished.connect(self._on_web_view_loaded)
@@ -427,7 +491,7 @@ class QuestionBlockWidget(ElevatedCardWidget):
             self._on_web_view_loaded(True)
 
         # Instantiate TextEdit
-        self.text_edit = TextEdit()
+        self.text_edit = DroppableTextEdit()
         self.text_edit.setPlainText(self._markdown_source)
         self.text_edit.setMinimumHeight(QuestionBlockWidget._MIN_EDITOR_HEIGHT)
         self.text_edit.textChanged.connect(self._on_text_changed)
@@ -452,6 +516,19 @@ class QuestionBlockWidget(ElevatedCardWidget):
         # Request focus on text edit
         self.text_edit.setFocus()
         self.text_edit.installEventFilter(self)
+
+    def _on_drag_requested(self, temp_id: str):
+        if not self.web_view:
+            return
+        drag = QDrag(self.web_view)
+        mime_data = QMimeData()
+        mime_data.setText(f"smartqb-image-drag://{temp_id}")
+        drag.setMimeData(mime_data)
+        # Start drag copy action
+        drag.exec(Qt.DropAction.CopyAction)
+
+    def get_markdown(self) -> str:
+        return self._markdown_source
 
     def _on_web_view_loaded(self, ok: bool):
         if ok:

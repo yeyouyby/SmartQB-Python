@@ -1,6 +1,11 @@
+import re
+import logging
 from gui.components.question_block import QuestionBlockWidget
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
+from db_adapter import LanceDBAdapter
 from PySide6.QtWidgets import (
+    QCompleter,
+    QDialog,
     QFrame,
     QVBoxLayout,
     QSplitter,
@@ -8,8 +13,87 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    MessageBox,
+    CommandBar,
+    PrimaryPushButton,
+    ProgressRing,
+    FlowLayout,
+    PillPushButton,
+    LineEdit,
+    TextEdit,
+    SubtitleLabel,
     SmoothScrollArea,
 )
+
+
+logger = logging.getLogger(__name__)
+
+
+class TransactionWorker(QThread):
+    finished = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, markdown_data, parent=None):
+        super().__init__(parent)
+        self.markdown_data = markdown_data
+
+    def run(self):
+
+        try:
+            db_adapter = LanceDBAdapter()
+            logger.info("Harvesting data from QuestionBlocks...")
+
+            # Use mapping to ensure idempotent ID replacements
+            id_mapping = {}
+
+            # Matches ![img](url) or ![img](url "title")
+            pattern = re.compile(
+                r"!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
+            )
+
+            def replace_id(match):
+                temp_id = match.group("url")
+                title = match.group("title")
+                alt = match.group("alt")
+
+                # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
+                # Ensure we only replace if it explicitly matches our temporary UUID drop format
+                if not temp_id.startswith("smartqb-image-drag://"):
+                    return match.group(0)
+
+                # Strip out the prefix to just work with the actual uuid string internally
+                temp_id = temp_id[len("smartqb-image-drag://") :]
+
+                if temp_id in id_mapping:
+                    new_id = id_mapping[temp_id]
+                else:
+                    new_id = str(db_adapter.next_id())
+                    id_mapping[temp_id] = new_id
+                    logger.info(
+                        f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
+                    )
+
+                if title:
+                    return f'![{alt}]({new_id} "{title}")'
+                return f"![{alt}]({new_id})"
+
+            results = []
+            for idx, markdown_text in enumerate(self.markdown_data):
+                logger.info(
+                    f"Processing Block {idx + 1} (length: {len(markdown_text)} chars)"
+                )
+                final_markdown = pattern.sub(replace_id, markdown_text)
+                logger.info(
+                    f"Finished Block {idx + 1} (length: {len(final_markdown)} chars)"
+                )
+
+                results.append(final_markdown)
+
+            self.finished.emit(results)
+
+        except Exception as e:
+            logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
+            self.error.emit(str(e))
 
 
 class CalibrationWorkspace(QFrame):
@@ -22,6 +106,16 @@ class CalibrationWorkspace(QFrame):
         super().__init__(parent=parent)
         self.setObjectName("CalibrationWorkspace")
         self.setup_ui()
+
+    def eventFilter(self, obj, event):
+        if (
+            obj == self.window()
+            and hasattr(self, "freeze_dialog")
+            and self.freeze_dialog
+        ):
+            if event.type() in (event.Type.Move, event.Type.Resize):
+                self.freeze_dialog.setGeometry(self.window().geometry())
+        return super().eventFilter(obj, event)
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -79,14 +173,65 @@ class CalibrationWorkspace(QFrame):
         self.splitter.addWidget(self.mid_panel)
 
         # ==========================================
+        # ==========================================
         # 3. 右栏：元数据属性侧边栏 (Right Panel)
         # ==========================================
         self.right_panel = QFrame()
         self.right_layout = QVBoxLayout(self.right_panel)
+        self.right_layout.setContentsMargins(10, 10, 10, 10)
+        self.right_layout.setSpacing(15)
 
-        self.right_placeholder = QLabel("元数据属性侧边栏\n(AI 逻辑链与标签树)")
-        self.right_placeholder.setAlignment(Qt.AlignCenter)
-        self.right_layout.addWidget(self.right_placeholder)
+        # 3.1 Tags Area (标签域)
+        self.tags_title = SubtitleLabel("考点标签 (Tags)")
+        self.right_layout.addWidget(self.tags_title)
+
+        self.tags_container = QWidget()
+        self.tags_flow_layout = FlowLayout(self.tags_container, isTight=True)
+        self.tags_flow_layout.setContentsMargins(0, 0, 0, 0)
+        self.tags_flow_layout.setSpacing(5)
+
+        # Add initial dummy tags
+        dummy_tags = ["Math", "Algebra", "Calculus"]
+        for tag in dummy_tags:
+            btn = PillPushButton(tag)
+            self.tags_flow_layout.addWidget(btn)
+
+        self.right_layout.addWidget(self.tags_container)
+
+        self.tag_input = LineEdit()
+        self.tag_input.setPlaceholderText("添加新标签...")
+
+        # Setup Completer with dummy data
+        completer_data = [
+            "Math",
+            "Algebra",
+            "Calculus",
+            "Geometry",
+            "Trigonometry",
+            "Physics",
+        ]
+        self.completer = QCompleter(completer_data, self)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
+        self.tag_input.setCompleter(self.completer)
+        self.right_layout.addWidget(self.tag_input)
+
+        # 3.2 AI Logic Area (描述域)
+        self.ai_title = SubtitleLabel("AI 解析逻辑 (Chain of Thought)")
+        self.right_layout.addWidget(self.ai_title)
+
+        self.ai_logic_edit = TextEdit()
+        self.ai_logic_edit.setReadOnly(True)
+        self.ai_logic_edit.setPlaceholderText("大模型解析思维链...")
+        # Rely on QFluentWidgets built-in theme-aware styling for read-only edits instead of hardcoding
+        self.right_layout.addWidget(self.ai_logic_edit)
+
+        # 3.3 State Indicator Placeholder
+        self.state_title = SubtitleLabel("处理状态")
+        self.right_layout.addWidget(self.state_title)
+
+        self.status_label = QLabel("当前就绪 (Ready)")
+        self.right_layout.addWidget(self.status_label)
+
         self.right_layout.addStretch(1)
 
         self.splitter.addWidget(self.right_panel)
@@ -95,3 +240,83 @@ class CalibrationWorkspace(QFrame):
         self.splitter.setStretchFactor(0, 7)
         self.splitter.setStretchFactor(1, 10)
         self.splitter.setStretchFactor(2, 3)
+
+        # ==========================================
+        # 4. 底部：全局事务控制栏 (Transaction Command Bar)
+        # ==========================================
+        self.bottom_bar = CommandBar(self)
+        # Apply somewhat transparent styling using styling if needed, otherwise rely on CommandBar defaults
+        self.bottom_bar.setContentsMargins(10, 10, 10, 10)
+
+        self.commit_btn = PrimaryPushButton("确认导入并生成资产")
+        # Align to right
+        self.bottom_bar.addWidget(self.commit_btn)
+
+        # We need an overarching layout since `self.main_layout` only has splitter
+        self.main_layout.addWidget(self.bottom_bar)
+
+        # Bind the transaction pipeline
+        self.commit_btn.clicked.connect(self.run_transaction_pipeline)
+
+    def run_transaction_pipeline(self):
+
+        logger.info("Starting Transaction Pipeline...")
+
+        # 1. UI Freeze - Show overlay mask with ProgressRing
+        self.freeze_dialog = QDialog(self.window())
+        self.freeze_dialog.setModal(True)
+        self.freeze_dialog.setAttribute(Qt.WA_DeleteOnClose)
+        self.freeze_dialog.setAttribute(Qt.WA_TranslucentBackground)
+        self.freeze_dialog.setWindowFlags(Qt.FramelessWindowHint)
+        self.freeze_dialog.setStyleSheet(
+            "QDialog { background-color: rgba(0, 0, 0, 150); }"
+        )
+        self.freeze_dialog.setGeometry(self.window().geometry())
+
+        layout = QVBoxLayout(self.freeze_dialog)
+        layout.setAlignment(Qt.AlignCenter)
+        ring = ProgressRing()
+        ring.setFixedSize(60, 60)
+        layout.addWidget(ring)
+        label = QLabel("正在生成数字资产，请勿操作...")
+        label.setStyleSheet("color: white; font-size: 16px; font-weight: bold;")
+        layout.addWidget(label)
+
+        self.window().installEventFilter(self)
+        self.freeze_dialog.show()
+
+        # Launch worker
+        markdown_data = [block.get_markdown() for block in self.question_blocks]
+        self.worker = TransactionWorker(markdown_data, self)
+        self.worker.finished.connect(self._on_transaction_finished)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.worker.error.connect(self._on_transaction_error)
+        self.worker.error.connect(self.worker.deleteLater)
+        self.worker.start()
+
+    def _on_transaction_finished(self, results):
+
+        # Update blocks with their final markdown
+        for block, final_markdown in zip(self.question_blocks, results):
+            block.set_markdown(final_markdown)
+
+        logger.info("Transaction Pipeline completed successfully.")
+        if hasattr(self, "freeze_dialog") and self.freeze_dialog:
+            self.window().removeEventFilter(self)
+            self.freeze_dialog.accept()
+            self.freeze_dialog = None
+
+    def _on_transaction_error(self, err_msg):
+
+        logger.error(f"Transaction failed: {err_msg}")
+        if hasattr(self, "freeze_dialog") and self.freeze_dialog:
+            self.window().removeEventFilter(self)
+            self.freeze_dialog.accept()
+            self.freeze_dialog = None
+
+        # Display an error message box to the user
+        MessageBox(
+            "Transaction Failed",
+            f"An error occurred during asset generation:\n{err_msg}",
+            self.window(),
+        ).exec()
