@@ -62,8 +62,6 @@ class LanceDBAdapter:
                 )
                 self.db.drop_table("questions")
                 raise FileNotFoundError("Force recreate")
-        except ValueError:
-            pass
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",
@@ -87,8 +85,6 @@ class LanceDBAdapter:
 
         try:
             self.t_table = self.db.open_table("tags")
-        except ValueError:
-            pass
         except Exception:
             logger.warning(
                 "Failed to open 'tags' table, attempting to create it.", exc_info=True
@@ -105,8 +101,6 @@ class LanceDBAdapter:
 
         try:
             self.qt_table = self.db.open_table("question_tags")
-        except ValueError:
-            pass
         except Exception:
             logger.warning(
                 "Failed to open 'question_tags' table, attempting to create it.",
