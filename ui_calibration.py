@@ -85,13 +85,19 @@ class TransactionWorker(QThread):
 
             async def process_blocks():
                 tasks = []
+                semaphore = asyncio.Semaphore(5)
+
+                async def sem_get_embedding(text):
+                    async with semaphore:
+                        return await get_embedding_async(text)
+
                 for idx, block in enumerate(self.block_data):
                     markdown_text = block.get("markdown", "")
                     logic_chain = block.get("logic_chain", "")
                     final_markdown = pattern.sub(replace_id, markdown_text)
                     results.append(final_markdown)
                     embed_text = final_markdown + "\n" + logic_chain
-                    tasks.append(get_embedding_async(embed_text))
+                    tasks.append(sem_get_embedding(embed_text))
                 embeddings = await asyncio.gather(*tasks)
 
                 timestamp = int(datetime.now().timestamp())

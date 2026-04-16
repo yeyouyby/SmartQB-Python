@@ -236,6 +236,13 @@ class KnowledgeBaseWorkspace(QFrame):
 
             self._db_adapter = LanceDBAdapter()
 
+        if hasattr(self, "search_worker") and self.search_worker.isRunning():
+            try:
+                self.search_worker.finished.disconnect()
+                self.search_worker.error.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
         self.search_worker = SearchWorker(self._db_adapter, query, self)
 
         def handle_results(res):
