@@ -43,7 +43,7 @@ class TransactionWorker(QThread):
             db_adapter = LanceDBAdapter()
             from ai_service import AIService
 
-            ai_service = AIService()
+            ai_service = AIService(db_adapter.settings)
             logger.info("Harvesting data from QuestionBlocks...")
             import re
 
@@ -109,8 +109,10 @@ class TransactionWorker(QThread):
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_blocks())
-            loop.close()
+            try:
+                loop.run_until_complete(process_blocks())
+            finally:
+                loop.close()
             if records:
                 import pyarrow as pa
 
