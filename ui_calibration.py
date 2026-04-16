@@ -107,12 +107,7 @@ class TransactionWorker(QThread):
                         }
                     )
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(process_blocks())
-            finally:
-                loop.close()
+            asyncio.run(process_blocks())
             if records:
                 import pyarrow as pa
 

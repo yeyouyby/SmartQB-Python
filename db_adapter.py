@@ -253,18 +253,16 @@ class LanceDBAdapter:
         Bulk insert an arrow table into LanceDB.
         Expects a PyArrow Table matching the LanceDB schema.
         """
-        # Prevent check-then-insert race via lock if needed
-        with _id_lock:
-            try:
-                self.q_table.add(arrow_table)
-                logger.info(
-                    f"Successfully bulk inserted {arrow_table.num_rows} questions into LanceDB."
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to bulk insert questions into LanceDB: {e}", exc_info=True
-                )
-                raise
+        try:
+            self.q_table.add(arrow_table)
+            logger.info(
+                f"Successfully bulk inserted {arrow_table.num_rows} questions into LanceDB."
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to bulk insert questions into LanceDB: {e}", exc_info=True
+            )
+            raise
 
     def get_all_tags(self):
         try:
