@@ -59,10 +59,10 @@ class LanceDBAdapter:
             self.q_table = self.db.open_table("questions")
             if "snowflake_id" not in self.q_table.schema.names:
                 logger.warning(
-                    "Legacy 'questions' table detected. Dropping to apply new Phase 3 schema."
+                    "Legacy 'questions' table detected. Renaming it to 'questions_legacy_backup' to apply new Phase 3 schema without data loss."
                 )
-                self.db.drop_table("questions")
-                raise FileNotFoundError("Force recreate")
+                self.db.rename_table("questions", "questions_legacy_backup")
+                raise Exception("Force recreate")
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",

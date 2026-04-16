@@ -230,19 +230,26 @@ class KnowledgeBaseWorkspace(QFrame):
         # Mock NL2F token extraction
         self._add_token(f"模糊匹配: {query}")
 
-        # Perform actual search via LanceDB (mocked for now, real implementation would call search_service)
-        try:
-            if not hasattr(self, "_db_adapter"):
-                from db_adapter import LanceDBAdapter
+        # Execute LanceDB query in a background thread to prevent UI freezing
+        if not hasattr(self, "_db_adapter"):
+            from db_adapter import LanceDBAdapter
 
-                self._db_adapter = LanceDBAdapter()
+            self._db_adapter = LanceDBAdapter()
 
-            # FTS Search on content_md
-            res = self._db_adapter.q_table.search(query).limit(50).to_list()
+        self.search_worker = SearchWorker(self._db_adapter, query, self)
+
+        def handle_results(res):
             self.list_model.update_data(res)
-        except Exception as e:
+
+        def handle_error(e):
             logger.error(f"Search failed: {e}")
             self.list_model.update_data([])
+
+        self.search_worker.finished.connect(handle_results)
+        self.search_worker.finished.connect(self.search_worker.deleteLater)
+        self.search_worker.error.connect(handle_error)
+        self.search_worker.error.connect(self.search_worker.deleteLater)
+        self.search_worker.start()
 
     def _clear_tokens(self):
         while self.token_layout.count():
