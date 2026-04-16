@@ -27,7 +27,7 @@ def check_and_install_miktex(raise_errors=False):
         if res.returncode == 0:
             logger.info("xelatex found. MiKTeX/TeX Live is installed.")
             return
-    except ValueError:
+    except FileNotFoundError:
         pass
     except Exception as e:
         logger.warning(f"Error checking xelatex: {e}")
