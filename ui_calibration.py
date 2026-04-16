@@ -1,4 +1,3 @@
-import re
 import logging
 from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt, QThread, Signal
@@ -43,39 +42,49 @@ class TransactionWorker(QThread):
         try:
             db_adapter = LanceDBAdapter()
             from ai_service import AIService
+
             ai_service = AIService()
             logger.info("Harvesting data from QuestionBlocks...")
             import re
+
             id_mapping = {}
-            pattern = re.compile(r'!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+["'](?P<title>.*?)["'])?\)')
+            pattern = re.compile(
+                r'!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+["\'](?P<title>.*?)["\'])?\)'
+            )
+
             def replace_id(match):
                 temp_id = match.group("url")
                 title = match.group("title")
                 alt = match.group("alt")
                 if not temp_id.startswith("smartqb-image-drag://"):
                     return match.group(0)
-                temp_id = temp_id[len("smartqb-image-drag://"):]
+                temp_id = temp_id[len("smartqb-image-drag://") :]
                 if temp_id in id_mapping:
                     new_id = id_mapping[temp_id]
                 else:
                     new_id = str(db_adapter.next_id())
                     id_mapping[temp_id] = new_id
-                    logger.info(f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}")
+                    logger.info(
+                        f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
+                    )
                 if title:
                     return f'![{alt}]({new_id} "{title}")'
                 return f"![{alt}]({new_id})"
+
             results = []
             records = []
-            target_dim = getattr(db_adapter, 'embedding_dimension', 1536)
+            target_dim = getattr(db_adapter, "embedding_dimension", 1536)
             import asyncio
+
             async def get_embedding_async(text):
                 loop = asyncio.get_event_loop()
                 return await loop.run_in_executor(None, ai_service.get_embedding, text)
+
             async def process_blocks():
                 tasks = []
                 for idx, block in enumerate(self.block_data):
-                    markdown_text = block.get('markdown', '')
-                    logic_chain = block.get('logic_chain', '')
+                    markdown_text = block.get("markdown", "")
+                    logic_chain = block.get("logic_chain", "")
                     final_markdown = pattern.sub(replace_id, markdown_text)
                     results.append(final_markdown)
                     embed_text = final_markdown + "\n" + logic_chain
@@ -83,29 +92,36 @@ class TransactionWorker(QThread):
                 embeddings = await asyncio.gather(*tasks)
                 from utils import pad_or_truncate_vector
                 from datetime import datetime
+
                 timestamp = int(datetime.now().timestamp())
                 for idx, block in enumerate(self.block_data):
                     vec = pad_or_truncate_vector(embeddings[idx], target_dim)
-                    records.append({
-                        'snowflake_id': db_adapter.next_id(),
-                        'vector': vec,
-                        'content_md': results[idx],
-                        'logic_chain': block.get('logic_chain', ''),
-                        'tags': block.get('tags', []),
-                        'created_at': timestamp
-                    })
+                    records.append(
+                        {
+                            "snowflake_id": db_adapter.next_id(),
+                            "vector": vec,
+                            "content_md": results[idx],
+                            "logic_chain": block.get("logic_chain", ""),
+                            "tags": block.get("tags", []),
+                            "created_at": timestamp,
+                        }
+                    )
+
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(process_blocks())
             loop.close()
             if records:
                 import pyarrow as pa
+
                 arrow_table = pa.Table.from_pylist(records)
                 db_adapter.add_questions_bulk(arrow_table)
             self.finished.emit(results)
         except Exception as e:
             logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
             self.error.emit(str(e))
+
+
 class CalibrationWorkspace(QFrame):
     """
     核心校对层：三栏联动工作台 (Calibration Workspace)
