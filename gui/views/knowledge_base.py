@@ -1,5 +1,5 @@
 import logging
-from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex
+from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
 from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
 from qfluentwidgets import (
     Pivot,
@@ -13,6 +13,29 @@ from qfluentwidgets import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SearchWorker(QThread):
+    finished = Signal(list)
+    error = Signal(str)
+
+    def __init__(self, db_adapter, query, parent=None):
+        super().__init__(parent)
+        self.db_adapter = db_adapter
+        self.query = query
+
+    def run(self):
+        try:
+            safe_query = self.query.replace("'", "''")
+            res = (
+                self.db_adapter.q_table.search()
+                .where(f"content_md LIKE '%{safe_query}%'")
+                .limit(50)
+                .to_list()
+            )
+            self.finished.emit(res)
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class VirtualQuestionListModel(QAbstractListModel):

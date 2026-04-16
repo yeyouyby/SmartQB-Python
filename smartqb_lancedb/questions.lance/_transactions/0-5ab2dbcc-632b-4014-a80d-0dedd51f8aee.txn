@@ -1,5 +1,0 @@
-$5ab2dbcc-632b-4014-a80d-0dedd51f8aee\xb2\xdd$snowflake_id \xff\xff\xff\xff\xff\xff\xff\xff\xff*int64085vector \xff\xff\xff\xff\xff\xff\xff\xff\xff*fixed_size_list:float:153608%
-content_md \xff\xff\xff\xff\xff\xff\xff\xff\xff*string08&logic_chain \xff\xff\xff\xff\xff\xff\xff\xff\xff*string08tags \xff\xff\xff\xff\xff\xff\xff\xff\xff*list08item *string08,
-created_at \xff\xff\xff\xff\xff\xff\xff\xff\xff*timestamp:s:-08"'
-lance.auto_cleanup.older_than14days"!
-lance.auto_cleanup.interval20
