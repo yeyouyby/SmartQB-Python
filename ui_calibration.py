@@ -1,3 +1,9 @@
+import re
+import asyncio
+import pyarrow as pa
+from datetime import datetime
+from ai_service import AIService
+from utils import pad_or_truncate_vector
 import logging
 from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt, QThread, Signal
@@ -41,11 +47,9 @@ class TransactionWorker(QThread):
     def run(self):
         try:
             db_adapter = LanceDBAdapter()
-            from ai_service import AIService
 
             ai_service = AIService(db_adapter.settings)
             logger.info("Harvesting data from QuestionBlocks...")
-            import re
 
             id_mapping = {}
             pattern = re.compile(
@@ -74,7 +78,6 @@ class TransactionWorker(QThread):
             results = []
             records = []
             target_dim = getattr(db_adapter, "embedding_dimension", 1536)
-            import asyncio
 
             async def get_embedding_async(text):
                 loop = asyncio.get_event_loop()
@@ -90,8 +93,6 @@ class TransactionWorker(QThread):
                     embed_text = final_markdown + "\n" + logic_chain
                     tasks.append(get_embedding_async(embed_text))
                 embeddings = await asyncio.gather(*tasks)
-                from utils import pad_or_truncate_vector
-                from datetime import datetime
 
                 timestamp = int(datetime.now().timestamp())
                 for idx, block in enumerate(self.block_data):
@@ -109,8 +110,6 @@ class TransactionWorker(QThread):
 
             asyncio.run(process_blocks())
             if records:
-                import pyarrow as pa
-
                 arrow_table = pa.Table.from_pylist(records)
                 db_adapter.add_questions_bulk(arrow_table)
             self.finished.emit(results)
