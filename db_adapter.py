@@ -165,16 +165,19 @@ class LanceDBAdapter:
 
         vec = pad_or_truncate_vector(vec, target_dim)
 
+        from datetime import datetime
+
         new_q_id = self.next_id()
+        timestamp = int(datetime.now().timestamp())
         self.q_table.add(
             [
                 {
-                    "id": new_q_id,
-                    "content": content,
-                    "logic_descriptor": logic or "",
-                    "difficulty": 0.0,
+                    "snowflake_id": new_q_id,
                     "vector": vec,
-                    "diagram_base64": diagram_b64 or "",
+                    "content_md": content,
+                    "logic_chain": logic or "",
+                    "tags": [],
+                    "created_at": timestamp,
                 }
             ]
         )
