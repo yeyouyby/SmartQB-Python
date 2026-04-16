@@ -215,5 +215,5 @@ class KnowledgeBaseWorkspace(QFrame):
     def _add_token(self, text):
         token = PillPushButton(text, self)
         token.setIcon(FIF.CANCEL)
-        token.clicked.connect(lambda: token.deleteLater())
+        token.clicked.connect(token.deleteLater)
         self.token_layout.addWidget(token)
