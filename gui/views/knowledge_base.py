@@ -6,7 +6,6 @@ from qfluentwidgets import (
     SearchLineEdit,
     FlowLayout,
     PillPushButton,
-    ListWidget,
     SmoothScrollArea,
     FluentIcon as FIF,
     InfoBar,
@@ -130,7 +129,6 @@ class KnowledgeBaseWorkspace(QFrame):
         # Virtual Scrolling List
         # Note: In a fully fleshed out QListView we would use a custom ItemDelegate to draw ElevatedCardWidget
         # For this prototype we will use qfluentwidgets.ListWidget and simple strings via the model to prove the pipeline
-        self.result_list = ListWidget(self)
 
         # We set up the model
         self.list_model = VirtualQuestionListModel([], self)
@@ -211,11 +209,13 @@ class KnowledgeBaseWorkspace(QFrame):
 
         # Perform actual search via LanceDB (mocked for now, real implementation would call search_service)
         try:
-            from db_adapter import LanceDBAdapter
+            if not hasattr(self, "_db_adapter"):
+                from db_adapter import LanceDBAdapter
 
-            db = LanceDBAdapter()
+                self._db_adapter = LanceDBAdapter()
+
             # FTS Search on content_md
-            res = db.q_table.search(query).limit(50).to_list()
+            res = self._db_adapter.q_table.search(query).limit(50).to_list()
             self.list_model.update_data(res)
         except Exception as e:
             logger.error(f"Search failed: {e}")
