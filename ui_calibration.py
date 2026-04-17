@@ -319,8 +319,8 @@ class CalibrationWorkspace(QFrame):
             block_data.append(
                 {
                     "markdown": block.get_markdown(),
-                    "logic_chain": "",  # Will pull from right panel in future
-                    "tags": [],  # Will pull from right panel in future
+                    "logic_chain": getattr(block, "logic_chain", ""),
+                    "tags": getattr(block, "tags", []),
                 }
             )
         self.worker = TransactionWorker(block_data, self)

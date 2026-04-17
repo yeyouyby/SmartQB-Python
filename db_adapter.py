@@ -23,6 +23,10 @@ _last_timestamp = -1
 _sequence = 0
 
 
+class SchemaMigrationRequired(Exception):
+    pass
+
+
 class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
@@ -65,7 +69,43 @@ class LanceDBAdapter:
                     f"Legacy 'questions' table detected. Renaming it to '{backup_name}' to apply new Phase 3 schema without data loss."
                 )
                 self.db.rename_table("questions", backup_name)
-                raise Exception("Force recreate")
+                raise SchemaMigrationRequired("Legacy questions table renamed")
+        except ValueError:
+            logger.warning("Table 'questions' missing, attempting to create it.")
+            self.q_table = self.db.create_table(
+                "questions",
+                schema=pa.schema(
+                    [
+                        pa.field("snowflake_id", pa.int64()),
+                        pa.field(
+                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
+                        ),
+                        pa.field("content_md", pa.string()),
+                        pa.field("logic_chain", pa.string()),
+                        pa.field("tags", pa.list_(pa.string())),
+                        pa.field("created_at", pa.timestamp("s")),
+                    ]
+                ),
+            )
+        except SchemaMigrationRequired as e:
+            logger.warning(
+                f"Schema migration required: {e}. Attempting to recreate 'questions' table."
+            )
+            self.q_table = self.db.create_table(
+                "questions",
+                schema=pa.schema(
+                    [
+                        pa.field("snowflake_id", pa.int64()),
+                        pa.field(
+                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
+                        ),
+                        pa.field("content_md", pa.string()),
+                        pa.field("logic_chain", pa.string()),
+                        pa.field("tags", pa.list_(pa.string())),
+                        pa.field("created_at", pa.timestamp("s")),
+                    ]
+                ),
+            )
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",

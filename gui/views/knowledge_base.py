@@ -26,13 +26,18 @@ class SearchWorker(QThread):
 
     def run(self):
         try:
-            safe_query = self.query.replace("'", "''")
-            res = (
-                self.db_adapter.q_table.search()
-                .where(f"content_md LIKE '%{safe_query}%'")
-                .limit(50)
-                .to_list()
-            )
+            try:
+                # Try FTS search first natively
+                res = self.db_adapter.q_table.search(self.query).limit(50).to_list()
+            except Exception:
+                # Fallback to LIKE if FTS index missing
+                safe_query = self.query.replace("'", "''")
+                res = (
+                    self.db_adapter.q_table.search()
+                    .where(f"content_md LIKE '%{safe_query}%'")
+                    .limit(50)
+                    .to_list()
+                )
             self.finished.emit(res)
         except Exception as e:
             self.error.emit(str(e))
@@ -240,6 +245,8 @@ class KnowledgeBaseWorkspace(QFrame):
             try:
                 self.search_worker.finished.disconnect()
                 self.search_worker.error.disconnect()
+                self.search_worker.finished.connect(self.search_worker.deleteLater)
+                self.search_worker.error.connect(self.search_worker.deleteLater)
             except (RuntimeError, TypeError):
                 pass
 
