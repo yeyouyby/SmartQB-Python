@@ -1,5 +1,4 @@
 import requests  # type: ignore
-import pyarrow as pa
 from db_adapter import LanceDBAdapter
 from utils import logger
 
@@ -123,69 +122,8 @@ def check_and_install_miktex(raise_errors=False):
 def ensure_lancedb_tables():
     logger.info("Initializing LanceDB database and verifying core tables...")
     try:
-        adapter = LanceDBAdapter()
-        db = adapter.db
-
-        try:
-            t = db.open_table("questions")
-            if "snowflake_id" not in t.schema.names:
-                logger.warning(
-                    "Legacy 'questions' table detected. Renaming it to 'questions_legacy_backup' to apply new Phase 3 schema without data loss."
-                )
-                db.rename_table("questions", "questions_legacy_backup")
-                raise Exception("Force recreate")
-            logger.info("Table 'questions' found with valid Phase 3 schema.")
-        except Exception:
-            logger.info("Table 'questions' missing or dropped, creating it...")
-            db.create_table(
-                "questions",
-                schema=pa.schema(
-                    [
-                        pa.field("snowflake_id", pa.int64()),
-                        pa.field(
-                            "vector",
-                            pa.list_(
-                                pa.float32(),
-                                getattr(adapter, "embedding_dimension", 1536),
-                            ),
-                        ),
-                        pa.field("content_md", pa.string()),
-                        pa.field("logic_chain", pa.string()),
-                        pa.field("tags", pa.list_(pa.string())),
-                        pa.field("created_at", pa.timestamp("s")),
-                    ]
-                ),
-            )
-
-        try:
-            db.open_table("tags")
-            logger.info("Table 'tags' found.")
-        except Exception:
-            logger.info("Table 'tags' missing, creating it...")
-            db.create_table(
-                "tags",
-                schema=pa.schema(
-                    [
-                        pa.field("id", pa.int64()),
-                        pa.field("name", pa.string()),
-                    ]
-                ),
-            )
-
-        try:
-            db.open_table("question_tags")
-            logger.info("Table 'question_tags' found.")
-        except Exception:
-            logger.info("Table 'question_tags' missing, creating it...")
-            db.create_table(
-                "question_tags",
-                schema=pa.schema(
-                    [
-                        pa.field("question_id", pa.int64()),
-                        pa.field("tag_id", pa.int64()),
-                    ]
-                ),
-            )
+        # The LanceDBAdapter __init__ handles checking, backing up, and creating the tables
+        LanceDBAdapter()
         logger.info("LanceDB initialization complete.")
     except Exception as e:
         logger.error(f"Failed to initialize LanceDB tables: {e}", exc_info=True)

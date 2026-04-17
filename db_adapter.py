@@ -58,10 +58,13 @@ class LanceDBAdapter:
         try:
             self.q_table = self.db.open_table("questions")
             if "snowflake_id" not in self.q_table.schema.names:
+                import time
+
+                backup_name = f"questions_legacy_backup_{int(time.time())}"
                 logger.warning(
-                    "Legacy 'questions' table detected. Renaming it to 'questions_legacy_backup' to apply new Phase 3 schema without data loss."
+                    f"Legacy 'questions' table detected. Renaming it to '{backup_name}' to apply new Phase 3 schema without data loss."
                 )
-                self.db.rename_table("questions", "questions_legacy_backup")
+                self.db.rename_table("questions", backup_name)
                 raise Exception("Force recreate")
         except Exception:
             logger.warning(
@@ -147,7 +150,7 @@ class LanceDBAdapter:
             timestamp = self._gen_timestamp()
         return timestamp
 
-    def execute_insert_question(self, content, logic, vec, diagram_b64):
+    def execute_insert_question(self, content, logic, vec):
         if vec is None:
             vec = []
         vec = list(vec)
