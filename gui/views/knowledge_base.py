@@ -48,10 +48,14 @@ class SearchWorker(QThread):
                 res = self.db_adapter.q_table.search(self.query).limit(50).to_list()
             except Exception:
                 # Fallback to LIKE if FTS index missing
-                safe_query = self.query.replace("'", "''")
+                safe_query = (
+                    self.query.replace("'", "''")
+                    .replace("%", r"\%")
+                    .replace("_", r"\_")
+                )
                 res = (
                     self.db_adapter.q_table.search()
-                    .where(f"content_md LIKE '%{safe_query}%'")
+                    .where(f"content_md LIKE '%{safe_query}%' ESCAPE '\\'")
                     .limit(50)
                     .to_list()
                 )

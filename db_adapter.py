@@ -324,11 +324,11 @@ class LanceDBAdapter:
             return [(int(r["snowflake_id"]), r["content_md"]) for r in res]
 
         try:
-            safe_kw = kw.replace("'", "''")
+            safe_kw = kw.replace("'", "''").replace("%", r"\%").replace("_", r"\_")
             # 1. Search in questions using LanceDB where
             q_res = (
                 self.q_table.search()
-                .where(f"content_md LIKE '%{safe_kw}%'")
+                .where(f"content_md LIKE '%{safe_kw}%' ESCAPE '\\'")
                 .limit(1000)
                 .to_list()
             )
@@ -337,7 +337,7 @@ class LanceDBAdapter:
             # 2. Search in tags
             t_res = (
                 self.t_table.search()
-                .where(f"name LIKE '%{safe_kw}%'")
+                .where(f"name LIKE '%{safe_kw}%' ESCAPE '\\'")
                 .limit(1000)
                 .to_list()
             )
@@ -379,11 +379,11 @@ class LanceDBAdapter:
                 self.q_table.search().where(f"snowflake_id = {q_id}").limit(1).to_list()
             )
             if not res:
-                return None
-            return res[0]["content_md"]
+                return None, ""
+            return res[0]["content_md"], ""
         except Exception as e:
             logger.error(f"Error getting question: {e}")
-            return None
+            return None, ""
 
     def get_question_tags(self, q_id):
         try:
