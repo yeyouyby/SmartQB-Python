@@ -1,4 +1,5 @@
 import logging
+from db_adapter import LanceDBAdapter
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
 from PySide6.QtWidgets import (
     QFrame,
@@ -424,8 +425,6 @@ class KnowledgeBaseWorkspace(QFrame):
 
         # Execute LanceDB query in a background thread to prevent UI freezing
         if not hasattr(self, "_db_adapter"):
-            from db_adapter import LanceDBAdapter
-
             self._db_adapter = LanceDBAdapter()
 
         if hasattr(self, "search_worker") and self.search_worker.isRunning():

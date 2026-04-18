@@ -78,6 +78,14 @@ class TransactionWorker(QThread):
             results = []
             records = []
             target_dim = getattr(db_adapter, "embedding_dimension", 1536)
+            try:
+                schema = db_adapter.q_table.schema
+                if schema and "vector" in schema.names:
+                    vector_type = schema.field("vector").type
+                    if pa.types.is_fixed_size_list(vector_type):
+                        target_dim = vector_type.list_size
+            except Exception:
+                pass
 
             async def get_embedding_async(text):
                 loop = asyncio.get_event_loop()
