@@ -165,7 +165,7 @@ class LanceDBAdapter:
             timestamp = self._gen_timestamp()
         return timestamp
 
-    def execute_insert_question(self, content, logic, vec):
+    def execute_insert_question(self, content, logic, vec, tags=None):
         if vec is None:
             vec = []
         vec = list(vec)
@@ -193,7 +193,7 @@ class LanceDBAdapter:
                     "vector": vec,
                     "content_md": content,
                     "logic_chain": logic or "",
-                    "tags": [],
+                    "tags": tags or [],
                     "created_at": timestamp,
                 }
             ]
@@ -301,7 +301,9 @@ class LanceDBAdapter:
             # 1. Search in questions using LanceDB where
             q_res = (
                 self.q_table.search()
-                .where(f"content_md LIKE '%{safe_kw}%' ESCAPE '\\'")
+                .where(
+                    f"content_md LIKE '%{safe_kw}%' ESCAPE '\\' OR array_to_string(tags, ',') LIKE '%{safe_kw}%' ESCAPE '\\'"
+                )
                 .limit(1000)
                 .to_list()
             )
