@@ -69,6 +69,14 @@ class LanceDBAdapter:
             ]
         )
 
+        def _create_q_table_and_index():
+            q_table = self.db.create_table("questions", schema=phase3_q_schema)
+            try:
+                q_table.create_fts_index("content_md")
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
+            return q_table
+
         try:
             self.q_table = self.db.open_table("questions")
             if "snowflake_id" not in self.q_table.schema.names:
@@ -80,30 +88,18 @@ class LanceDBAdapter:
                 raise SchemaMigrationRequired("Legacy questions table renamed")
         except ValueError:
             logger.warning("Table 'questions' missing, attempting to create it.")
-            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
-            try:
-                self.q_table.create_fts_index("content_md")
-            except Exception as e:
-                logger.warning(f"Failed to create FTS index: {e}")
+            self.q_table = _create_q_table_and_index()
         except SchemaMigrationRequired as e:
             logger.warning(
                 f"Schema migration required: {e}. Attempting to recreate 'questions' table."
             )
-            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
-            try:
-                self.q_table.create_fts_index("content_md")
-            except Exception as e:
-                logger.warning(f"Failed to create FTS index: {e}")
+            self.q_table = _create_q_table_and_index()
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",
                 exc_info=True,
             )
-            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
-            try:
-                self.q_table.create_fts_index("content_md")
-            except Exception as e:
-                logger.warning(f"Failed to create FTS index: {e}")
+            self.q_table = _create_q_table_and_index()
         tags_schema = pa.schema(
             [
                 pa.field("id", pa.int64()),
