@@ -433,8 +433,10 @@ class KnowledgeBaseWorkspace(QFrame):
                 self.search_worker.error.disconnect()
                 self.search_worker.finished.connect(self.search_worker.deleteLater)
                 self.search_worker.error.connect(self.search_worker.deleteLater)
-            except (RuntimeError, TypeError):
-                pass
+            except (RuntimeError, TypeError) as e:
+                logger.debug(
+                    f"Failed to cleanly disconnect previous search worker: {e}"
+                )
 
         self.search_worker = SearchWorker(self._db_adapter, query, self)
 
