@@ -1,7 +1,6 @@
 import re
 import asyncio
 import pyarrow as pa
-from datetime import datetime
 from ai_service import AIService
 from utils import pad_or_truncate_vector
 import logging
@@ -108,7 +107,9 @@ class TransactionWorker(QThread):
                     tasks.append(sem_get_embedding(embed_text))
                 embeddings = await asyncio.gather(*tasks)
 
-                timestamp = int(datetime.now().timestamp())
+                import time
+
+                timestamp = int(time.time())
                 for idx, block in enumerate(self.block_data):
                     vec = pad_or_truncate_vector(embeddings[idx], target_dim)
                     records.append(
