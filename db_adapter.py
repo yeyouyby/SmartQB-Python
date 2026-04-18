@@ -297,7 +297,12 @@ class LanceDBAdapter:
             return [(int(r["snowflake_id"]), r["content_md"]) for r in res]
 
         try:
-            safe_kw = kw.replace("'", "''").replace("%", r"\%").replace("_", r"\_")
+            safe_kw = (
+                kw.replace("\\", "\\\\")
+                .replace("'", "''")
+                .replace("%", r"\%")
+                .replace("_", r"\_")
+            )
             # 1. Search in questions using LanceDB where
             q_res = (
                 self.q_table.search()
