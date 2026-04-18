@@ -75,8 +75,6 @@ class TransactionWorker(QThread):
                     return f'![{alt}]({new_id} "{title}")'
                 return f"![{alt}]({new_id})"
 
-            results = []
-            records = []
             target_dim = getattr(db_adapter, "embedding_dimension", 1536)
             try:
                 schema = db_adapter.q_table.schema
@@ -93,6 +91,8 @@ class TransactionWorker(QThread):
 
             async def process_blocks():
                 tasks = []
+                local_results = []
+                local_records = []
                 semaphore = asyncio.Semaphore(5)
 
                 async def sem_get_embedding(text):
@@ -103,9 +103,10 @@ class TransactionWorker(QThread):
                     markdown_text = block.get("markdown", "")
                     logic_chain = block.get("logic_chain", "")
                     final_markdown = pattern.sub(replace_id, markdown_text)
-                    results.append(final_markdown)
+                    local_results.append(final_markdown)
                     embed_text = final_markdown + "\n" + logic_chain
                     tasks.append(sem_get_embedding(embed_text))
+
                 embeddings = await asyncio.gather(*tasks, return_exceptions=True)
 
                 timestamp = int(time.time())
@@ -116,22 +117,26 @@ class TransactionWorker(QThread):
                         vec = pad_or_truncate_vector([], target_dim)
                     else:
                         vec = pad_or_truncate_vector(emb, target_dim)
-                    records.append(
+
+                    local_records.append(
                         {
                             "snowflake_id": db_adapter.next_id(),
                             "vector": vec,
-                            "content_md": results[idx],
+                            "content_md": local_results[idx],
                             "logic_chain": block.get("logic_chain", ""),
                             "tags": block.get("tags", []),
                             "created_at": timestamp,
                         }
                     )
+                return local_results, local_records
 
-            asyncio.run(process_blocks())
-            if records:
-                arrow_table = pa.Table.from_pylist(records)
+            final_results, final_records = asyncio.run(process_blocks())
+
+            if final_records:
+                arrow_table = pa.Table.from_pylist(final_records)
                 db_adapter.add_questions_bulk(arrow_table)
-            self.finished.emit(results)
+
+            self.finished.emit(final_results)
         except Exception as e:
             logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
             self.error.emit(str(e))

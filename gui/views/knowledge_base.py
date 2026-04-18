@@ -43,26 +43,38 @@ class SearchWorker(QThread):
         self.query = query
 
     def run(self):
+        if self.isInterruptionRequested():
+            return
         try:
             try:
                 # Try FTS search first natively
                 res = self.db_adapter.q_table.search(self.query).limit(50).to_list()
             except Exception:
+                if self.isInterruptionRequested():
+                    return
                 # Fallback to LIKE if FTS index missing
                 safe_query = (
-                    self.query.replace("'", "''")
-                    .replace("%", r"\%")
-                    .replace("_", r"\_")
+                    self.query.replace("\\", "\\\\")
+                    .replace("'", "''")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
                 )
                 res = (
                     self.db_adapter.q_table.search()
-                    .where(f"content_md LIKE '%{safe_query}%' ESCAPE '\\'")
+                    .where(
+                        f"content_md LIKE '%{safe_query}%' ESCAPE '\\' OR array_to_string(tags, ',') LIKE '%{safe_query}%' ESCAPE '\\'"
+                    )
                     .limit(50)
                     .to_list()
                 )
+
+            if self.isInterruptionRequested():
+                return
+
             self.finished.emit(res)
         except Exception as e:
-            self.error.emit(str(e))
+            if not self.isInterruptionRequested():
+                self.error.emit(str(e))
 
 
 class VirtualQuestionListModel(QAbstractListModel):
@@ -428,9 +440,12 @@ class KnowledgeBaseWorkspace(QFrame):
             self._db_adapter = LanceDBAdapter()
 
         if hasattr(self, "search_worker") and self.search_worker.isRunning():
+            # Signal the thread to abort early
+            self.search_worker.requestInterruption()
             try:
                 self.search_worker.finished.disconnect()
                 self.search_worker.error.disconnect()
+                # Re-connect deleteLater to ensure the thread is still cleaned up
                 self.search_worker.finished.connect(self.search_worker.deleteLater)
                 self.search_worker.error.connect(self.search_worker.deleteLater)
             except (RuntimeError, TypeError) as e:
