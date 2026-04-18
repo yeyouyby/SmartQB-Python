@@ -58,11 +58,20 @@ class LanceDBAdapter:
         if machine_id < 0 or machine_id > self.max_machine_id:
             raise ValueError(f"Machine ID must be between 0 and {self.max_machine_id}")
 
+        phase3_q_schema = pa.schema(
+            [
+                pa.field("snowflake_id", pa.int64()),
+                pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
+                pa.field("content_md", pa.string()),
+                pa.field("logic_chain", pa.string()),
+                pa.field("tags", pa.list_(pa.string())),
+                pa.field("created_at", pa.timestamp("s")),
+            ]
+        )
+
         try:
             self.q_table = self.db.open_table("questions")
             if "snowflake_id" not in self.q_table.schema.names:
-                import time
-
                 backup_name = f"questions_legacy_backup_{int(time.time())}"
                 logger.warning(
                     f"Legacy 'questions' table detected. Renaming it to '{backup_name}' to apply new Phase 3 schema without data loss."
@@ -71,61 +80,30 @@ class LanceDBAdapter:
                 raise SchemaMigrationRequired("Legacy questions table renamed")
         except ValueError:
             logger.warning("Table 'questions' missing, attempting to create it.")
-            self.q_table = self.db.create_table(
-                "questions",
-                schema=pa.schema(
-                    [
-                        pa.field("snowflake_id", pa.int64()),
-                        pa.field(
-                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
-                        ),
-                        pa.field("content_md", pa.string()),
-                        pa.field("logic_chain", pa.string()),
-                        pa.field("tags", pa.list_(pa.string())),
-                        pa.field("created_at", pa.timestamp("s")),
-                    ]
-                ),
-            )
+            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
+            try:
+                self.q_table.create_fts_index("content_md")
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
         except SchemaMigrationRequired as e:
             logger.warning(
                 f"Schema migration required: {e}. Attempting to recreate 'questions' table."
             )
-            self.q_table = self.db.create_table(
-                "questions",
-                schema=pa.schema(
-                    [
-                        pa.field("snowflake_id", pa.int64()),
-                        pa.field(
-                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
-                        ),
-                        pa.field("content_md", pa.string()),
-                        pa.field("logic_chain", pa.string()),
-                        pa.field("tags", pa.list_(pa.string())),
-                        pa.field("created_at", pa.timestamp("s")),
-                    ]
-                ),
-            )
+            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
+            try:
+                self.q_table.create_fts_index("content_md")
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",
                 exc_info=True,
             )
-            self.q_table = self.db.create_table(
-                "questions",
-                schema=pa.schema(
-                    [
-                        pa.field("snowflake_id", pa.int64()),
-                        pa.field(
-                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
-                        ),
-                        pa.field("content_md", pa.string()),
-                        pa.field("logic_chain", pa.string()),
-                        pa.field("tags", pa.list_(pa.string())),
-                        pa.field("created_at", pa.timestamp("s")),
-                    ]
-                ),
-            )
-
+            self.q_table = self.db.create_table("questions", schema=phase3_q_schema)
+            try:
+                self.q_table.create_fts_index("content_md")
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
         tags_schema = pa.schema(
             [
                 pa.field("id", pa.int64()),
