@@ -127,38 +127,40 @@ class LanceDBAdapter:
                 ),
             )
 
+        tags_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+            ]
+        )
         try:
             self.t_table = self.db.open_table("tags")
+        except ValueError:
+            logger.info("Table 'tags' missing, creating it...")
+            self.t_table = self.db.create_table("tags", schema=tags_schema)
         except Exception:
             logger.warning(
                 "Failed to open 'tags' table, attempting to create it.", exc_info=True
             )
-            self.t_table = self.db.create_table(
-                "tags",
-                schema=pa.schema(
-                    [
-                        pa.field("id", pa.int64()),
-                        pa.field("name", pa.string()),
-                    ]
-                ),
-            )
+            self.t_table = self.db.create_table("tags", schema=tags_schema)
 
+        qt_schema = pa.schema(
+            [
+                pa.field("question_id", pa.int64()),
+                pa.field("tag_id", pa.int64()),
+            ]
+        )
         try:
             self.qt_table = self.db.open_table("question_tags")
+        except ValueError:
+            logger.info("Table 'question_tags' missing, creating it...")
+            self.qt_table = self.db.create_table("question_tags", schema=qt_schema)
         except Exception:
             logger.warning(
                 "Failed to open 'question_tags' table, attempting to create it.",
                 exc_info=True,
             )
-            self.qt_table = self.db.create_table(
-                "question_tags",
-                schema=pa.schema(
-                    [
-                        pa.field("question_id", pa.int64()),
-                        pa.field("tag_id", pa.int64()),
-                    ]
-                ),
-            )
+            self.qt_table = self.db.create_table("question_tags", schema=qt_schema)
 
     def _gen_timestamp(self):
         return int(time.time() * 1000)
@@ -377,11 +379,11 @@ class LanceDBAdapter:
                 self.q_table.search().where(f"snowflake_id = {q_id}").limit(1).to_list()
             )
             if not res:
-                return None, None
-            return res[0]["content_md"], ""
+                return None
+            return res[0]["content_md"]
         except Exception as e:
             logger.error(f"Error getting question: {e}")
-            return None, None
+            return None
 
     def get_question_tags(self, q_id):
         try:
@@ -417,7 +419,7 @@ class LanceDBAdapter:
         q_ids = [int(q_id) for q_id in q_ids]
         if len(q_ids) == 1:
             filter_str_qt = f"question_id = {q_ids[0]}"
-            filter_str_q = f"id = {q_ids[0]}"
+            filter_str_q = f"snowflake_id = {q_ids[0]}"
         else:
             id_list_str = ",".join(map(str, q_ids))
             filter_str_qt = f"question_id IN ({id_list_str})"
