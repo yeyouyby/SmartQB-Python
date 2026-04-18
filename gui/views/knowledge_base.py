@@ -1,16 +1,33 @@
 import logging
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame,
+    QVBoxLayout,
+    QHBoxLayout,
+    QWidget,
+    QLabel,
+)
 from qfluentwidgets import (
     Pivot,
     SearchLineEdit,
     FlowLayout,
     PillPushButton,
     SmoothScrollArea,
+    ElevatedCardWidget,
     FluentIcon as FIF,
-    InfoBar,
-    InfoBarPosition,
+    PopUpAniStackedWidget,
+    InfoBadge,
+    PrimaryPushButton,
+    CardWidget,
+    TreeWidget,
+    TableWidget,
+    ProgressBar,
+    SwitchButton,
+    SubtitleLabel,
+    BodyLabel,
 )
+from PySide6.QtWebEngineWidgets import QWebEngineView
+
 
 logger = logging.getLogger(__name__)
 
@@ -99,15 +116,28 @@ class KnowledgeBaseWorkspace(QFrame):
         self.pivot = Pivot(self)
         self.main_layout.addWidget(self.pivot, 0, Qt.AlignHCenter)
 
-        self.views_container = QWidget(self)
-        self.views_layout = QVBoxLayout(self.views_container)
-        self.views_layout.setContentsMargins(0, 0, 0, 0)
+        self.views_container = PopUpAniStackedWidget(self)
         self.main_layout.addWidget(self.views_container, 1)
 
         # 2. 智能混合检索视图 (Smart Hybrid Search)
         self.search_view = QWidget(self)
         self.setup_search_view()
-        self.views_layout.addWidget(self.search_view)
+        self.views_container.addWidget(self.search_view)
+
+        # 3. 多模态搜索视图 (Multimodal Search)
+        self.explore_view = QWidget(self)
+        self.setup_explore_view()
+        self.views_container.addWidget(self.explore_view)
+
+        # 4. 3D 星空图谱视图 (Knowledge Graph)
+        self.graph_view = QWidget(self)
+        self.setup_graph_view()
+        self.views_container.addWidget(self.graph_view)
+
+        # 5. 标签治理视图 (Tag Governance)
+        self.tag_view = QWidget(self)
+        self.setup_tag_view()
+        self.views_container.addWidget(self.tag_view)
 
         # Pivot items configuration
         self.pivot.addItem(
@@ -124,6 +154,11 @@ class KnowledgeBaseWorkspace(QFrame):
             routeKey="graph_view",
             text="3D 星空图谱",
             onClick=lambda: self.switch_view("graph_view"),
+        )
+        self.pivot.addItem(
+            routeKey="tag_view",
+            text="标签治理",
+            onClick=lambda: self.switch_view("tag_view"),
         )
 
         self.pivot.setCurrentItem("search_view")
@@ -200,22 +235,170 @@ class KnowledgeBaseWorkspace(QFrame):
 
         layout.addWidget(self.scroll_area, 1)
 
+    def setup_explore_view(self):
+        layout = QHBoxLayout(self.explore_view)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        # Left side: Giant drag-and-drop / crop workspace
+        self.upload_card = ElevatedCardWidget(self.explore_view)
+        upload_layout = QVBoxLayout(self.upload_card)
+        upload_layout.setAlignment(Qt.AlignCenter)
+
+        icon_label = QLabel()
+        icon_label.setAlignment(Qt.AlignCenter)
+        # Using a text icon as placeholder
+        icon_label.setText("📥")
+        icon_label.setStyleSheet("font-size: 64px;")
+        upload_layout.addWidget(icon_label)
+
+        title_label = SubtitleLabel("拖拽图片或 PDF 至此", self.upload_card)
+        title_label.setAlignment(Qt.AlignCenter)
+        upload_layout.addWidget(title_label)
+
+        desc_label = BodyLabel("支持多模态搜题与区域裁剪", self.upload_card)
+        desc_label.setAlignment(Qt.AlignCenter)
+        upload_layout.addWidget(desc_label)
+
+        layout.addWidget(self.upload_card, 1)
+
+        # Right side: Recommendation waterfall
+        self.recommendation_scroll = SmoothScrollArea(self.explore_view)
+        self.recommendation_scroll.setWidgetResizable(True)
+        self.recommendation_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+        )
+
+        container = QWidget()
+        flow_layout = FlowLayout(container)
+
+        # Mock recommendation cards
+        for i in range(4):
+            card = ElevatedCardWidget(container)
+            card.setFixedSize(250, 180)
+            card_layout = QVBoxLayout(card)
+
+            # Badge
+            badge_layout = QHBoxLayout()
+            badge_layout.addStretch()
+            badge = InfoBadge.info("98% 匹配")
+            badge_layout.addWidget(badge)
+            card_layout.addLayout(badge_layout)
+
+            # Content
+            content_label = BodyLabel(
+                f"推荐试题 {i + 1}\n考点：导数与函数极值\n难度：0.8"
+            )
+            content_label.setWordWrap(True)
+            card_layout.addWidget(content_label, 1)
+
+            # Action
+            action_layout = QHBoxLayout()
+            action_layout.addStretch()
+            btn = PrimaryPushButton("加入试题袋", card)
+            action_layout.addWidget(btn)
+            card_layout.addLayout(action_layout)
+
+            flow_layout.addWidget(card)
+
+        self.recommendation_scroll.setWidget(container)
+        layout.addWidget(self.recommendation_scroll, 1)
+
+    def setup_graph_view(self):
+        layout = QVBoxLayout(self.graph_view)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        # Placeholder for ECharts (QWebEngineView)
+        self.graph_web_view = QWebEngineView(self.graph_view)
+        self.graph_web_view.setHtml(
+            "<html><body style='background-color:#1c1c1c; color:white; display:flex; justify-content:center; align-items:center; height:100vh; margin:0;'><h2>ECharts 3D Starry Graph Placeholder</h2></body></html>"
+        )
+
+        # Floating transparent CardWidget for controls
+        self.graph_control_panel = CardWidget(self.graph_view)
+        self.graph_control_panel.setFixedSize(300, 150)
+        self.graph_control_panel.setStyleSheet(
+            "CardWidget { background-color: rgba(255, 255, 255, 0.8); border-radius: 8px; }"
+        )
+
+        # Absolute positioning
+        self.graph_control_panel.move(20, 20)
+
+        control_layout = QVBoxLayout(self.graph_control_panel)
+        control_title = SubtitleLabel("图谱控制台")
+        control_layout.addWidget(control_title)
+        control_layout.addWidget(BodyLabel("过滤难度层级"))
+        control_layout.addWidget(PrimaryPushButton("重新排列节点"))
+
+        layout.addWidget(self.graph_web_view)
+
+    def setup_tag_view(self):
+        layout = QHBoxLayout(self.tag_view)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        # Left side: Taxonomy Tree
+        self.tag_tree = TreeWidget(self.tag_view)
+        self.tag_tree.setHeaderLabel("知识树分类")
+        from PySide6.QtWidgets import QTreeWidgetItem
+
+        root = QTreeWidgetItem(self.tag_tree, ["高中数学"])
+        child1 = QTreeWidgetItem(root, ["代数"])
+        QTreeWidgetItem(child1, ["函数"])
+        QTreeWidgetItem(child1, ["数列"])
+        child2 = QTreeWidgetItem(root, ["几何"])
+        QTreeWidgetItem(child2, ["立体几何"])
+        self.tag_tree.expandAll()
+
+        layout.addWidget(self.tag_tree, 1)
+
+        # Right side: Tag Data Grid
+        self.tag_table = TableWidget(self.tag_view)
+        self.tag_table.setColumnCount(3)
+        self.tag_table.setHorizontalHeaderLabels(
+            ["标签名称", "关联试题数", "AI 白名单开关"]
+        )
+        self.tag_table.setRowCount(3)
+
+        from PySide6.QtWidgets import QTableWidgetItem
+
+        # Row 1
+        self.tag_table.setItem(0, 0, QTableWidgetItem("函数单调性"))
+        pb1 = ProgressBar()
+        pb1.setValue(80)
+        self.tag_table.setCellWidget(0, 1, pb1)
+        self.tag_table.setCellWidget(0, 2, SwitchButton())
+
+        # Row 2
+        self.tag_table.setItem(1, 0, QTableWidgetItem("空间向量"))
+        pb2 = ProgressBar()
+        pb2.setValue(45)
+        self.tag_table.setCellWidget(1, 1, pb2)
+        self.tag_table.setCellWidget(1, 2, SwitchButton())
+
+        # Row 3
+        self.tag_table.setItem(2, 0, QTableWidgetItem("椭圆方程"))
+        pb3 = ProgressBar()
+        pb3.setValue(60)
+        self.tag_table.setCellWidget(2, 1, pb3)
+        self.tag_table.setCellWidget(2, 2, SwitchButton())
+
+        self.tag_table.resizeColumnsToContents()
+        layout.addWidget(self.tag_table, 2)
+
     def setup_connections(self):
         self.search_bar.textChanged.connect(self._on_search_text_changed)
         self.search_timer.timeout.connect(self._perform_search)
 
     def switch_view(self, view_key):
-        # Placeholder for view switching
         if view_key == "search_view":
-            self.search_view.show()
-        else:
-            InfoBar.info(
-                title="即将上线",
-                content=f"{view_key} 仍在施工中...",
-                orient=Qt.Horizontal,
-                position=InfoBarPosition.TOP,
-                parent=self.window(),
-            )
+            self.views_container.setCurrentWidget(self.search_view)
+        elif view_key == "explore_view":
+            self.views_container.setCurrentWidget(self.explore_view)
+        elif view_key == "graph_view":
+            self.views_container.setCurrentWidget(self.graph_view)
+        elif view_key == "tag_view":
+            self.views_container.setCurrentWidget(self.tag_view)
 
     def _on_search_text_changed(self, text):
         # Restart the debounce timer
