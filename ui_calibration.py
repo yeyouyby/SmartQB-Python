@@ -1,3 +1,4 @@
+import time
 import re
 import asyncio
 import pyarrow as pa
@@ -106,8 +107,6 @@ class TransactionWorker(QThread):
                     embed_text = final_markdown + "\n" + logic_chain
                     tasks.append(sem_get_embedding(embed_text))
                 embeddings = await asyncio.gather(*tasks)
-
-                import time
 
                 timestamp = int(time.time())
                 for idx, block in enumerate(self.block_data):
