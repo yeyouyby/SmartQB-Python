@@ -338,13 +338,20 @@ class LanceDBAdapter:
                 return []
 
             # 3. Fetch final questions
-            id_str = ",".join(map(str, all_match_ids))
-            final_res = (
-                self.q_table.search()
-                .where(f"snowflake_id IN ({id_str})")
-                .limit(1000)
-                .to_list()
-            )
+            # To avoid exceeding SQL query length limits with massive IN clauses,
+            # we slice the IDs into chunks of 500 and aggregate the results.
+            final_res = []
+            chunk_size = 500
+            for i in range(0, len(all_match_ids), chunk_size):
+                chunk = all_match_ids[i : i + chunk_size]
+                id_str = ",".join(map(str, chunk))
+                chunk_res = (
+                    self.q_table.search()
+                    .where(f"snowflake_id IN ({id_str})")
+                    .limit(chunk_size)
+                    .to_list()
+                )
+                final_res.extend(chunk_res)
             final_res = sorted(final_res, key=lambda x: x["snowflake_id"], reverse=True)
             return [(int(r["snowflake_id"]), r["content_md"]) for r in final_res]
 

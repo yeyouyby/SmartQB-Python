@@ -106,11 +106,16 @@ class TransactionWorker(QThread):
                     results.append(final_markdown)
                     embed_text = final_markdown + "\n" + logic_chain
                     tasks.append(sem_get_embedding(embed_text))
-                embeddings = await asyncio.gather(*tasks)
+                embeddings = await asyncio.gather(*tasks, return_exceptions=True)
 
                 timestamp = int(time.time())
                 for idx, block in enumerate(self.block_data):
-                    vec = pad_or_truncate_vector(embeddings[idx], target_dim)
+                    emb = embeddings[idx]
+                    if isinstance(emb, Exception):
+                        logger.error(f"Failed to get embedding for block {idx}: {emb}")
+                        vec = pad_or_truncate_vector([], target_dim)
+                    else:
+                        vec = pad_or_truncate_vector(emb, target_dim)
                     records.append(
                         {
                             "snowflake_id": db_adapter.next_id(),
