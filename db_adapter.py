@@ -22,6 +22,10 @@ _last_timestamp = -1
 _sequence = 0
 
 
+class SchemaMigrationRequired(Exception):
+    pass
+
+
 class LanceDBAdapter:
     def __init__(self, machine_id=None):
         self.db = get_db()
@@ -54,67 +58,82 @@ class LanceDBAdapter:
         if machine_id < 0 or machine_id > self.max_machine_id:
             raise ValueError(f"Machine ID must be between 0 and {self.max_machine_id}")
 
+        phase3_q_schema = pa.schema(
+            [
+                pa.field("snowflake_id", pa.int64()),
+                pa.field("vector", pa.list_(pa.float32(), self.embedding_dimension)),
+                pa.field("content_md", pa.string()),
+                pa.field("logic_chain", pa.string()),
+                pa.field("tags", pa.list_(pa.string())),
+                pa.field("created_at", pa.timestamp("s")),
+            ]
+        )
+
+        def _create_q_table_and_index():
+            q_table = self.db.create_table("questions", schema=phase3_q_schema)
+            try:
+                q_table.create_fts_index("content_md")
+            except Exception as e:
+                logger.warning(f"Failed to create FTS index: {e}")
+            return q_table
+
         try:
             self.q_table = self.db.open_table("questions")
-        except FileNotFoundError:
-            pass
+            if "snowflake_id" not in self.q_table.schema.names:
+                backup_name = f"questions_legacy_backup_{int(time.time())}"
+                logger.warning(
+                    f"Legacy 'questions' table detected. Renaming it to '{backup_name}' to apply new Phase 3 schema without data loss."
+                )
+                self.db.rename_table("questions", backup_name)
+                raise SchemaMigrationRequired("Legacy questions table renamed")
+        except ValueError:
+            logger.warning("Table 'questions' missing, attempting to create it.")
+            self.q_table = _create_q_table_and_index()
+        except SchemaMigrationRequired as e:
+            logger.warning(
+                f"Schema migration required: {e}. Attempting to recreate 'questions' table."
+            )
+            self.q_table = _create_q_table_and_index()
         except Exception:
             logger.warning(
                 "Failed to open 'questions' table, attempting to create it.",
                 exc_info=True,
             )
-            self.q_table = self.db.create_table(
-                "questions",
-                schema=pa.schema(
-                    [
-                        pa.field("id", pa.int64()),
-                        pa.field("content", pa.string()),
-                        pa.field("logic_descriptor", pa.string()),
-                        pa.field("difficulty", pa.float64()),
-                        pa.field(
-                            "vector", pa.list_(pa.float32(), self.embedding_dimension)
-                        ),
-                        pa.field("diagram_base64", pa.string()),
-                    ]
-                ),
-            )
-
+            self.q_table = _create_q_table_and_index()
+        tags_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+            ]
+        )
         try:
             self.t_table = self.db.open_table("tags")
-        except FileNotFoundError:
-            pass
+        except ValueError:
+            logger.info("Table 'tags' missing, creating it...")
+            self.t_table = self.db.create_table("tags", schema=tags_schema)
         except Exception:
             logger.warning(
                 "Failed to open 'tags' table, attempting to create it.", exc_info=True
             )
-            self.t_table = self.db.create_table(
-                "tags",
-                schema=pa.schema(
-                    [
-                        pa.field("id", pa.int64()),
-                        pa.field("name", pa.string()),
-                    ]
-                ),
-            )
+            self.t_table = self.db.create_table("tags", schema=tags_schema)
 
+        qt_schema = pa.schema(
+            [
+                pa.field("question_id", pa.int64()),
+                pa.field("tag_id", pa.int64()),
+            ]
+        )
         try:
             self.qt_table = self.db.open_table("question_tags")
-        except FileNotFoundError:
-            pass
+        except ValueError:
+            logger.info("Table 'question_tags' missing, creating it...")
+            self.qt_table = self.db.create_table("question_tags", schema=qt_schema)
         except Exception:
             logger.warning(
                 "Failed to open 'question_tags' table, attempting to create it.",
                 exc_info=True,
             )
-            self.qt_table = self.db.create_table(
-                "question_tags",
-                schema=pa.schema(
-                    [
-                        pa.field("question_id", pa.int64()),
-                        pa.field("tag_id", pa.int64()),
-                    ]
-                ),
-            )
+            self.qt_table = self.db.create_table("question_tags", schema=qt_schema)
 
     def _gen_timestamp(self):
         return int(time.time() * 1000)
@@ -146,7 +165,7 @@ class LanceDBAdapter:
             timestamp = self._gen_timestamp()
         return timestamp
 
-    def execute_insert_question(self, content, logic, vec, diagram_b64):
+    def execute_insert_question(self, content, logic, vec, tags=None):
         if vec is None:
             vec = []
         vec = list(vec)
@@ -166,15 +185,16 @@ class LanceDBAdapter:
         vec = pad_or_truncate_vector(vec, target_dim)
 
         new_q_id = self.next_id()
+        timestamp = int(time.time())
         self.q_table.add(
             [
                 {
-                    "id": new_q_id,
-                    "content": content,
-                    "logic_descriptor": logic or "",
-                    "difficulty": 0.0,
+                    "snowflake_id": new_q_id,
                     "vector": vec,
-                    "diagram_base64": diagram_b64 or "",
+                    "content_md": content,
+                    "logic_chain": logic or "",
+                    "tags": tags or [],
+                    "created_at": timestamp,
                 }
             ]
         )
@@ -242,6 +262,22 @@ class LanceDBAdapter:
             if not res:
                 self.qt_table.add([{"question_id": int(q_id), "tag_id": int(t_id)}])
 
+    def add_questions_bulk(self, arrow_table):
+        """
+        Bulk insert an arrow table into LanceDB.
+        Expects a PyArrow Table matching the LanceDB schema.
+        """
+        try:
+            self.q_table.add(arrow_table)
+            logger.info(
+                f"Successfully bulk inserted {arrow_table.num_rows} questions into LanceDB."
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to bulk insert questions into LanceDB: {e}", exc_info=True
+            )
+            raise
+
     def get_all_tags(self):
         try:
             # For a moderate number of tags, grabbing all via limit(10000) is fine
@@ -257,24 +293,31 @@ class LanceDBAdapter:
             # Native lancedb to retrieve all, sorting in memory is usually fine for a reasonable number of rows
             # but for true scale we might need limit/offset.
             res = self.q_table.search().limit(1000).to_list()  # Adding a safety limit
-            res = sorted(res, key=lambda x: x["id"], reverse=True)
-            return [(int(r["id"]), r["content"]) for r in res]
+            res = sorted(res, key=lambda x: x["snowflake_id"], reverse=True)
+            return [(int(r["snowflake_id"]), r["content_md"]) for r in res]
 
         try:
-            safe_kw = kw.replace("'", "''")
+            safe_kw = (
+                kw.replace("\\", "\\\\")
+                .replace("'", "''")
+                .replace("%", r"\%")
+                .replace("_", r"\_")
+            )
             # 1. Search in questions using LanceDB where
             q_res = (
                 self.q_table.search()
-                .where(f"content LIKE '%{safe_kw}%'")
+                .where(
+                    f"content_md LIKE '%{safe_kw}%' ESCAPE '\\' OR array_to_string(tags, ',') LIKE '%{safe_kw}%' ESCAPE '\\'"
+                )
                 .limit(1000)
                 .to_list()
             )
-            content_matches = [r["id"] for r in q_res]
+            content_matches = [r["snowflake_id"] for r in q_res]
 
             # 2. Search in tags
             t_res = (
                 self.t_table.search()
-                .where(f"name LIKE '%{safe_kw}%'")
+                .where(f"name LIKE '%{safe_kw}%' ESCAPE '\\'")
                 .limit(1000)
                 .to_list()
             )
@@ -295,12 +338,22 @@ class LanceDBAdapter:
                 return []
 
             # 3. Fetch final questions
-            id_str = ",".join(map(str, all_match_ids))
-            final_res = (
-                self.q_table.search().where(f"id IN ({id_str})").limit(1000).to_list()
-            )
-            final_res = sorted(final_res, key=lambda x: x["id"], reverse=True)
-            return [(int(r["id"]), r["content"]) for r in final_res]
+            # To avoid exceeding SQL query length limits with massive IN clauses,
+            # we slice the IDs into chunks of 500 and aggregate the results.
+            final_res = []
+            chunk_size = 500
+            for i in range(0, len(all_match_ids), chunk_size):
+                chunk = all_match_ids[i : i + chunk_size]
+                id_str = ",".join(map(str, chunk))
+                chunk_res = (
+                    self.q_table.search()
+                    .where(f"snowflake_id IN ({id_str})")
+                    .limit(chunk_size)
+                    .to_list()
+                )
+                final_res.extend(chunk_res)
+            final_res = sorted(final_res, key=lambda x: x["snowflake_id"], reverse=True)
+            return [(int(r["snowflake_id"]), r["content_md"]) for r in final_res]
 
         except Exception as e:
             logger.error(f"LanceDB search_questions failed: {e}", exc_info=True)
@@ -309,10 +362,12 @@ class LanceDBAdapter:
     def get_question(self, q_id):
         try:
             q_id = int(q_id)
-            res = self.q_table.search().where(f"id = {q_id}").limit(1).to_list()
+            res = (
+                self.q_table.search().where(f"snowflake_id = {q_id}").limit(1).to_list()
+            )
             if not res:
                 return None, None
-            return res[0]["content"], res[0].get("diagram_base64", "")
+            return res[0]["content_md"], None
         except Exception as e:
             logger.error(f"Error getting question: {e}")
             return None, None
@@ -351,11 +406,11 @@ class LanceDBAdapter:
         q_ids = [int(q_id) for q_id in q_ids]
         if len(q_ids) == 1:
             filter_str_qt = f"question_id = {q_ids[0]}"
-            filter_str_q = f"id = {q_ids[0]}"
+            filter_str_q = f"snowflake_id = {q_ids[0]}"
         else:
             id_list_str = ",".join(map(str, q_ids))
             filter_str_qt = f"question_id IN ({id_list_str})"
-            filter_str_q = f"id IN ({id_list_str})"
+            filter_str_q = f"snowflake_id IN ({id_list_str})"
 
         # Note: LanceDB does not currently support multi-table ACID transactions in its
         # Python SDK for simple .delete() operations. We execute them sequentially.

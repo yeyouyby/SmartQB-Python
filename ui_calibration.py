@@ -1,4 +1,9 @@
+import time
 import re
+import asyncio
+import pyarrow as pa
+from ai_service import AIService
+from utils import pad_or_truncate_vector
 import logging
 from gui.components.question_block import QuestionBlockWidget
 from PySide6.QtCore import Qt, QThread, Signal
@@ -13,6 +18,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from qfluentwidgets import (
+    InfoBar,
+    InfoBarPosition,
     MessageBox,
     CommandBar,
     PrimaryPushButton,
@@ -33,37 +40,29 @@ class TransactionWorker(QThread):
     finished = Signal(list)
     error = Signal(str)
 
-    def __init__(self, markdown_data, parent=None):
+    def __init__(self, block_data, parent=None):
         super().__init__(parent)
-        self.markdown_data = markdown_data
+        self.block_data = block_data
 
     def run(self):
-
         try:
             db_adapter = LanceDBAdapter()
+
+            ai_service = AIService(db_adapter.settings)
             logger.info("Harvesting data from QuestionBlocks...")
 
-            # Use mapping to ensure idempotent ID replacements
             id_mapping = {}
-
-            # Matches ![img](url) or ![img](url "title")
             pattern = re.compile(
-                r"!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+[\"'](?P<title>.*?)[\"'])?\)"
+                r'!\[(?P<alt>.*?)\]\((?P<url>.*?)(?:\s+["\'](?P<title>.*?)["\'])?\)'
             )
 
             def replace_id(match):
                 temp_id = match.group("url")
                 title = match.group("title")
                 alt = match.group("alt")
-
-                # Skip if it's already a Snowflake ID or a remote URL (excluding our custom drag protocol)
-                # Ensure we only replace if it explicitly matches our temporary UUID drop format
                 if not temp_id.startswith("smartqb-image-drag://"):
                     return match.group(0)
-
-                # Strip out the prefix to just work with the actual uuid string internally
                 temp_id = temp_id[len("smartqb-image-drag://") :]
-
                 if temp_id in id_mapping:
                     new_id = id_mapping[temp_id]
                 else:
@@ -72,25 +71,72 @@ class TransactionWorker(QThread):
                     logger.info(
                         f"Replaced temporary UUID {temp_id} with Snowflake ID {new_id}"
                     )
-
                 if title:
                     return f'![{alt}]({new_id} "{title}")'
                 return f"![{alt}]({new_id})"
 
-            results = []
-            for idx, markdown_text in enumerate(self.markdown_data):
-                logger.info(
-                    f"Processing Block {idx + 1} (length: {len(markdown_text)} chars)"
-                )
-                final_markdown = pattern.sub(replace_id, markdown_text)
-                logger.info(
-                    f"Finished Block {idx + 1} (length: {len(final_markdown)} chars)"
-                )
+            target_dim = getattr(db_adapter, "embedding_dimension", 1536)
+            try:
+                schema = db_adapter.q_table.schema
+                if schema and "vector" in schema.names:
+                    vector_type = schema.field("vector").type
+                    if pa.types.is_fixed_size_list(vector_type):
+                        target_dim = vector_type.list_size
+            except Exception:
+                pass
 
-                results.append(final_markdown)
+            async def get_embedding_async(text):
+                loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(None, ai_service.get_embedding, text)
 
-            self.finished.emit(results)
+            async def process_blocks():
+                tasks = []
+                local_results = []
+                local_records = []
+                semaphore = asyncio.Semaphore(5)
 
+                async def sem_get_embedding(text):
+                    async with semaphore:
+                        return await get_embedding_async(text)
+
+                for idx, block in enumerate(self.block_data):
+                    markdown_text = block.get("markdown", "")
+                    logic_chain = block.get("logic_chain", "")
+                    final_markdown = pattern.sub(replace_id, markdown_text)
+                    local_results.append(final_markdown)
+                    embed_text = final_markdown + "\n" + logic_chain
+                    tasks.append(sem_get_embedding(embed_text))
+
+                embeddings = await asyncio.gather(*tasks, return_exceptions=True)
+
+                timestamp = int(time.time())
+                for idx, block in enumerate(self.block_data):
+                    emb = embeddings[idx]
+                    if isinstance(emb, Exception):
+                        logger.error(f"Failed to get embedding for block {idx}: {emb}")
+                        vec = pad_or_truncate_vector([], target_dim)
+                    else:
+                        vec = pad_or_truncate_vector(emb, target_dim)
+
+                    local_records.append(
+                        {
+                            "snowflake_id": db_adapter.next_id(),
+                            "vector": vec,
+                            "content_md": local_results[idx],
+                            "logic_chain": block.get("logic_chain", ""),
+                            "tags": block.get("tags", []),
+                            "created_at": timestamp,
+                        }
+                    )
+                return local_results, local_records
+
+            final_results, final_records = asyncio.run(process_blocks())
+
+            if final_records:
+                arrow_table = pa.Table.from_pylist(final_records)
+                db_adapter.add_questions_bulk(arrow_table)
+
+            self.finished.emit(final_results)
         except Exception as e:
             logger.error(f"Error during transaction pipeline: {e}", exc_info=True)
             self.error.emit(str(e))
@@ -286,8 +332,16 @@ class CalibrationWorkspace(QFrame):
         self.freeze_dialog.show()
 
         # Launch worker
-        markdown_data = [block.get_markdown() for block in self.question_blocks]
-        self.worker = TransactionWorker(markdown_data, self)
+        block_data = []
+        for block in self.question_blocks:
+            block_data.append(
+                {
+                    "markdown": block.get_markdown(),
+                    "logic_chain": getattr(block, "logic_chain", ""),
+                    "tags": getattr(block, "tags", []),
+                }
+            )
+        self.worker = TransactionWorker(block_data, self)
         self.worker.finished.connect(self._on_transaction_finished)
         self.worker.finished.connect(self.worker.deleteLater)
         self.worker.error.connect(self._on_transaction_error)
@@ -305,6 +359,16 @@ class CalibrationWorkspace(QFrame):
             self.window().removeEventFilter(self)
             self.freeze_dialog.accept()
             self.freeze_dialog = None
+
+        InfoBar.success(
+            title="落盘成功",
+            content="全部试题已成功解析并导入到题库中！",
+            orient=Qt.Horizontal,
+            isClosable=True,
+            position=InfoBarPosition.TOP,
+            duration=3000,
+            parent=self.window(),
+        )
 
     def _on_transaction_error(self, err_msg):
 

@@ -50,10 +50,10 @@ def vector_search_db(ai_service, query_text, limit=10):
         ret = []
         for row in results:
             sim = 1.0 - row["_distance"] if "_distance" in row else 0.0
-            content = row["content"]
+            content = row["content_md"]
             ret.append(
                 {
-                    "id": int(row["id"]),
+                    "id": int(row["snowflake_id"]),
                     "content": content[:100] if content else "",
                     "similarity": float(sim),
                 }
