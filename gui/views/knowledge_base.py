@@ -1,6 +1,9 @@
 import logging
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
-from PySide6.QtWidgets import (QListView, QTreeWidgetItem, QTableWidgetItem,
+from PySide6.QtWidgets import (
+    QListView,
+    QTreeWidgetItem,
+    QTableWidgetItem,
     QFrame,
     QVBoxLayout,
     QHBoxLayout,

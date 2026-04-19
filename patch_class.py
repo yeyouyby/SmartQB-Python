@@ -1,4 +1,4 @@
-with open('gui/views/knowledge_base.py', 'r', encoding='utf-8') as f:
+with open("gui/views/knowledge_base.py", "r", encoding="utf-8") as f:
     content = f.read()
 
 old_kb = """class KnowledgeBaseWorkspace(QFrame):
@@ -77,5 +77,5 @@ class KnowledgeBaseWorkspace(QFrame):
 
 content = content.replace(old_kb, new_kb)
 
-with open('gui/views/knowledge_base.py', 'w', encoding='utf-8') as f:
+with open("gui/views/knowledge_base.py", "w", encoding="utf-8") as f:
     f.write(content)
