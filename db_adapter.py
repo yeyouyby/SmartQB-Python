@@ -366,11 +366,11 @@ class LanceDBAdapter:
                 self.q_table.search().where(f"snowflake_id = {q_id}").limit(1).to_list()
             )
             if not res:
-                return None, ""
-            return res[0]["content_md"], ""
+                return None, None
+            return res[0]["content_md"], None
         except Exception as e:
             logger.error(f"Error getting question: {e}")
-            return None, ""
+            return None, None
 
     def get_question_tags(self, q_id):
         try:

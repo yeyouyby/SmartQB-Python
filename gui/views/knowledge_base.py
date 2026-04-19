@@ -1,5 +1,4 @@
 import logging
-from db_adapter import LanceDBAdapter
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
 from PySide6.QtWidgets import (
     QFrame,
@@ -117,12 +116,37 @@ class KnowledgeBaseWorkspace(QFrame):
     题库管理模块基座 (Knowledge Base Workspace)
     """
 
+
+class DBLoaderWorker(QThread):
+    finished = Signal(object)
+
+    def run(self):
+        try:
+            from db_adapter import LanceDBAdapter
+
+            adapter = LanceDBAdapter()
+            self.finished.emit(adapter)
+        except Exception as e:
+            logger.error(f"Failed to load DB in background: {e}")
+            self.finished.emit(None)
+
     def __init__(self, parent=None):
         super().__init__(parent=parent)
         self.setObjectName("KnowledgeBaseWorkspace")
 
         self.setup_ui()
         self.setup_connections()
+
+        self._db_adapter = None
+        self.db_loader = DBLoaderWorker(self)
+        self.db_loader.finished.connect(self._on_db_loaded)
+        self.db_loader.finished.connect(self.db_loader.deleteLater)
+        self.db_loader.start()
+
+    def _on_db_loaded(self, adapter):
+        self._db_adapter = adapter
+        if hasattr(self, "_pending_query"):
+            self._perform_search()
 
     def setup_ui(self):
         self.main_layout = QVBoxLayout(self)
@@ -436,8 +460,12 @@ class KnowledgeBaseWorkspace(QFrame):
         self._add_token(f"模糊匹配: {query}")
 
         # Execute LanceDB query in a background thread to prevent UI freezing
-        if not hasattr(self, "_db_adapter"):
-            self._db_adapter = LanceDBAdapter()
+        if getattr(self, "_db_adapter", None) is None:
+            # Db is still loading in background thread, queue the query
+            self._pending_query = query
+            return
+
+        self._pending_query = None
 
         if hasattr(self, "search_worker") and self.search_worker.isRunning():
             # Signal the thread to abort early
