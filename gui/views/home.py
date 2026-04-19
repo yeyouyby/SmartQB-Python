@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QWidget, QHeaderView
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QWidget, QHeaderView, QTableWidgetItem
 from qfluentwidgets import (
     SmoothScrollArea,
     ElevatedCardWidget,
@@ -129,7 +129,6 @@ class HomeDashboard(QFrame):
         self.log_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.log_table.setRowCount(4)
 
-        from PySide6.QtWidgets import QTableWidgetItem
 
         logs = [
             ("10:45 AM", "试题入库", "成功解析并导入 25 道试题 (海淀期末模拟.pdf)"),

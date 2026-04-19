@@ -1,5 +1,5 @@
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QVBoxLayout, QSplitter, QWidget
+from PySide6.QtWidgets import QFrame, QVBoxLayout, QSplitter, QWidget, QTreeWidgetItem
 from qfluentwidgets import (
     ComboBox,
     TreeWidget,
@@ -43,7 +43,6 @@ class ProductionWorkspace(QFrame):
 
         self.outline_tree = TreeWidget(self.left_panel)
         self.outline_tree.setHeaderLabel("试卷大纲结构")
-        from PySide6.QtWidgets import QTreeWidgetItem
 
         root = QTreeWidgetItem(self.outline_tree, ["高中数学测试卷"])
         sec1 = QTreeWidgetItem(root, ["一、单项选择题 (共8题，40分)"])

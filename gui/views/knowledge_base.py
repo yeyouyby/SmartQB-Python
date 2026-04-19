@@ -1,6 +1,6 @@
 import logging
 from PySide6.QtCore import Qt, QTimer, QAbstractListModel, QModelIndex, Signal, QThread
-from PySide6.QtWidgets import (
+from PySide6.QtWidgets import (QListView, QTreeWidgetItem, QTableWidgetItem,
     QFrame,
     QVBoxLayout,
     QHBoxLayout,
@@ -111,12 +111,6 @@ class VirtualQuestionListModel(QAbstractListModel):
         self.endResetModel()
 
 
-class KnowledgeBaseWorkspace(QFrame):
-    """
-    题库管理模块基座 (Knowledge Base Workspace)
-    """
-
-
 class DBLoaderWorker(QThread):
     finished = Signal(object)
 
@@ -129,6 +123,12 @@ class DBLoaderWorker(QThread):
         except Exception as e:
             logger.error(f"Failed to load DB in background: {e}")
             self.finished.emit(None)
+
+
+class KnowledgeBaseWorkspace(QFrame):
+    """
+    题库管理模块基座 (Knowledge Base Workspace)
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent=parent)
@@ -240,8 +240,6 @@ class DBLoaderWorker(QThread):
         # In a real implementation we would attach it to a QListView. ListWidget is a convenience wrapper.
         # It's better to use a bare QListView with our custom model, but ListWidget might not support setModel
         # properly without breaking some Fluent integrations. We'll use a QListView directly styled like Fluent
-        from PySide6.QtWidgets import QListView
-
         self.list_view = QListView(self)
         self.list_view.setModel(self.list_model)
         self.list_view.setStyleSheet("""
@@ -381,8 +379,6 @@ class DBLoaderWorker(QThread):
         # Left side: Taxonomy Tree
         self.tag_tree = TreeWidget(self.tag_view)
         self.tag_tree.setHeaderLabel("知识树分类")
-        from PySide6.QtWidgets import QTreeWidgetItem
-
         root = QTreeWidgetItem(self.tag_tree, ["高中数学"])
         child1 = QTreeWidgetItem(root, ["代数"])
         QTreeWidgetItem(child1, ["函数"])
@@ -400,8 +396,6 @@ class DBLoaderWorker(QThread):
             ["标签名称", "关联试题数", "AI 白名单开关"]
         )
         self.tag_table.setRowCount(3)
-
-        from PySide6.QtWidgets import QTableWidgetItem
 
         # Row 1
         self.tag_table.setItem(0, 0, QTableWidgetItem("函数单调性"))
